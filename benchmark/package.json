@@ -1,0 +1,33 @@
+{
+  "name": "benchmark",
+  "private": true,
+  "version": "0.1.0",
+  "description": "benchmarks",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "bench": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@asanrom/dilithium": "1.1.0",
+    "@dashlane/pqc-kem-kyber1024-browser": "1.0.0",
+    "@dashlane/pqc-kem-kyber1024-node": "1.0.0",
+    "@dashlane/pqc-kem-kyber512-browser": "1.0.0",
+    "@dashlane/pqc-kem-kyber512-node": "1.0.0",
+    "@dashlane/pqc-kem-kyber768-browser": "1.0.0",
+    "@dashlane/pqc-kem-kyber768-node": "1.0.0",
+    "@dashlane/pqc-sign-dilithium2-node": "1.0.0",
+    "@dashlane/pqc-sign-dilithium3-node": "1.0.0",
+    "@dashlane/pqc-sign-dilithium5-node": "1.0.0",
+    "@theqrl/dilithium5": "0.0.9",
+    "crystals-kyber": "5.1.0",
+    "crystals-kyber-js": "1.0.0",
+    "kyber-crystals": "1.0.7",
+    "micro-bmark": "0.3.1",
+    "sha3": "2.1.4",
+    "sphincs": "3.0.4"
+  }
+}

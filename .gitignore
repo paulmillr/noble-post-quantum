@@ -1,0 +1,7 @@
+node_modules
+/*.js
+/esm/*.js
+*.d.ts
+*.d.ts.map
+*.js.map
+/build

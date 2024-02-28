@@ -1,0 +1,99 @@
+{
+  "name": "@noble/post-quantum",
+  "version": "0.1.0",
+  "description": "Auditable & minimal JS implementation of public-key post-quantum cryptography",
+  "files": [
+    "esm",
+    "src",
+    "*.js",
+    "*.js.map",
+    "*.d.ts",
+    "*.d.ts.map"
+  ],
+  "scripts": {
+    "bench": "node benchmark/ml-kem.js noble; node benchmark/ml-dsa.js noble; node benchmark/slh-dsa.js noble",
+    "bench:all": "node benchmark/{ml-kem,ml-dsa,slh-dsa}.js",
+    "bench:install": "cd benchmark && npm install && cd ../../",
+    "build": "npm run build:clean; tsc && tsc -p tsconfig.esm.json",
+    "build:release": "cd build; npm i; npm run build",
+    "build:clean": "rm *.{js,d.ts,js.map,d.ts.map} esm/*.{js,d.ts,js.map,d.ts.map} 2> /dev/null",
+    "lint": "prettier --check 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
+    "format": "prettier --write 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
+    "test": "node test/index.js"
+  },
+  "author": "Paul Miller (https://paulmillr.com)",
+  "homepage": "https://paulmillr.com/noble/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulmillr/noble-post-quantum.git"
+  },
+  "license": "MIT",
+  "sideEffects": false,
+  "dependencies": {
+    "@noble/ciphers": "0.5.1",
+    "@noble/hashes": "1.3.3"
+  },
+  "devDependencies": {
+    "@scure/base": "1.1.5",
+    "micro-bmark": "0.3.1",
+    "micro-should": "0.4.0",
+    "prettier": "3.1.1",
+    "typescript": "5.3.2"
+  },
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./esm/index.js",
+      "default": "./index.js"
+    },
+    "./index": {
+      "types": "./index.d.ts",
+      "import": "./esm/index.js",
+      "default": "./index.js"
+    },
+    "./_crystals": {
+      "types": "./_crystals.d.ts",
+      "import": "./esm/_crystals.js",
+      "default": "./_crystals.js"
+    },
+    "./ml-dsa": {
+      "types": "./ml-dsa.d.ts",
+      "import": "./esm/ml-dsa.js",
+      "default": "./ml-dsa.js"
+    },
+    "./ml-kem": {
+      "types": "./ml-kem.d.ts",
+      "import": "./esm/ml-kem.js",
+      "default": "./ml-kem.js"
+    },
+    "./slh-dsa": {
+      "types": "./slh-dsa.d.ts",
+      "import": "./esm/slh-dsa.js",
+      "default": "./slh-dsa.js"
+    },
+    "./utils": {
+      "types": "./utils.d.ts",
+      "import": "./esm/utils.js",
+      "default": "./utils.js"
+    }
+  },
+  "keywords": [
+    "ml-kem",
+    "ml-dsa",
+    "slh-dsa",
+    "kyber",
+    "dilithium",
+    "sphincs",
+    "fips203",
+    "fips204",
+    "fips205",
+    "pqc",
+    "post-quantum",
+    "public-key",
+    "crypto",
+    "noble",
+    "cryptography"
+  ],
+  "funding": "https://paulmillr.com/funding/"
+}
