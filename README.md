@@ -10,7 +10,7 @@ Auditable & minimal JS implementation of public-key post-quantum cryptography.
 - 📄 FIPS-203, FIPS-204, FIPS-205 drafts
 - 🪶 2000 lines for all algorithms
 
-Check out [comparison and speed](#comparison-and-speed) section for benchmarks
+Check out [What should I use](#what-should-i-use) section for benchmarks
 and algorithm selection guidance. For discussions, questions and support, visit
 [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions)
 section of the repository.
@@ -46,86 +46,21 @@ A standalone file
 
 ```js
 // import * from '@noble/post-quantum'; // Error: use sub-imports, to ensure small app size
-import { kyber768 } from '@noble/post-quantum/ml-kem';
-// import { kyber768 } from 'npm:@noble/post-quantum@0.1.0/ml-kem'; // Deno
+import { ml_kem768, kyber768 } from '@noble/post-quantum/ml-kem';
+// import { ml_kem768, kyber768 } from 'npm:@noble/post-quantum@0.1.0/ml-kem'; // Deno
 ```
 
-- [Examples](#examples)
-  - [ML-KEM / Kyber shared secrets](#ml-kem--kyber-shared-secrets)
-  - [ML-DSA / Dilithium signatures](#ml-dsa--dilithium-signatures)
-  - [SLH-DSA / SPHINCS+ signatures](#slh-dsa--sphincs-signatures)
-- [Implementations](#implementations)
-  - [Comparison and speed](#comparison-and-speed)
-  - [ML-KEM / Kyber](#ml-kem--kyber)
-  - [ML-DSA / Dilithium](#ml-dsa--dilithium)
-  - [SLH-DSA / SPHINCS+](#slh-dsa--sphincs)
+- [What should I use?](#what-should-i-use)
+- [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
+- [ML-DSA / Dilithium](#ml-dsa--dilithium-signatures)
+- [SLH-DSA / SPHINCS+](#slh-dsa--sphincs-signatures)
 - [Security](#security)
 - [Speed](#speed)
 - [Contributing & testing](#contributing--testing)
 - [Resources](#resources)
 - [License](#license)
 
-## Examples
-
-### ML-KEM / Kyber shared secrets
-
-```ts
-import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
-// import { kyber512, kyber768, kyber1024 } from '@noble/post-quantum/ml-kem';
-// import { kyber512_90s, kyber768_90s, kyber1024_90s } from '@noble/post-quantum/ml-kem';
-const aliceKeys = ml_kem768.keygen();
-const alicePub = aliceKeys.publicKey;
-const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(alicePub);
-const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey); // [Alice] decrypts sharedSecret from Bob
-// aliceShared == bobShared
-```
-
-### ML-DSA / Dilithium signatures
-
-```ts
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
-// import { dilithium_v30, dilithium_v31 } from '@noble/post-quantum/ml-dsa';
-// import { dilithium_v30_aes, dilithium_v31_aes } from '@noble/post-quantum/ml-dsa';
-const aliceKeys = ml_dsa65.keygen();
-const msg = new Uint8Array(1);
-const sig = ml_dsa65.sign(aliceKeys.secretKey, msg);
-const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig)
-```
-
-### SLH-DSA / SPHINCS+ signatures
-
-```ts
-import { slh_dsa_sha2_128f as sph } from '@noble/post-quantum/slh-dsa';
-// import { sphincs_shake_128f_simple } from '@noble/post-quantum/slh-dsa';
-// import { sphincs_sha2_128f_simple } from '@noble/post-quantum/slh-dsa';
-// Full list of imports can be seen below in "FIPS-205" section details
-const aliceKeys = sph.keygen();
-const msg = new Uint8Array(1);
-const sig = sph.sign(aliceKeys.secretKey, msg);
-const isValid = sph.verify(aliceKeys.publicKey, msg, sig);
-```
-
-## Implementations
-
-It's recommended to use SPHINCS, which is built on
-top of older, conservative primitives.
-
-Kyber and Dilithium are lattice-based, so they're less "proven".
-There's some chance of advancement, which will break this algorithm class.
-
-FIPS wants to release final standards in 2024.
-Until then, they provide no test vectors, meaning
-implementations could be producing invalid output.
-Moreover, if you'll use non-FIPS versions, or even FIPS
-versions today, it's possible the final spec will be
-incompatible, and you'll be stuck with old implementations.
-Similar to what happened to Keccak and SHA-3.
-
-We don't provide post-quantum-safe AES-256 and ChaCha20,
-because the package focuses on asymmetrical algorithms.
-Check out [noble-ciphers](https://github.com/paulmillr/noble-ciphers).
-
-### Comparison and speed
+### What should I use?
 
 |           | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
 |-----------|--------|-------------|-------------|------------|----------------|---------------|
@@ -144,7 +79,37 @@ Speed (higher is better):
 | Dilithium-2  | 580    | 170     | 550          |               |
 | SPHINCS-128f | 200    | 8       | 140          |               |
 
-### ML-KEM / Kyber
+tl;dr: ECC + ML-KEM for key agreement, SLH-DSA for pq signatures.
+
+It's recommended to use SPHINCS, which is built on
+top of older, conservative primitives.
+
+Kyber and Dilithium are lattice-based, so they're less "proven".
+There's some chance of advancement, which will break this algorithm class.
+
+FIPS wants to release final standards in 2024.
+Until then, they provide no test vectors, meaning
+implementations could be producing invalid output.
+Moreover, if you'll use non-FIPS versions, or even FIPS
+versions today, it's possible the final spec will be
+incompatible, and you'll be stuck with old implementations.
+Similar to what happened to Keccak and SHA-3.
+
+Symmetrical algorithms like AES and ChaCha (available in [noble-ciphers](https://github.com/paulmillr/noble-ciphers))
+suffer less from quantum computers. For AES, simply update from AES-128 to AES-256.
+
+### ML-KEM / Kyber shared secrets
+
+```ts
+import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
+// import { kyber512, kyber768, kyber1024 } from '@noble/post-quantum/ml-kem';
+// import { kyber512_90s, kyber768_90s, kyber1024_90s } from '@noble/post-quantum/ml-kem';
+const aliceKeys = ml_kem768.keygen();
+const alicePub = aliceKeys.publicKey;
+const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(alicePub);
+const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey); // [Alice] decrypts sharedSecret from Bob
+// aliceShared == bobShared
+```
 
 Lattice-based key encapsulation mechanism.
 See [official site](https://www.pq-crystals.org/kyber/resources.shtml),
@@ -172,12 +137,6 @@ Three versions are provided:
 3. ML-KEM aka [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.ipd.pdf)
 
 ```ts
-import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
-import { kyber512, kyber768, kyber1024 } from '@noble/post-quantum/ml-kem';
-import { kyber512_90s, kyber768_90s, kyber1024_90s } from '@noble/post-quantum/ml-kem';
-```
-
-```ts
 // Alice generates keys
 const aliceKeys = kyber1024.keygen(); // [Alice] generates key pair (secret and public key)
 const alicePub = aliceKeys.publicKey; // [Alice] sends public key to Bob (somehow)
@@ -201,7 +160,17 @@ const carolShared = kyber1024.decapsulate(cipherText, carolKeys.secretKey); // N
 notDeepStrictEqual(aliceShared, carolShared); // Different key!
 ```
 
-### ML-DSA / Dilithium
+### ML-DSA / Dilithium signatures
+
+```ts
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
+// import { dilithium_v30, dilithium_v31 } from '@noble/post-quantum/ml-dsa';
+// import { dilithium_v30_aes, dilithium_v31_aes } from '@noble/post-quantum/ml-dsa';
+const aliceKeys = ml_dsa65.keygen();
+const msg = new Uint8Array(1);
+const sig = ml_dsa65.sign(aliceKeys.secretKey, msg);
+const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig)
+```
 
 Lattice-based digital signature algorithm. See
 [official site](https://www.pq-crystals.org/dilithium/index.shtml),
@@ -214,13 +183,18 @@ Three versions are provided:
 2. Dilithium v3.1, v3.1 AES
 3. ML-DSA aka [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.ipd.pdf)
 
-```ts
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
-import { dilithium_v30, dilithium_v31 } from '@noble/post-quantum/ml-dsa';
-import { dilithium_v30_aes, dilithium_v31_aes } from '@noble/post-quantum/ml-dsa';
-```
+### SLH-DSA / SPHINCS+ signatures
 
-### SLH-DSA / SPHINCS+
+```ts
+import { slh_dsa_sha2_128f as sph } from '@noble/post-quantum/slh-dsa';
+// import { sphincs_shake_128f_simple } from '@noble/post-quantum/slh-dsa';
+// import { sphincs_sha2_128f_simple } from '@noble/post-quantum/slh-dsa';
+// Full list of imports can be seen below in "FIPS-205" section details
+const aliceKeys = sph.keygen();
+const msg = new Uint8Array(1);
+const sig = sph.sign(aliceKeys.secretKey, msg);
+const isValid = sph.verify(aliceKeys.publicKey, msg, sig);
+```
 
 Hash-based digital signature algorithm. See [official site](https://sphincs.org).
 We implement spec v3.1 with latest FIPS-205 changes.
@@ -302,7 +276,7 @@ If you see anything unusual: investigate and report.
 
 To summarize, noble is the fastest JS implementation of post-quantum algorithms.
 
-Check out [Comparison and speed](#comparison-and-speed) table for now.
+Check out [What should I use](#what-should-i-use) table for now.
 
 ## Contributing & testing
 
