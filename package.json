@@ -30,7 +30,7 @@
   "license": "MIT",
   "sideEffects": false,
   "dependencies": {
-    "@noble/ciphers": "0.5.1",
+    "@noble/ciphers": "0.5.2",
     "@noble/hashes": "1.4.0"
   },
   "devDependencies": {
