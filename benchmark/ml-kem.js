@@ -7,6 +7,9 @@ import {
   kyber512_90s,
   kyber768_90s,
   kyber1024_90s,
+  ml_kem512,
+  ml_kem768,
+  ml_kem1024,
 } from '../ml-kem.js';
 import * as ck from 'crystals-kyber';
 import * as ckjs from 'crystals-kyber-js';
@@ -147,6 +150,18 @@ const KYBER = {
   kyber1024_90s: {
     opts: getOpts(kyber1024_90s),
     noble: getNoble(kyber1024_90s),
+  },
+  'ML-KEM-512': {
+    opts: getOpts(ml_kem512),
+    noble: getNoble(ml_kem512),
+  },
+  'ML-KEM-768': {
+    opts: getOpts(ml_kem768),
+    noble: getNoble(ml_kem768),
+  },
+  'ML-KEM-1024': {
+    opts: getOpts(ml_kem1024),
+    noble: getNoble(ml_kem1024),
   },
 };
 const FNS = ['keygen', 'encrypt', 'decrypt'];
