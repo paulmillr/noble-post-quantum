@@ -1,3 +1,5 @@
+
+```
 ==== keygen ====
 ├─kyber512 x 3,723 ops/sec @ 268μs/op
 ├─kyber768 x 2,280 ops/sec @ 438μs/op
@@ -71,6 +73,7 @@
 ├─sphincs_sha2_256f_simple x 2 ops/sec @ 362ms/op
 ├─sphincs_shake_128f_simple x 1 ops/sec @ 737ms/op
 ├─sphincs_shake_192f_simple x 0 ops/sec @ 1195ms/op
+```
 └─sphincs_shake_256f_simple x 0 ops/sec @ 2454ms/op
 ==== verify ====
 ├─sphincs_sha2_128f_simple x 148 ops/sec @ 6ms/op
