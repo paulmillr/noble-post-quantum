@@ -43,7 +43,7 @@ Three versions are provided:
 
 const N = 256; // Kyber (not FIPS-203) supports different lengths, but all std modes were using 256
 const Q = 3329; // 13*(2**8)+1, modulo prime
-const F = 3303; // 3303 ≡ 128−1 mod q (FIPS-203)
+const F = 3303; // 3303 ≡ 128**(−1) mod q (FIPS-203)
 const ROOT_OF_UNITY = 17; // ζ = 17 ∈ Zq is a primitive 256-th root of unity modulo Q. ζ**128 ≡−1
 const { mod, nttZetas, NTT, bitsCoder } = genCrystals({
   N,
