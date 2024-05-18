@@ -5,7 +5,7 @@ import './ml-dsa.test.js';
 import './big.test.js';
 
 // ESM is broken.
-import url from 'url';
+import url from 'node:url';
 if (import.meta.url === url.pathToFileURL(process.argv[1]).href) {
   //should.runParallel(); // 43 seconds
   should.run(); // 176 seconds
