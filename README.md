@@ -8,7 +8,7 @@ Auditable & minimal JS implementation of public-key post-quantum cryptography.
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures
 - 🐈 SLH-DSA & SPHINCS+: hash-based signatures
 - 📄 FIPS-203, FIPS-204, FIPS-205 drafts
-- 🪶 2000 lines for all algorithms
+- 🪶 113KB (20KB gzipped) for everything, 71KB (14KB gzipped) for ML-KEM build
 
 Check out [What should I use](#what-should-i-use) section for benchmarks
 and algorithm selection guidance. For discussions, questions and support, visit
@@ -63,7 +63,7 @@ import { ml_kem768, kyber768 } from '@noble/post-quantum/ml-kem';
 ### What should I use?
 
 |           | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
-|-----------|--------|-------------|-------------|------------|----------------|---------------|
+| --------- | ------ | ----------- | ----------- | ---------- | -------------- | ------------- |
 | RSA       | Normal | 256B - 2KB  | 256B - 2KB  | 1970s      | 1990s          | No            |
 | ECC       | Normal | 32 - 256B   | 48 - 128B   | 1980s      | 2010s          | No            |
 | Kyber     | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
@@ -73,7 +73,7 @@ import { ml_kem768, kyber768 } from '@noble/post-quantum/ml-kem';
 Speed (higher is better):
 
 | OPs/sec      | Keygen | Signing | Verification | Shared secret |
-|--------------|--------|---------|--------------|---------------|
+| ------------ | ------ | ------- | ------------ | ------------- |
 | ECC ed25519  | 10270  | 5110    | 1050         | 1470          |
 | Kyber-512    | 3050   |         |              | 2090          |
 | Dilithium-2  | 580    | 170     | 550          |               |
@@ -169,7 +169,7 @@ import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
 const aliceKeys = ml_dsa65.keygen();
 const msg = new Uint8Array(1);
 const sig = ml_dsa65.sign(aliceKeys.secretKey, msg);
-const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig)
+const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig);
 ```
 
 Lattice-based digital signature algorithm. See
