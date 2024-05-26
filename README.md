@@ -166,7 +166,8 @@ notDeepStrictEqual(aliceShared, carolShared); // Different key!
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
 // import { dilithium_v30, dilithium_v31 } from '@noble/post-quantum/ml-dsa';
 // import { dilithium_v30_aes, dilithium_v31_aes } from '@noble/post-quantum/ml-dsa';
-const aliceKeys = ml_dsa65.keygen();
+const seed = new TextEncoder().encode('not a safe seed')
+const aliceKeys = ml_dsa65.keygen(seed);
 const msg = new Uint8Array(1);
 const sig = ml_dsa65.sign(aliceKeys.secretKey, msg);
 const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig);
