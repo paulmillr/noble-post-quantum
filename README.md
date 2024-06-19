@@ -3,17 +3,17 @@
 Auditable & minimal JS implementation of public-key post-quantum cryptography.
 
 - 🔒 Auditable
-- 🔻 Tree-shaking-friendly: use only what's necessary, other code won't be included
+- 🔻 Tree-shakeable: unused code is excluded from your builds
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based kem
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures
 - 🐈 SLH-DSA & SPHINCS+: hash-based signatures
 - 📄 FIPS-203, FIPS-204, FIPS-205 drafts
-- 🪶 113KB (20KB gzipped) for everything including hashes, 71KB (14KB gzipped) for ML-KEM build
+- 🪶 113KB (20KB gzipped) for everything including bundled hashes, 71KB (14KB gzipped) for ML-KEM build
 
-Check out [What should I use](#what-should-i-use) section for benchmarks
-and algorithm selection guidance. For discussions, questions and support, visit
+For discussions, questions and support, visit
 [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions)
-section of the repository.
+section of the repository. Check out [What should I use](#what-should-i-use) section for benchmarks
+and algorithm selection guidance.
 
 ### This library belongs to _noble_ cryptography
 
