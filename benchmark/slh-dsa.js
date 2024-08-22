@@ -1,8 +1,6 @@
 import { deepStrictEqual } from 'node:assert';
 import { compare, utils } from 'micro-bmark';
 import * as dsa from '../slh-dsa.js';
-// wasm
-// import { default as wasmSphincs } from 'sphincs';
 
 const msg = new Uint8Array(32).fill(2);
 
@@ -26,21 +24,21 @@ const getNoble = (lib) => ({
 const testNoble = (lib) => ({ opts: getOpts(lib), noble: getNoble(lib) });
 
 const SLHDSA = {
-  slh_dsa_shake_128f: testNoble(dsa.slh_dsa_shake_128f),
-  slh_dsa_shake_192f: testNoble(dsa.slh_dsa_shake_192f),
-  slh_dsa_shake_256f: testNoble(dsa.slh_dsa_shake_256f),
-
   slh_dsa_sha2_128f: testNoble(dsa.slh_dsa_sha2_128f),
   slh_dsa_sha2_192f: testNoble(dsa.slh_dsa_sha2_192f),
   slh_dsa_sha2_256f: testNoble(dsa.slh_dsa_sha2_256f),
+
+  slh_dsa_shake_128f: testNoble(dsa.slh_dsa_shake_128f),
+  slh_dsa_shake_192f: testNoble(dsa.slh_dsa_shake_192f),
+  slh_dsa_shake_256f: testNoble(dsa.slh_dsa_shake_256f),
 
   // Too slow
   // slh_dsa_shake_128s: testNoble(dsa.slh_dsa_shake_128s),
   // slh_dsa_shake_192s: testNoble(dsa.slh_dsa_shake_192s),
   // slh_dsa_shake_256s: testNoble(dsa.slh_dsa_shake_256s),
-  // slh_dsa_sha2_128s: testNoble(dsa.slh_dsa_sha2_128s),
-  // slh_dsa_sha2_192s: testNoble(dsa.slh_dsa_sha2_192s),
-  // slh_dsa_sha2_256s: testNoble(dsa.slh_dsa_sha2_256s),
+  slh_dsa_sha2_128s: testNoble(dsa.slh_dsa_sha2_128s),
+  slh_dsa_sha2_192s: testNoble(dsa.slh_dsa_sha2_192s),
+  slh_dsa_sha2_256s: testNoble(dsa.slh_dsa_sha2_256s),
 };
 const FNS = ['keygen', 'sign', 'verify'];
 

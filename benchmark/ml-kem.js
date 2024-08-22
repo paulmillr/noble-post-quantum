@@ -5,23 +5,6 @@ import {
   ml_kem768,
   ml_kem1024,
 } from '../ml-kem.js';
-// import * as ck from 'crystals-kyber';
-// import * as ckjs from 'crystals-kyber-js';
-// const ckjs1024 = new ckjs.Kyber1024();
-// broken package
-// import * as pqck from 'pqc-kyber/pqc_ml-kem.js'; // wasm
-// import { default as pqcrypto_js } from 'kyber-crystals'; //wasm
-
-// wasm also
-// import { default as dashline512 } from '@dashlane/pqc-kem-kyber512-node';
-// import { default as dashline768 } from '@dashlane/pqc-kem-kyber768-node';
-// import { default as dashline1024 } from '@dashlane/pqc-kem-kyber1024-node';
-// let dl512, dl768, dl1024;
-// async function initDashline() {
-//   dl512 = await dashline512();
-//   dl768 = await dashline768();
-//   dl1024 = await dashline1024();
-// }
 
 const getOpts = (lib) => {
   const { publicKey, secretKey } = lib.keygen();
@@ -47,40 +30,6 @@ const MLKEM = {
   },
   'ML-KEM-1024': {
     opts: getOpts(ml_kem1024),
-    //     // only 1024
-    //     pqcrypto_js: {
-    //       keygen: () => pqcrypto_js.keyPair(),
-    //       encrypt: (opts) => pqcrypto_js.encrypt(opts.publicKey),
-    //       decrypt: async (opts) =>
-    //         deepStrictEqual(
-    //           await pqcrypto_js.decrypt(opts.cipherText, opts.secretKey),
-    //           opts.sharedSecret
-    //         ),
-    //     },
-    //     dashline: {
-    //       keygen: () => dl1024.keypair(),
-    //       encrypt: (opts) => dl1024.encapsulate(opts.publicKey),
-    //       decrypt: async (opts) =>
-    //         deepStrictEqual(
-    //           (await dl1024.decapsulate(opts.cipherText, opts.secretKey)).sharedSecret,
-    //           opts.sharedSecret
-    //         ),
-    //     },
-    //     ckjs: {
-    //       keygen: async () => await ckjs1024.generateKeyPair(),
-    //       encrypt: async (opts) => await ckjs1024.encap(opts.publicKey),
-    //       decrypt: async (opts) =>
-    //         deepStrictEqual(await ckjs1024.decap(opts.cipherText, opts.secretKey), opts.sharedSecret),
-    //     },
-    // ck: {
-    //   keygen: () => ck.KeyGen1024(),
-    //   encrypt: (opts) => ck.Encrypt1024(opts.publicKey),
-    //   decrypt: (opts) =>
-    //     deepStrictEqual(
-    //       Uint8Array.from(ck.Decrypt1024(opts.cipherText, opts.secretKey)),
-    //       opts.sharedSecret
-    //     ),
-    // },
     noble: getNoble(ml_kem1024),
   },
 };

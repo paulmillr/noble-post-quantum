@@ -49,53 +49,25 @@ A standalone file
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
 import {
-  slh_dsa_shake_128f, slh_dsa_shake_128s,
-  slh_dsa_shake_192f, slh_dsa_shake_192s,
-  slh_dsa_shake_256f, slh_dsa_shake_256s,
   slh_dsa_sha2_128f, slh_dsa_sha2_128s,
   slh_dsa_sha2_192f, slh_dsa_sha2_192s,
   slh_dsa_sha2_256f, slh_dsa_sha2_256s,
+  slh_dsa_shake_128f, slh_dsa_shake_128s,
+  slh_dsa_shake_192f, slh_dsa_shake_192s,
+  slh_dsa_shake_256f, slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa';
 // import { ml_kem768 } from 'npm:@noble/post-quantum@0.1.0/ml-kem'; // Deno
 ```
 
-- [What should I use?](#what-should-i-use)
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
 - [ML-DSA / Dilithium](#ml-dsa--dilithium-signatures)
 - [SLH-DSA / SPHINCS+](#slh-dsa--sphincs-signatures)
+- [What should I use?](#what-should-i-use)
 - [Security](#security)
 - [Speed](#speed)
 - [Contributing & testing](#contributing--testing)
 - [Resources](#resources)
 - [License](#license)
-
-### What should I use?
-
-|           | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
-| --------- | ------ | ----------- | ----------- | ---------- | -------------- | ------------- |
-| RSA       | Normal | 256B - 2KB  | 256B - 2KB  | 1970s      | 1990s          | No            |
-| ECC       | Normal | 32 - 256B   | 48 - 128B   | 1980s      | 2010s          | No            |
-| ML-KEM    | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
-| ML-DSA    | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
-| SLH-DSA   | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
-
-JS speed (higher is better):
-
-| OPs/sec      | Keygen | Signing | Verification | Shared secret |
-| ------------ | ------ | ------- | ------------ | ------------- |
-| ECC ed25519  | 10270  | 5110    | 1050         | 1470          |
-| ML-KEM-512   | 3050   |         |              | 2090          |
-| ML-DSA44     | 580    | 170     | 550          |               |
-| SLH-DSA-SHA2-128f | 200    | 8       | 140          |               |
-
-We suggest to use ECC + ML-KEM for key agreement, SLH-DSA for pq signatures.
-
-ML-KEM and ML-DSA are lattice-based, so they're less "proven".
-There's some chance of advancement, which will break this algorithm class.
-SLH-DSA is built on top of older, conservative primitives.
-
-Symmetrical algorithms like AES and ChaCha (available in [noble-ciphers](https://github.com/paulmillr/noble-ciphers))
-suffer less from quantum computers. For AES, simply update from AES-128 to AES-256.
 
 ### ML-KEM / Kyber shared secrets
 
@@ -155,12 +127,12 @@ The internals are similar to ML-KEM, but keys and params are different.
 
 ```ts
 import {
-  slh_dsa_shake_128f, slh_dsa_shake_128s,
-  slh_dsa_shake_192f, slh_dsa_shake_192s,
-  slh_dsa_shake_256f, slh_dsa_shake_256s,
   slh_dsa_sha2_128f, slh_dsa_sha2_128s,
   slh_dsa_sha2_192f, slh_dsa_sha2_192s,
   slh_dsa_sha2_256f, slh_dsa_sha2_256s,
+  slh_dsa_shake_128f, slh_dsa_shake_128s,
+  slh_dsa_shake_192f, slh_dsa_shake_192s,
+  slh_dsa_shake_256f, slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa';
 
 const aliceKeys = sph.keygen();
@@ -174,8 +146,26 @@ See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincs
 We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older specs.
 
 > [!NOTE]  
-> SLH-DSA is very slow. The fastest one is SHA2-128f: 4ms keygen, 100ms sign, 6ms verification.
-> SHAKE version is 8x slower. -s (128s etc) version is the slowest.
+> SLH-DSA is slow: see benchmarks below
+
+### What should I use?
+
+|           | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
+| --------- | ------ | ----------- | ----------- | ---------- | -------------- | ------------- |
+| RSA       | Normal | 256B - 2KB  | 256B - 2KB  | 1970s      | 1990s          | No            |
+| ECC       | Normal | 32 - 256B   | 48 - 128B   | 1980s      | 2010s          | No            |
+| ML-KEM    | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
+| ML-DSA    | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
+| SLH-DSA   | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
+
+We suggest to use ECC + ML-KEM for key agreement, SLH-DSA for signatures.
+
+ML-KEM and ML-DSA are lattice-based, so they're less "proven".
+There's some chance of advancement, which will break this algorithm class.
+SLH-DSA, while being slow, is built on top of older, conservative primitives.
+
+Symmetrical algorithms like AES and ChaCha (available in [noble-ciphers](https://github.com/paulmillr/noble-ciphers))
+suffer less from quantum computers. For AES, simply update from AES-128 to AES-256.
 
 ## Security
 
@@ -185,9 +175,81 @@ If you see anything unusual: investigate and report.
 
 ## Speed
 
-To summarize, noble is the fastest JS implementation of post-quantum algorithms.
+Noble is the fastest JS implementation of post-quantum algorithms.
+WASM libraries can be faster.
 
-Check out [What should I use](#what-should-i-use) table for now.
+| OPs/sec      | Keygen | Signing | Verification | Shared secret |
+| ------------ | ------ | ------- | ------------ | ------------- |
+| ECC ed25519  | 10270  | 5110    | 1050         | 1470          |
+| ML-KEM-768   | 2300   |         |              | 2000          |
+| ML-DSA44     | 670    | 120     | 620          |               |
+| SLH-DSA-SHA2-128f | 250    | 10       | 167          |               |
+
+For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
+
+Detailed benchmarks on Apple M2:
+
+```
+ML-KEM
+keygen
+├─ML-KEM-512 x 3,784 ops/sec @ 264μs/op
+├─ML-KEM-768 x 2,305 ops/sec @ 433μs/op
+└─ML-KEM-1024 x 1,510 ops/sec @ 662μs/op
+encrypt
+├─ML-KEM-512 x 3,283 ops/sec @ 304μs/op
+├─ML-KEM-768 x 1,993 ops/sec @ 501μs/op
+└─ML-KEM-1024 x 1,366 ops/sec @ 731μs/op
+decrypt
+├─ML-KEM-512 x 3,450 ops/sec @ 289μs/op
+├─ML-KEM-768 x 2,035 ops/sec @ 491μs/op
+└─ML-KEM-1024 x 1,343 ops/sec @ 744μs/op
+
+ML-DSA
+keygen
+├─ML-DSA44 x 669 ops/sec @ 1ms/op
+├─ML-DSA65 x 386 ops/sec @ 2ms/op
+└─ML-DSA87 x 236 ops/sec @ 4ms/op
+sign
+├─ML-DSA44 x 123 ops/sec @ 8ms/op
+├─ML-DSA65 x 120 ops/sec @ 8ms/op
+└─ML-DSA87 x 78 ops/sec @ 12ms/op
+verify
+├─ML-DSA44 x 618 ops/sec @ 1ms/op
+├─ML-DSA65 x 367 ops/sec @ 2ms/op
+└─ML-DSA87 x 220 ops/sec @ 4ms/op
+
+SLH-DSA
+keygen
+├─slh_dsa_sha2_128f x 245 ops/sec @ 4ms/op
+├─slh_dsa_sha2_192f x 166 ops/sec @ 6ms/op
+├─slh_dsa_sha2_256f x 64 ops/sec @ 15ms/op
+├─slh_dsa_shake_128f x 35 ops/sec @ 28ms/op
+├─slh_dsa_shake_192f x 23 ops/sec @ 41ms/op
+├─slh_dsa_shake_256f x 9 ops/sec @ 110ms/op
+├─slh_dsa_sha2_128s x 3 ops/sec @ 257ms/op
+├─slh_dsa_sha2_192s x 2 ops/sec @ 381ms/op
+└─slh_dsa_sha2_256s x 3 ops/sec @ 250ms/op
+sign
+├─slh_dsa_sha2_128f x 10 ops/sec @ 94ms/op
+├─slh_dsa_sha2_192f x 6 ops/sec @ 163ms/op
+├─slh_dsa_sha2_256f x 2 ops/sec @ 338ms/op
+├─slh_dsa_shake_128f x 1 ops/sec @ 671ms/op
+├─slh_dsa_shake_192f x 0 ops/sec @ 1088ms/op
+├─slh_dsa_shake_256f x 0 ops/sec @ 2219ms/op
+├─slh_dsa_sha2_128s x 0 ops/sec @ 1954ms/op
+├─slh_dsa_sha2_192s x 0 ops/sec @ 3789ms/op
+└─slh_dsa_sha2_256s x 0 ops/sec @ 3404ms/op
+verify
+├─slh_dsa_sha2_128f x 162 ops/sec @ 6ms/op
+├─slh_dsa_sha2_192f x 111 ops/sec @ 9ms/op
+├─slh_dsa_sha2_256f x 105 ops/sec @ 9ms/op
+├─slh_dsa_shake_128f x 24 ops/sec @ 40ms/op
+├─slh_dsa_shake_192f x 17 ops/sec @ 58ms/op
+├─slh_dsa_shake_256f x 16 ops/sec @ 59ms/op
+├─slh_dsa_sha2_128s x 495 ops/sec @ 2ms/op
+├─slh_dsa_sha2_192s x 293 ops/sec @ 3ms/op
+└─slh_dsa_sha2_256s x 220 ops/sec @ 4ms/op
+```
 
 ## Contributing & testing
 
