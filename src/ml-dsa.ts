@@ -164,6 +164,8 @@ function getDilithium(opts: DilithiumOpts): Signer {
     // But they return different results! However, decompose is same.
     // So, either there is a bug in Dilithium ref implementation or in FIPS204.
     // For now, lets use dilithium one, so test vectors can be passed.
+    // See
+    // https://github.com/GiacomoPope/dilithium-py?tab=readme-ov-file#optimising-decomposition-and-making-hints
     return res0;
   };
 
