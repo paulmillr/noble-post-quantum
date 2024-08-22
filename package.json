@@ -43,39 +43,32 @@
   "main": "index.js",
   "exports": {
     ".": {
-      "types": "./index.d.ts",
       "import": "./esm/index.js",
-      "default": "./index.js"
+      "require": "./index.js"
     },
     "./index": {
-      "types": "./index.d.ts",
       "import": "./esm/index.js",
-      "default": "./index.js"
+      "require": "./index.js"
     },
     "./_crystals": {
-      "types": "./_crystals.d.ts",
       "import": "./esm/_crystals.js",
-      "default": "./_crystals.js"
+      "require": "./_crystals.js"
     },
     "./ml-dsa": {
-      "types": "./ml-dsa.d.ts",
       "import": "./esm/ml-dsa.js",
-      "default": "./ml-dsa.js"
+      "require": "./ml-dsa.js"
     },
     "./ml-kem": {
-      "types": "./ml-kem.d.ts",
       "import": "./esm/ml-kem.js",
-      "default": "./ml-kem.js"
+      "require": "./ml-kem.js"
     },
     "./slh-dsa": {
-      "types": "./slh-dsa.d.ts",
       "import": "./esm/slh-dsa.js",
-      "default": "./slh-dsa.js"
+      "require": "./slh-dsa.js"
     },
     "./utils": {
-      "types": "./utils.d.ts",
       "import": "./esm/utils.js",
-      "default": "./utils.js"
+      "require": "./utils.js"
     }
   },
   "keywords": [
