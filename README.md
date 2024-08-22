@@ -8,7 +8,7 @@ Auditable & minimal JS implementation of public-key post-quantum cryptography.
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based kem from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based signatures from FIPS-205
-- 🪶 113KB (20KB gzipped) for everything including bundled hashes, 71KB (14KB gzipped) for ML-KEM build
+- 🪶 77KB (15KB gzipped) for everything including bundled hashes
 
 For discussions, questions and support, visit
 [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions)
@@ -45,12 +45,17 @@ A standalone file
 [noble-post-quantum.js](https://github.com/paulmillr/noble-post-quantum/releases) is also available.
 
 ```js
-// import * from '@noble/post-quantum'; // Error: use sub-imports, to ensure small app size
+// import * from '@noble/post-quantum'; // Error: use sub-imports instead
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
 import {
-  slh_dsa_shake_128f, slh_dsa_shake_128s, slh_dsa_sha2_128f, slh_dsa_sha2_128s,
-} from '@noble/ciphers/slh-dsa';
+  slh_dsa_shake_128f, slh_dsa_shake_128s,
+  slh_dsa_shake_192f, slh_dsa_shake_192s,
+  slh_dsa_shake_256f, slh_dsa_shake_256s,
+  slh_dsa_sha2_128f, slh_dsa_sha2_128s,
+  slh_dsa_sha2_192f, slh_dsa_sha2_192s,
+  slh_dsa_sha2_256f, slh_dsa_sha2_256s,
+} from '@noble/post-quantum/slh-dsa';
 // import { ml_kem768 } from 'npm:@noble/post-quantum@0.1.0/ml-kem'; // Deno
 ```
 
@@ -74,14 +79,14 @@ import {
 | ML-DSA    | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
 | SLH-DSA   | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
 
-Speed (higher is better):
+JS speed (higher is better):
 
 | OPs/sec      | Keygen | Signing | Verification | Shared secret |
 | ------------ | ------ | ------- | ------------ | ------------- |
 | ECC ed25519  | 10270  | 5110    | 1050         | 1470          |
 | ML-KEM-512   | 3050   |         |              | 2090          |
 | ML-DSA44     | 580    | 170     | 550          |               |
-| SLH-DSA-128f | 200    | 8       | 140          |               |
+| SLH-DSA-SHA2-128f | 200    | 8       | 140          |               |
 
 We suggest to use ECC + ML-KEM for key agreement, SLH-DSA for pq signatures.
 
@@ -96,18 +101,19 @@ suffer less from quantum computers. For AES, simply update from AES-128 to AES-2
 
 ```ts
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
-const aliceKeys = ml_kem768.keygen(); // [Alice] generates key pair (secret and public key)
-const alicePub = aliceKeys.publicKey; // [Alice] sends public key to Bob (somehow)
+// [Alice] generates secret & public keys, then sends publicKey to Bob
+const aliceKeys = ml_kem768.keygen();
+const alicePub = aliceKeys.publicKey;
 
 // [Bob] generates shared secret for Alice publicKey
-// bobShared never leaves [Bob] system and unknown to other parties
+// bobShared never leaves [Bob] system and is unknown to other parties
 const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(alicePub);
 
 // Alice gets and decrypts cipherText from Bob
-const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey); // [Alice] decrypts sharedSecret from Bob
+const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey);
 
-// Now, both Alice and Both have same sharedSecret key without exchanging in plainText
-// aliceShared == bobShared
+// Now, both Alice and Both have same sharedSecret key
+// without exchanging in plainText: aliceShared == bobShared
 
 // Warning: Can be MITM-ed
 const carolKeys = kyber1024.keygen();
@@ -117,23 +123,17 @@ notDeepStrictEqual(aliceShared, carolShared); // Different key!
 
 Lattice-based key encapsulation mechanism, defined in [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf).
 
-See [official site](https://www.pq-crystals.org/kyber/resources.shtml) and [repo](https://github.com/pq-crystals/kyber).
-
-Key encapsulation is similar to DH / ECDH (think X25519), with important differences:
-
-- We can't verify if it was "Bob" who've sent the shared secret.
-  In ECDH, it's always verified
-- It is probabalistic and relies on quality of randomness (CSPRNG).
-  ECDH doesn't (to this extent).
-- Decapsulation never throws an error, even when shared secret was
-  encrypted by a different public key. It will just return a different
-  shared secret
-
+See [website](https://www.pq-crystals.org/kyber/resources.shtml) and [repo](https://github.com/pq-crystals/kyber).
 There are some concerns with regards to security: see
 [djb blog](https://blog.cr.yp.to/20231003-countcorrectly.html) and
 [mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
-
 Old, incompatible version (Kyber) is not provided. Open an issue if you need it.
+
+> [!WARNING]  
+> Unlike ECDH, KEM doesn't verify whether it was "Bob" who've sent the ciphertext.
+> Instead of throwing an error when the ciphertext is encrypted by a different pubkey,
+> `decapsulate` will simply return a different shared secret.
+> ML-KEM is also probabilistic and relies on quality of CSPRNG.
 
 ### ML-DSA / Dilithium signatures
 
@@ -147,7 +147,7 @@ const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig);
 ```
 
 Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). See
-[official site](https://www.pq-crystals.org/dilithium/index.shtml) and
+[website](https://www.pq-crystals.org/dilithium/index.shtml) and
 [repo](https://github.com/pq-crystals/dilithium).
 The internals are similar to ML-KEM, but keys and params are different.
 
@@ -161,7 +161,7 @@ import {
   slh_dsa_sha2_128f, slh_dsa_sha2_128s,
   slh_dsa_sha2_192f, slh_dsa_sha2_192s,
   slh_dsa_sha2_256f, slh_dsa_sha2_256s,
-} from '@noble/ciphers/slh-dsa';
+} from '@noble/post-quantum/slh-dsa';
 
 const aliceKeys = sph.keygen();
 const msg = new Uint8Array(1);
@@ -169,7 +169,8 @@ const sig = sph.sign(aliceKeys.secretKey, msg);
 const isValid = sph.verify(aliceKeys.publicKey, msg, sig);
 ```
 
-Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf). See [official site](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus).
+Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf).
+See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus).
 We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older specs.
 
 ## Security

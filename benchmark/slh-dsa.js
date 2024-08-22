@@ -1,7 +1,6 @@
 import { deepStrictEqual } from 'node:assert';
 import { compare, utils } from 'micro-bmark';
-import * as sphincs_sha2 from '../slh-dsa.js';
-import * as sphincs_shake from '../slh-dsa.js';
+import * as dsa from '../slh-dsa.js';
 // wasm
 // import { default as wasmSphincs } from 'sphincs';
 
@@ -26,43 +25,22 @@ const getNoble = (lib) => ({
 
 const testNoble = (lib) => ({ opts: getOpts(lib), noble: getNoble(lib) });
 
-const SPHINCS = {
-  // Fast
-  sphincs_sha2_128f_simple: testNoble(sphincs_sha2.sphincs_sha2_128f_simple),
-  sphincs_sha2_192f_simple: testNoble(sphincs_sha2.sphincs_sha2_192f_simple),
-  sphincs_sha2_256f_simple: testNoble(sphincs_sha2.sphincs_sha2_256f_simple),
-  // sphincs_sha2_128f_robust: testNoble(sphincs_sha2.sphincs_sha2_128f_robust),
+const SLHDSA = {
+  slh_dsa_shake_128f: testNoble(dsa.slh_dsa_shake_128f),
+  slh_dsa_shake_192f: testNoble(dsa.slh_dsa_shake_192f),
+  slh_dsa_shake_256f: testNoble(dsa.slh_dsa_shake_256f),
 
-  // s version is too slow for now
-  // sphincs_sha2_128s_simple: testNoble(sphincs.sphincs_sha2_128s_simple),
-  // sphincs_sha2_128s_robust: testNoble(sphincs.sphincs_sha2_128s_robust),
+  slh_dsa_sha2_128f: testNoble(dsa.slh_dsa_sha2_128f),
+  slh_dsa_sha2_192f: testNoble(dsa.slh_dsa_sha2_192f),
+  slh_dsa_sha2_256f: testNoble(dsa.slh_dsa_sha2_256f),
 
-  sphincs_shake_128f_simple: testNoble(sphincs_shake.sphincs_shake_128f_simple),
-  sphincs_shake_192f_simple: testNoble(sphincs_shake.sphincs_shake_192f_simple),
-  sphincs_shake_256f_simple: testNoble(sphincs_shake.sphincs_shake_256f_simple),
-
-  //sphincs_shake_128f_robust: testNoble(sphincs_shake.sphincs_shake_128f_robust),
-
-  // Worst case:
-  //sphincs_sha2_256s_robust: testNoble(sphincs.sphincs_sha2_256s_robust),
-  //sphincs_shake_256s_robust: testNoble(sphincs.sphincs_shake_256s_robust),
-
-  // sphincs_shake_256s_robust: {
-  //   opts: getOpts(sphincs.sphincs_shake_256s_robust),
-  //   // The default parameter set is SPHINCS+-SHAKE-256s-robust (roughly 256-bit strength).
-  //   wasm: {
-  //     keygen: async () => await wasmSphincs.keyPair(),
-  //     // Cannot provide random & verify
-  //     // Also, seems like different version of sphincs. Awesome.
-  //     sign: async (opts) => await wasmSphincs.signDetached(msg, opts.secretKey),
-  //     verify: async (opts) =>
-  //       deepStrictEqual(
-  //         await wasmSphincs.verifyDetached(opts.signature, msg, opts.publicKey),
-  //         true
-  //       ),
-  //   },
-  //   noble: getNoble(sphincs.sphincs_shake_256s_robust),
-  // },
+  // Too slow
+  // slh_dsa_shake_128s: testNoble(dsa.slh_dsa_shake_128s),
+  // slh_dsa_shake_192s: testNoble(dsa.slh_dsa_shake_192s),
+  // slh_dsa_shake_256s: testNoble(dsa.slh_dsa_shake_256s),
+  // slh_dsa_sha2_128s: testNoble(dsa.slh_dsa_sha2_128s),
+  // slh_dsa_sha2_192s: testNoble(dsa.slh_dsa_sha2_192s),
+  // slh_dsa_sha2_256s: testNoble(dsa.slh_dsa_sha2_256s),
 };
 const FNS = ['keygen', 'sign', 'verify'];
 
@@ -75,13 +53,13 @@ export async function main() {
         `==== ${fn} ====`,
         SAMPLES,
         Object.fromEntries(
-          Object.entries(SPHINCS).map(([k, v]) => [k, v.noble[fn].bind(null, v.opts)])
+          Object.entries(SLHDSA).map(([k, v]) => [k, v.noble[fn].bind(null, v.opts)])
         )
       );
     }
     return;
   }
-  for (const [algoName, libraries] of Object.entries(SPHINCS)) {
+  for (const [algoName, libraries] of Object.entries(SLHDSA)) {
     for (const fn of FNS) {
       const opts = libraries.opts;
       await compare(
