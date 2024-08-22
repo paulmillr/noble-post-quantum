@@ -1,5 +1,5 @@
 {
-  "extends": "@paulmillr/jsbt/tsconfigs/cjs.json",
+  "extends": "@paulmillr/jsbt/tsconfig.cjs.json",
   "compilerOptions": {
     "outDir": "."
   },
