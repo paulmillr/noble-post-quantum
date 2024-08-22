@@ -1,0 +1,214 @@
+{
+  "vsId": 53,
+  "algorithm": "SLH-DSA",
+  "mode": "sigVer",
+  "revision": "FIPS205",
+  "isSample": true,
+  "testGroups": [
+    {
+      "tgId": 1,
+      "tests": [
+        {
+          "tcId": 1,
+          "testPassed": false
+        },
+        {
+          "tcId": 2,
+          "testPassed": false
+        },
+        {
+          "tcId": 3,
+          "testPassed": true
+        },
+        {
+          "tcId": 4,
+          "testPassed": true
+        },
+        {
+          "tcId": 5,
+          "testPassed": true
+        },
+        {
+          "tcId": 6,
+          "testPassed": false
+        },
+        {
+          "tcId": 7,
+          "testPassed": false
+        },
+        {
+          "tcId": 8,
+          "testPassed": false
+        },
+        {
+          "tcId": 9,
+          "testPassed": false
+        }
+      ]
+    },
+    {
+      "tgId": 2,
+      "tests": [
+        {
+          "tcId": 10,
+          "testPassed": false
+        },
+        {
+          "tcId": 11,
+          "testPassed": false
+        },
+        {
+          "tcId": 12,
+          "testPassed": false
+        },
+        {
+          "tcId": 13,
+          "testPassed": false
+        },
+        {
+          "tcId": 14,
+          "testPassed": true
+        },
+        {
+          "tcId": 15,
+          "testPassed": false
+        },
+        {
+          "tcId": 16,
+          "testPassed": true
+        },
+        {
+          "tcId": 17,
+          "testPassed": true
+        },
+        {
+          "tcId": 18,
+          "testPassed": false
+        }
+      ]
+    },
+    {
+      "tgId": 3,
+      "tests": [
+        {
+          "tcId": 19,
+          "testPassed": true
+        },
+        {
+          "tcId": 20,
+          "testPassed": false
+        },
+        {
+          "tcId": 21,
+          "testPassed": true
+        },
+        {
+          "tcId": 22,
+          "testPassed": false
+        },
+        {
+          "tcId": 23,
+          "testPassed": false
+        },
+        {
+          "tcId": 24,
+          "testPassed": true
+        },
+        {
+          "tcId": 25,
+          "testPassed": false
+        },
+        {
+          "tcId": 26,
+          "testPassed": false
+        },
+        {
+          "tcId": 27,
+          "testPassed": false
+        }
+      ]
+    },
+    {
+      "tgId": 4,
+      "tests": [
+        {
+          "tcId": 28,
+          "testPassed": false
+        },
+        {
+          "tcId": 29,
+          "testPassed": false
+        },
+        {
+          "tcId": 30,
+          "testPassed": true
+        },
+        {
+          "tcId": 31,
+          "testPassed": false
+        },
+        {
+          "tcId": 32,
+          "testPassed": true
+        },
+        {
+          "tcId": 33,
+          "testPassed": false
+        },
+        {
+          "tcId": 34,
+          "testPassed": true
+        },
+        {
+          "tcId": 35,
+          "testPassed": false
+        },
+        {
+          "tcId": 36,
+          "testPassed": false
+        }
+      ]
+    },
+    {
+      "tgId": 5,
+      "tests": [
+        {
+          "tcId": 37,
+          "testPassed": true
+        },
+        {
+          "tcId": 38,
+          "testPassed": false
+        },
+        {
+          "tcId": 39,
+          "testPassed": false
+        },
+        {
+          "tcId": 40,
+          "testPassed": true
+        },
+        {
+          "tcId": 41,
+          "testPassed": false
+        },
+        {
+          "tcId": 42,
+          "testPassed": false
+        },
+        {
+          "tcId": 43,
+          "testPassed": false
+        },
+        {
+          "tcId": 44,
+          "testPassed": true
+        },
+        {
+          "tcId": 45,
+          "testPassed": false
+        }
+      ]
+    }
+  ]
+}

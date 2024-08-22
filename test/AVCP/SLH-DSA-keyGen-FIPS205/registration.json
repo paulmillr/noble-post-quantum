@@ -1,0 +1,13 @@
+{
+  "vsId": 53,
+  "algorithm": "SLH-DSA",
+  "mode": "keyGen",
+  "revision": "FIPS205",
+  "isSample": true,
+  "parameterSets": [
+    "SLH-DSA-SHA2-128s",
+    "SLH-DSA-SHA2-192f",
+    "SLH-DSA-SHAKE-192s",
+    "SLH-DSA-SHAKE-256f"
+  ]
+}

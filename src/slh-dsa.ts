@@ -2,7 +2,7 @@
 import { HMAC } from '@noble/hashes/hmac';
 import { sha256, sha512 } from '@noble/hashes/sha2';
 import { shake256 } from '@noble/hashes/sha3';
-import { bytesToHex, hexToBytes, createView, concatBytes, u32 } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes, createView, concatBytes } from '@noble/hashes/utils';
 import {
   Signer,
   cleanBytes,
@@ -19,11 +19,6 @@ Hash-based digital signature algorithm. See [official site](https://sphincs.org)
 We implement spec v3.1 with latest FIPS-205 changes.
 It's compatible with the latest version in the [official repo](https://github.com/sphincs/sphincsplus).
 
-Three versions are provided:
-
-1. SHAKE256-based
-2. SHA2-based
-3. SLH-DSA aka [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.ipd.pdf)
 */
 
 /*
@@ -115,32 +110,20 @@ function numberToBytesBE(n: number | bigint, len: number): Uint8Array {
   return hexToBytes(n.toString(16).padStart(len * 2, '0'));
 }
 
-// Same as bitsCoder.decode, but bits are BE instead of LE (so we cannot re-use it).
-// NOTE: difference happens only if d < 8.
-const base_2bBE = (N: number, d: number) => {
-  const mask = getMask(d);
-  return (bytes: Uint8Array) => {
-    const r = new Uint32Array(N);
-    for (let i = 0, buf = 0, bufLen = 0, pos = 0; i < bytes.length; i++) {
-      buf |= bytes[i] << bufLen;
-      bufLen += 8;
-      for (; bufLen >= d; bufLen -= d) r[pos++] = (buf >>> (bufLen - d)) & mask;
-      buf &= getMask(bufLen);
-    }
-    return r;
-  };
-};
 // Same as bitsCoder.decode, but maybe spec will change and unify with base2bBE.
-const base_2bLE = (N: number, d: number) => {
-  const mask = getMask(d);
+const base2b = (outLen: number, b: number) => {
+  const mask = getMask(b);
   return (bytes: Uint8Array) => {
-    const r = new Uint32Array(N);
-    for (let i = 0, buf = 0, bufLen = 0, pos = 0; i < bytes.length; i++) {
-      buf |= bytes[i] << bufLen;
-      bufLen += 8;
-      for (; bufLen >= d; bufLen -= d, buf >>= d) r[pos++] = buf & mask;
+    const baseB = new Uint32Array(outLen);
+    for (let out = 0, pos = 0, bits = 0, total = 0; out < outLen; out++) {
+      while (bits < b) {
+        total = (total << 8) | bytes[pos++];
+        bits += 8;
+      }
+      bits -= b;
+      baseB[out] = (total >>> bits) & mask;
     }
-    return r;
+    return baseB;
   };
 };
 
@@ -220,9 +203,9 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     return addr;
   };
 
-  const chainCoder = base_2bBE(WOTS_LEN2, WOTS_LOGW);
+  const chainCoder = base2b(WOTS_LEN2, WOTS_LOGW);
   const chainLengths = (msg: Uint8Array) => {
-    const W1 = base_2bBE(WOTS_LEN1, WOTS_LOGW)(msg);
+    const W1 = base2b(WOTS_LEN1, WOTS_LOGW)(msg);
     let csum = 0;
     for (let i = 0; i < W1.length; i++) csum += W - 1 - W1[i]; // ▷ Compute checksum
     csum <<= (8 - ((WOTS_LEN2 * WOTS_LOGW) % 8)) % 8; // csum ← csum ≪ ((8 − ((len2 · lg(w)) mod 8)) mod 8
@@ -234,9 +217,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     lengths.set(W2, W1.length);
     return lengths;
   };
-  // Hm, why BE vs LE?
-  const msgCoder = base_2bLE(K, A);
-  const messageToIndices = (msg: Uint8Array) => msgCoder(msg);
+  const messageToIndices = base2b(K, A);
 
   const TREE_BITS = TREE_HEIGHT * (D - 1);
   const LEAF_BITS = TREE_HEIGHT;
@@ -542,15 +523,12 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
 }
 
 const genShake =
-  (robust: boolean): GetContext =>
-  (opts: SphincsOpts) =>
-  (pubSeed: Uint8Array, skSeed?: Uint8Array) => {
-    const ADDR_BYTES = 32;
+  (): GetContext => (opts: SphincsOpts) => (pubSeed: Uint8Array, skSeed?: Uint8Array) => {
     const { N } = opts;
     const stats = { prf: 0, thash: 0, hmsg: 0, gen_message_random: 0 };
     const h0 = shake256.create({}).update(pubSeed);
     const h0tmp = h0.clone();
-    const thash_simple = (blocks: number, input: Uint8Array, addr: ADRS) => {
+    const thash = (blocks: number, input: Uint8Array, addr: ADRS) => {
       stats.thash++;
       return h0
         ._cloneInto(h0tmp)
@@ -558,24 +536,12 @@ const genShake =
         .update(input.subarray(0, blocks * N))
         .xof(N);
     };
-    const thash_robust = (blocks: number, input: Uint8Array, addr: ADRS) => {
-      stats.thash++;
-      const buf = new Uint8Array(ADDR_BYTES + (blocks + 1) * N);
-      buf.subarray(0, N).set(pubSeed);
-      buf.subarray(N, N + ADDR_BYTES).set(addr);
-      shake256
-        .create({})
-        .update(buf.subarray(0, N + ADDR_BYTES))
-        .xofInto(buf.subarray(N + ADDR_BYTES));
-      for (let i = 0; i < blocks * N; i++) buf[N + ADDR_BYTES + i] ^= input[i];
-      return shake256.create({}).update(buf).xof(N);
-    };
-    const thash = robust ? thash_robust : thash_simple;
     return {
       PRFaddr: (addr: ADRS) => {
         if (!skSeed) throw new Error('no sk seed');
         stats.prf++;
-        return h0._cloneInto(h0tmp).update(addr).update(skSeed).xof(N);
+        const res = h0._cloneInto(h0tmp).update(addr).update(skSeed).xof(N);
+        return res;
       },
       PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => {
         stats.gen_message_random++;
@@ -595,21 +561,7 @@ const genShake =
     };
   };
 
-const SHAKE_SIMPLE = { getContext: genShake(false) };
-const SHAKE_ROBUST = { getContext: genShake(true) };
-
-export const sphincs_shake_128f_simple = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_SIMPLE);
-export const sphincs_shake_128f_robust = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_ROBUST);
-export const sphincs_shake_128s_simple = /* @__PURE__ */ gen(PARAMS['128s'], SHAKE_SIMPLE);
-export const sphincs_shake_128s_robust = /* @__PURE__ */ gen(PARAMS['128s'], SHAKE_ROBUST);
-export const sphincs_shake_192f_simple = /* @__PURE__ */ gen(PARAMS['192f'], SHAKE_SIMPLE);
-export const sphincs_shake_192f_robust = /* @__PURE__ */ gen(PARAMS['192f'], SHAKE_ROBUST);
-export const sphincs_shake_192s_simple = /* @__PURE__ */ gen(PARAMS['192s'], SHAKE_SIMPLE);
-export const sphincs_shake_192s_robust = /* @__PURE__ */ gen(PARAMS['192s'], SHAKE_ROBUST);
-export const sphincs_shake_256f_simple = /* @__PURE__ */ gen(PARAMS['256f'], SHAKE_SIMPLE);
-export const sphincs_shake_256f_robust = /* @__PURE__ */ gen(PARAMS['256f'], SHAKE_ROBUST);
-export const sphincs_shake_256s_simple = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_SIMPLE);
-export const sphincs_shake_256s_robust = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_ROBUST);
+const SHAKE_SIMPLE = { getContext: genShake() };
 
 // Only simple mode in SLH-DSA
 export const slh_dsa_shake_128f = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_SIMPLE);
@@ -621,7 +573,7 @@ export const slh_dsa_shake_256s = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_SIMP
 
 type ShaType = typeof sha256 | typeof sha512;
 const genSha =
-  (h0: ShaType, h1: ShaType, robust: boolean): GetContext =>
+  (h0: ShaType, h1: ShaType): GetContext =>
   (opts) =>
   (pub_seed, sk_seed?) => {
     const { N } = opts;
@@ -660,7 +612,7 @@ const genSha =
       return out.subarray(0, length);
     }
 
-    const thash_simple =
+    const thash =
       (_: ShaType, h: typeof h0ps, hTmp: typeof h0ps) =>
       (blocks: number, input: Uint8Array, addr: ADRS) => {
         stats.thash++;
@@ -671,40 +623,17 @@ const genSha =
           .digest();
         return d.subarray(0, N);
       };
-
-    const thash_robust =
-      (sha: ShaType, h: typeof h0ps, _: typeof h0ps) =>
-      (blocks: number, input: Uint8Array, addr: ADRS) => {
-        stats.thash++;
-        stats.mgf1++;
-        // inlined mgf1
-        const addr8 = addr;
-        const hh = sha.create().update(pub_seed).update(addr8);
-        let bitmask = new Uint8Array(Math.ceil((blocks * N) / sha.outputLen) * sha.outputLen);
-        for (let counter = 0, o = bitmask; o.length; counter++) {
-          counterV.setUint32(0, counter, false);
-          hh.clone().update(counterB).digestInto(o);
-          o = o.subarray(sha.outputLen);
-        }
-        bitmask = bitmask.subarray(0, blocks * N);
-        const ou32 = u32(input);
-        const bm32 = u32(bitmask);
-        for (let i = 0; i < bm32.length; i++) bm32[i] ^= ou32[i];
-        const d = h.clone().update(addr8).update(bitmask).digest();
-        return d.subarray(0, N);
-      };
-
-    const thash = robust ? thash_robust : thash_simple;
     return {
       PRFaddr: (addr: ADRS) => {
         if (!sk_seed) throw new Error('No sk seed');
         stats.prf++;
-        return h0ps
+        const res = h0ps
           ._cloneInto(h0tmp as any)
           .update(addr)
           .update(sk_seed)
           .digest()
           .subarray(0, N);
+        return res;
       },
       PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => {
         stats.gen_message_random++;
@@ -733,34 +662,12 @@ const genSha =
 
 const SHA256_SIMPLE = {
   isCompressed: true,
-  getContext: genSha(sha256, sha256, false),
-};
-const SHA256_ROBUST = {
-  isCompressed: true,
-  getContext: genSha(sha256, sha256, true),
+  getContext: genSha(sha256, sha256),
 };
 const SHA512_SIMPLE = {
   isCompressed: true,
-  getContext: genSha(sha256, sha512, false),
+  getContext: genSha(sha256, sha512),
 };
-const SHA512_ROBUST = {
-  isCompressed: true,
-  getContext: genSha(sha256, sha512, true),
-};
-
-export const sphincs_sha2_128f_simple = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_SIMPLE);
-export const sphincs_sha2_128f_robust = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_ROBUST);
-export const sphincs_sha2_128s_simple = /* @__PURE__ */ gen(PARAMS['128s'], SHA256_SIMPLE);
-export const sphincs_sha2_128s_robust = /* @__PURE__ */ gen(PARAMS['128s'], SHA256_ROBUST);
-
-export const sphincs_sha2_192f_simple = /* @__PURE__ */ gen(PARAMS['192f'], SHA512_SIMPLE);
-export const sphincs_sha2_192f_robust = /* @__PURE__ */ gen(PARAMS['192f'], SHA512_ROBUST);
-export const sphincs_sha2_192s_simple = /* @__PURE__ */ gen(PARAMS['192s'], SHA512_SIMPLE);
-export const sphincs_sha2_192s_robust = /* @__PURE__ */ gen(PARAMS['192s'], SHA512_ROBUST);
-export const sphincs_sha2_256f_simple = /* @__PURE__ */ gen(PARAMS['256f'], SHA512_SIMPLE);
-export const sphincs_sha2_256f_robust = /* @__PURE__ */ gen(PARAMS['256f'], SHA512_ROBUST);
-export const sphincs_sha2_256s_simple = /* @__PURE__ */ gen(PARAMS['256s'], SHA512_SIMPLE);
-export const sphincs_sha2_256s_robust = /* @__PURE__ */ gen(PARAMS['256s'], SHA512_ROBUST);
 
 // Only simple mode in SLH-DSA
 export const slh_dsa_sha2_128f = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_SIMPLE);

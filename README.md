@@ -130,11 +130,7 @@ There are some concerns with regards to security: see
 [djb blog](https://blog.cr.yp.to/20231003-countcorrectly.html) and
 [mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
 
-Three versions are provided:
-
-1. Kyber
-2. Kyber-90s, using algorithms from 1990s
-3. ML-KEM aka [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.ipd.pdf)
+Only ML-KEM aka [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) is provided.
 
 ```ts
 // Alice generates keys
@@ -166,7 +162,8 @@ notDeepStrictEqual(aliceShared, carolShared); // Different key!
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
 // import { dilithium_v30, dilithium_v31 } from '@noble/post-quantum/ml-dsa';
 // import { dilithium_v30_aes, dilithium_v31_aes } from '@noble/post-quantum/ml-dsa';
-const aliceKeys = ml_dsa65.keygen();
+const seed = new TextEncoder().encode('not a safe seed');
+const aliceKeys = ml_dsa65.keygen(seed);
 const msg = new Uint8Array(1);
 const sig = ml_dsa65.sign(aliceKeys.secretKey, msg);
 const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig);
@@ -177,11 +174,7 @@ Lattice-based digital signature algorithm. See
 [repo](https://github.com/pq-crystals/dilithium).
 Dilithium has similar internals to Kyber, but their keys and params are different.
 
-Three versions are provided:
-
-1. Dilithium v3.0, v3.0 AES
-2. Dilithium v3.1, v3.1 AES
-3. ML-DSA aka [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.ipd.pdf)
+Only ML-DSA aka [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf) is provided.
 
 ### SLH-DSA / SPHINCS+ signatures
 
@@ -201,11 +194,7 @@ We implement spec v3.1 with latest FIPS-205 changes.
 It's compatible with the latest version in the [official repo](https://github.com/sphincs/sphincsplus).
 Some wasm libraries use older specs.
 
-Three versions are provided:
-
-1. SHAKE256-based
-2. SHA2-based
-3. SLH-DSA aka [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.ipd.pdf)
+Only SLH-DSA aka [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf) is provided.
 
 The pattern for exported name is:
 

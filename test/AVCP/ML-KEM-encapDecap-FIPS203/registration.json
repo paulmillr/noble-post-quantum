@@ -1,0 +1,16 @@
+{
+  "vsId": 42,
+  "algorithm": "ML-KEM",
+  "mode": "encapDecap",
+  "revision": "FIPS203",
+  "isSample": true,
+  "parameterSets": [
+    "ML-KEM-512",
+    "ML-KEM-768",
+    "ML-KEM-1024"
+  ],
+  "functions": [
+    "encapsulation",
+    "decapsulation"
+  ]
+}

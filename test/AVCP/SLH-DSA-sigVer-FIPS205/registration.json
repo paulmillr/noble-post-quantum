@@ -1,0 +1,36 @@
+{
+  "capabilities": [
+    {
+      "parameterSets": [
+        "SLH-DSA-SHA2-192s",
+        "SLH-DSA-SHA2-256f",
+        "SLH-DSA-SHAKE-192s",
+        "SLH-DSA-SHAKE-256f"
+      ],
+      "messageLength": [
+        {
+          "min": 8,
+          "max": 65536,
+          "increment": 8
+        }
+      ]
+    },
+    {
+      "parameterSets": [
+        "SLH-DSA-SHAKE-128f"
+      ],
+      "messageLength": [
+        {
+          "min": 1024,
+          "max": 4096,
+          "increment": 8
+        }
+      ]
+    }
+  ],
+  "vsId": 53,
+  "algorithm": "SLH-DSA",
+  "mode": "sigVer",
+  "revision": "FIPS205",
+  "isSample": true
+}

@@ -1,5 +1,4 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { unsafe } from '@noble/ciphers/aes';
 import { shake128, shake256 } from '@noble/hashes/sha3';
 import type { TypedArray } from '@noble/hashes/utils';
 import { BytesCoderLen, Coder, getMask } from './utils.js';
@@ -163,35 +162,3 @@ const createXofShake =
 
 export const XOF128 = /* @__PURE__ */ createXofShake(shake128);
 export const XOF256 = /* @__PURE__ */ createXofShake(shake256);
-
-const createXofAes =
-  (aes: typeof unsafe): XOF =>
-  (seed: Uint8Array, blockLen?: number) => {
-    if (!blockLen) blockLen = 16 * 3; // 288
-    const nonce = new Uint8Array(16);
-    const xk = aes.expandKeyLE(seed.subarray(0, 32));
-    const block = new Uint8Array(blockLen);
-    const out = block.slice();
-    let calls = 0;
-    let xofs = 0;
-    return {
-      stats: () => ({ calls, xofs }),
-      get: (x: number, y: number) => {
-        nonce.fill(0); // clean counter
-        nonce[0] = x;
-        nonce[1] = y;
-        calls++;
-        return () => {
-          xofs++;
-          return aes.ctrCounter(xk, nonce, block, out);
-        };
-      },
-      clean: () => {
-        nonce.fill(0);
-        xk.fill(0);
-        out.fill(0);
-      },
-    };
-  };
-
-export const XOF_AES = /* @__PURE__ */ createXofAes(unsafe);

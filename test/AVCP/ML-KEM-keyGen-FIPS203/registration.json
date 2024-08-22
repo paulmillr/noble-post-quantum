@@ -1,0 +1,12 @@
+{
+  "vsId": 42,
+  "algorithm": "ML-KEM",
+  "mode": "keyGen",
+  "revision": "FIPS203",
+  "isSample": false,
+  "parameterSets": [
+    "ML-KEM-512",
+    "ML-KEM-768",
+    "ML-KEM-1024"
+  ]
+}

@@ -1,6 +1,6 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { shake256 } from '@noble/hashes/sha3';
-import { genCrystals, XOF, XOF128, XOF256, XOF_AES } from './_crystals.js';
+import { genCrystals, XOF, XOF128, XOF256 } from './_crystals.js';
 import {
   BytesCoderLen,
   Signer,
@@ -18,11 +18,6 @@ Lattice-based digital signature algorithm. See
 [repo](https://github.com/pq-crystals/dilithium).
 Dilithium has similar internals to Kyber, but their keys and params are different.
 
-Three versions are provided:
-
-1. Dilithium v3.0, v3.0 AES
-2. Dilithium v3.1, v3.1 AES
-3. ML-DSA aka [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.ipd.pdf)
 */
 
 // Constants
@@ -135,13 +130,11 @@ type DilithiumOpts = {
   TR_BYTES: number;
   XOF128: XOF;
   XOF256: XOF;
-  FIPS204?: boolean;
-  V31?: boolean;
 };
 
 function getDilithium(opts: DilithiumOpts): Signer {
   const { K, L, GAMMA1, GAMMA2, TAU, ETA, OMEGA } = opts;
-  const { FIPS204, V31, CRH_BYTES, TR_BYTES, C_TILDE_BYTES, XOF128, XOF256 } = opts;
+  const { CRH_BYTES, TR_BYTES, C_TILDE_BYTES, XOF128, XOF256 } = opts;
 
   if (![2, 4].includes(ETA)) throw new Error('Wrong ETA');
   if (![1 << 17, 1 << 19].includes(GAMMA1)) throw new Error('Wrong GAMMA1');
@@ -262,7 +255,7 @@ function getDilithium(opts: DilithiumOpts): Signer {
   const SampleInBall = (seed: Uint8Array) => {
     // Samples a polynomial c ∈ Rq with coeffcients from {−1, 0, 1} and Hamming weight τ
     const pre = newPoly(N);
-    const s = shake256.create({}).update(seed.slice(0, 32));
+    const s = shake256.create({}).update(seed);
     const buf = new Uint8Array(shake256.blockLen);
     s.xofInto(buf);
     const masks = buf.slice(0, 8);
@@ -309,15 +302,21 @@ function getDilithium(opts: DilithiumOpts): Signer {
     return { v, cnt };
   };
 
-  const signRandBytes = FIPS204 ? 32 : CRH_BYTES;
-  const seedCoder = splitCoder(32, V31 ? 64 : 32, 32);
-  const seedXOF = V31 ? XOF256 : XOF128;
+  const signRandBytes = 32;
+  const seedCoder = splitCoder(32, 64, 32);
   // API & argument positions are exactly as in FIPS204.
   return {
     signRandBytes,
     keygen: (seed = randomBytes(32)) => {
-      const [rho, rhoPrime, K_] = seedCoder.decode(shake256(seed, { dkLen: seedCoder.bytesLen }));
-      const xofPrime = seedXOF(rhoPrime);
+      // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
+      const seedDst = new Uint8Array(32 + 2);
+      seedDst.set(seed);
+      seedDst[32] = K;
+      seedDst[33] = L;
+      const [rho, rhoPrime, K_] = seedCoder.decode(
+        shake256(seedDst, { dkLen: seedCoder.bytesLen })
+      );
+      const xofPrime = XOF256(rhoPrime);
       const s1 = [];
       for (let i = 0; i < L; i++) s1.push(RejBoundedPoly(xofPrime.get(i & 0xff, (i >> 8) & 0xff)));
       const s2 = [];
@@ -348,7 +347,7 @@ function getDilithium(opts: DilithiumOpts): Signer {
       // STATS
       // Kyber512:  { calls: 4, xofs: 12 }, Kyber768: { calls: 9, xofs: 27 }, Kyber1024: { calls: 16, xofs: 48 }
       // DSA44:    { calls: 24, xofs: 24 }, DSA65:    { calls: 41, xofs: 41 }, DSA87:    { calls: 71, xofs: 71 }
-      cleanBytes(rho, rhoPrime, K_, s1, s2, s1Hat, t, t0, t1, tr);
+      cleanBytes(rho, rhoPrime, K_, s1, s2, s1Hat, t, t0, t1, tr, seedDst);
       return { publicKey, secretKey };
     },
     // NOTE: random is optional.
@@ -372,16 +371,17 @@ function getDilithium(opts: DilithiumOpts): Signer {
       }
       // This part is per msg
       const mu = shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 6: µ ← H(tr||M, 512) ▷ Compute message representative µ
-      let rhoprime; // Compute private random seed
-      if (FIPS204) {
-        const rnd = random ? random : new Uint8Array(32);
-        ensureBytes(rnd);
-        rhoprime = shake256.create({ dkLen: CRH_BYTES }).update(_K).update(rnd).update(mu).digest(); // ρ′← H(K||rnd||µ, 512)
-      } else {
-        rhoprime = random
-          ? random
-          : shake256.create({ dkLen: CRH_BYTES }).update(_K).update(mu).digest();
-      }
+
+      // Compute private random seed
+      const rnd = random ? random : new Uint8Array(32);
+      ensureBytes(rnd);
+      const rhoprime = shake256
+        .create({ dkLen: CRH_BYTES })
+        .update(_K)
+        .update(rnd)
+        .update(mu)
+        .digest(); // ρ′← H(K||rnd||µ, 512)
+
       ensureBytes(rhoprime, CRH_BYTES);
       const x256 = XOF256(rhoprime, ZCoder.bytesLen);
       //  Rejection sampling loop
@@ -407,7 +407,7 @@ function getDilithium(opts: DilithiumOpts): Signer {
           .update(W1Vec.encode(w1))
           .digest();
         // Verifer’s challenge
-        const cHat = NTT.encode(SampleInBall(cTilde.subarray(0, 32))); // c ← SampleInBall(c˜1); cˆ ← NTT(c)
+        const cHat = NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1); cˆ ← NTT(c)
         // ⟨⟨cs1⟩⟩ ← NTT−1(cˆ◦ sˆ1)
         const cs1 = s1.map((i) => MultiplyNTTs(i, cHat));
         for (let i = 0; i < L; i++) {
@@ -450,7 +450,7 @@ function getDilithium(opts: DilithiumOpts): Signer {
       for (let i = 0; i < L; i++) if (polyChknorm(z[i], GAMMA1 - BETA)) return false;
       const mu = shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 7: µ ← H(tr||M, 512)
       // Compute verifer’s challenge from c˜
-      const c = NTT.encode(SampleInBall(cTilde.subarray(0, 32))); // c ← SampleInBall(c˜1)
+      const c = NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1)
       const zNtt = z.map((i) => i.slice()); // zNtt = NTT(z)
       for (let i = 0; i < L; i++) NTT.encode(zNtt[i]);
       const wTick1 = [];
@@ -474,65 +474,17 @@ function getDilithium(opts: DilithiumOpts): Signer {
         .update(mu)
         .update(W1Vec.encode(wTick1))
         .digest();
-      if (FIPS204) {
-        // Additional checks in FIPS-204:
-        // [[ ||z||∞ < γ1 − β ]] and [[c ˜ = c˜′]] and [[number of 1’s in h is ≤ ω]]
-        for (const t of h) {
-          const sum = t.reduce((acc, i) => acc + i, 0);
-          if (!(sum <= OMEGA)) return false;
-        }
-        for (const t of z) if (polyChknorm(t, GAMMA1 - BETA)) return false;
+      // Additional checks in FIPS-204:
+      // [[ ||z||∞ < γ1 − β ]] and [[c ˜ = c˜′]] and [[number of 1’s in h is ≤ ω]]
+      for (const t of h) {
+        const sum = t.reduce((acc, i) => acc + i, 0);
+        if (!(sum <= OMEGA)) return false;
       }
+      for (const t of z) if (polyChknorm(t, GAMMA1 - BETA)) return false;
       return equalBytes(cTilde, c2);
     },
   };
 }
-
-function getDilithiumVersions(cfg: Partial<DilithiumOpts>) {
-  return {
-    dilithium2: getDilithium({ ...PARAMS[2], ...cfg } as DilithiumOpts),
-    dilithium3: getDilithium({ ...PARAMS[3], ...cfg } as DilithiumOpts),
-    dilithium5: getDilithium({ ...PARAMS[5], ...cfg } as DilithiumOpts),
-  };
-}
-
-// v30 is NIST round 3 submission, for original vectors and benchmarking.
-// v31 is kyber: more secure than v30.
-// ml-dsa is NIST FIPS 204, but it is still a draft and may change.
-
-export const dilithium_v30 = /* @__PURE__ */ getDilithiumVersions({
-  CRH_BYTES: 48,
-  TR_BYTES: 48,
-  C_TILDE_BYTES: 32,
-  XOF128,
-  XOF256,
-});
-
-export const dilithium_v31 = /* @__PURE__ */ getDilithiumVersions({
-  CRH_BYTES: 64,
-  TR_BYTES: 32,
-  C_TILDE_BYTES: 32,
-  XOF128,
-  XOF256,
-  V31: true,
-});
-
-export const dilithium_v30_aes = /* @__PURE__ */ getDilithiumVersions({
-  CRH_BYTES: 48,
-  TR_BYTES: 48,
-  C_TILDE_BYTES: 32,
-  XOF128: XOF_AES,
-  XOF256: XOF_AES,
-});
-
-export const dilithium_v31_aes = /* @__PURE__ */ getDilithiumVersions({
-  CRH_BYTES: 64,
-  TR_BYTES: 32,
-  C_TILDE_BYTES: 32,
-  XOF128: XOF_AES,
-  XOF256: XOF_AES,
-  V31: true,
-});
 
 // ML-DSA
 export const ml_dsa44 = /* @__PURE__ */ getDilithium({
@@ -542,8 +494,6 @@ export const ml_dsa44 = /* @__PURE__ */ getDilithium({
   C_TILDE_BYTES: 32,
   XOF128,
   XOF256,
-  V31: true,
-  FIPS204: true,
 });
 
 export const ml_dsa65 = /* @__PURE__ */ getDilithium({
@@ -553,8 +503,6 @@ export const ml_dsa65 = /* @__PURE__ */ getDilithium({
   C_TILDE_BYTES: 48,
   XOF128,
   XOF256,
-  V31: true,
-  FIPS204: true,
 });
 
 export const ml_dsa87 = /* @__PURE__ */ getDilithium({
@@ -564,6 +512,4 @@ export const ml_dsa87 = /* @__PURE__ */ getDilithium({
   C_TILDE_BYTES: 64,
   XOF128,
   XOF256,
-  V31: true,
-  FIPS204: true,
 });

@@ -1,9 +1,7 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { ctr } from '@noble/ciphers/aes';
-import { sha256, sha512 } from '@noble/hashes/sha2';
 import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3';
 import { u32, wrapConstructor, wrapConstructorWithOpts } from '@noble/hashes/utils';
-import { genCrystals, XOF, XOF_AES, XOF128 } from './_crystals.js';
+import { genCrystals, XOF, XOF128 } from './_crystals.js';
 import {
   Coder,
   cleanBytes,
@@ -34,11 +32,6 @@ There are some concerns with regards to security: see
 [djb blog](https://blog.cr.yp.to/20231003-countcorrectly.html) and
 [mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
 
-Three versions are provided:
-
-1. Kyber
-2. Kyber-90s, using algorithms from 1990s
-3. ML-KEM aka [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.ipd.pdf)
 */
 
 const N = 256; // Kyber (not FIPS-203) supports different lengths, but all std modes were using 256
@@ -136,7 +129,6 @@ type KyberOpts = ParameterSet & {
   KDF: Hash | HashWOpts;
   XOF: XOF; // (seed: Uint8Array, len: number, x: number, y: number) => Uint8Array;
   PRF: PRF;
-  FIPS203?: boolean;
 };
 
 // Return poly in NTT representation
@@ -185,7 +177,7 @@ function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly
 // K-PKE
 // As per FIPS-203, it doesn't perform any input validation and can't be used in standalone fashion.
 const genKPKE = (opts: KyberOpts) => {
-  const { K, PRF, XOF, HASH512, ETA1, ETA2, du, dv, FIPS203 } = opts;
+  const { K, PRF, XOF, HASH512, ETA1, ETA2, du, dv } = opts;
   const poly1 = polyCoder(1);
   const polyV = polyCoder(dv);
   const polyU = polyCoder(du);
@@ -199,7 +191,12 @@ const genKPKE = (opts: KyberOpts) => {
     publicKeyLen: publicCoder.bytesLen,
     cipherTextLen: cipherCoder.bytesLen,
     keygen: (seed: Uint8Array) => {
-      const [rho, sigma] = seedCoder.decode(HASH512(seed));
+      const seedDst = new Uint8Array(33);
+      seedDst.set(seed);
+      seedDst[32] = K;
+      const seedHash = HASH512(seedDst);
+
+      const [rho, sigma] = seedCoder.decode(seedHash);
       const sHat: Poly[] = [];
       const tHat: Poly[] = [];
       for (let i = 0; i < K; i++) sHat.push(NTT.encode(sampleCBD(PRF, sigma, i, ETA1)));
@@ -207,7 +204,7 @@ const genKPKE = (opts: KyberOpts) => {
       for (let i = 0; i < K; i++) {
         const e = NTT.encode(sampleCBD(PRF, sigma, K + i, ETA1));
         for (let j = 0; j < K; j++) {
-          const aji = SampleNTT(FIPS203 ? x.get(i, j) : x.get(j, i)); // A[j][i], inplace
+          const aji = SampleNTT(x.get(j, i)); // A[j][i], inplace
           polyAdd(e, MultiplyNTTs(aji, sHat[j]));
         }
         tHat.push(e); // t ← A ◦ s + e
@@ -217,7 +214,7 @@ const genKPKE = (opts: KyberOpts) => {
         publicKey: publicCoder.encode([tHat, rho]),
         secretKey: secretCoder.encode(sHat),
       };
-      cleanBytes(rho, sigma, sHat, tHat);
+      cleanBytes(rho, sigma, sHat, tHat, seedDst, seedHash);
       return res;
     },
     encrypt: (publicKey: Uint8Array, msg: Uint8Array, seed: Uint8Array) => {
@@ -231,7 +228,7 @@ const genKPKE = (opts: KyberOpts) => {
         const e1 = sampleCBD(PRF, seed, K + i, ETA2);
         const tmp = new Uint16Array(N);
         for (let j = 0; j < K; j++) {
-          const aij = SampleNTT(FIPS203 ? x.get(j, i) : x.get(i, j)); // A[i][j], inplace
+          const aij = SampleNTT(x.get(i, j)); // A[i][j], inplace
           polyAdd(tmp, MultiplyNTTs(aij, rHat[j])); // t += aij * rHat[j]
         }
         polyAdd(e1, NTT.decode(tmp)); // e1 += tmp
@@ -261,7 +258,7 @@ const genKPKE = (opts: KyberOpts) => {
 
 function createKyber(opts: KyberOpts) {
   const KPKE = genKPKE(opts);
-  const { HASH256, HASH512, KDF, FIPS203 } = opts;
+  const { HASH256, HASH512, KDF } = opts;
   const { secretCoder: KPKESecretCoder, cipherTextLen } = KPKE;
   const publicKeyLen = KPKE.publicKeyLen; // 384*K+32
   const secretCoder = splitCoder(KPKE.secretKeyLen, KPKE.publicKeyLen, 32, 32);
@@ -282,29 +279,21 @@ function createKyber(opts: KyberOpts) {
     encapsulate: (publicKey: Uint8Array, msg = randomBytes(32)) => {
       ensureBytes(publicKey, publicKeyLen);
       ensureBytes(msg, msgLen);
-      if (!FIPS203) msg = HASH256(msg); // NOTE: ML-KEM doesn't have this step!
-      else {
-        // FIPS-203 includes additional verification check for modulus
-        const eke = publicKey.subarray(0, 384 * opts.K);
-        const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(eke.slice())); // Copy because of inplace encoding
-        // (Modulus check.) Perform the computation ek ← ByteEncode12(ByteDecode12(eke)).
-        // If ek = ̸ eke, the input is invalid. (See Section 4.2.1.)
-        if (!equalBytes(ek, eke)) {
-          cleanBytes(ek);
-          throw new Error('ML-KEM.encapsulate: wrong publicKey modulus');
-        }
+
+      // FIPS-203 includes additional verification check for modulus
+      const eke = publicKey.subarray(0, 384 * opts.K);
+      const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(eke.slice())); // Copy because of inplace encoding
+      // (Modulus check.) Perform the computation ek ← ByteEncode12(ByteDecode12(eke)).
+      // If ek = ̸ eke, the input is invalid. (See Section 4.2.1.)
+      if (!equalBytes(ek, eke)) {
         cleanBytes(ek);
+        throw new Error('ML-KEM.encapsulate: wrong publicKey modulus');
       }
+      cleanBytes(ek);
       const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest(); // derive randomness
       const cipherText = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
-      if (FIPS203) return { cipherText, sharedSecret: kr.subarray(0, 32) };
-      const cipherTextHash = HASH256(cipherText);
-      const sharedSecret = KDF.create({})
-        .update(kr.subarray(0, 32))
-        .update(cipherTextHash)
-        .digest();
-      cleanBytes(kr, cipherTextHash);
-      return { cipherText, sharedSecret };
+      kr.subarray(32).fill(0);
+      return { cipherText, sharedSecret: kr.subarray(0, 32) };
     },
     decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => {
       ensureBytes(secretKey, secretKeyLen); // 768*k + 96
@@ -315,42 +304,12 @@ function createKyber(opts: KyberOpts) {
       const Khat = kr.subarray(0, 32);
       const cipherText2 = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64)); // re-encrypt using the derived randomness
       const isValid = equalBytes(cipherText, cipherText2); // if ciphertexts do not match, “implicitly reject”
-      if (FIPS203) {
-        const Kbar = KDF.create({ dkLen: 32 }).update(z).update(cipherText).digest();
-        cleanBytes(msg, cipherText2, !isValid ? Khat : Kbar);
-        return isValid ? Khat : Kbar;
-      }
-      const cipherTextHash = HASH256(cipherText);
-      const sharedSecret = KDF.create({ dkLen: 32 })
-        .update(isValid ? Khat : z)
-        .update(cipherTextHash)
-        .digest();
-      cleanBytes(msg, cipherTextHash, cipherText2, Khat, z);
-      return sharedSecret;
+      const Kbar = KDF.create({ dkLen: 32 }).update(z).update(cipherText).digest();
+      cleanBytes(msg, cipherText2, !isValid ? Khat : Kbar);
+      return isValid ? Khat : Kbar;
     },
   };
 }
-
-function PRF(l: number, key: Uint8Array, nonce: number) {
-  const _nonce = new Uint8Array(16);
-  _nonce[0] = nonce;
-  return ctr(key, _nonce).encrypt(new Uint8Array(l));
-}
-
-const opts90s = { HASH256: sha256, HASH512: sha512, KDF: sha256, XOF: XOF_AES, PRF };
-
-export const kyber512_90s = /* @__PURE__ */ createKyber({
-  ...opts90s,
-  ...PARAMS[512],
-});
-export const kyber768_90s = /* @__PURE__ */ createKyber({
-  ...opts90s,
-  ...PARAMS[768],
-});
-export const kyber1024_90s = /* @__PURE__ */ createKyber({
-  ...opts90s,
-  ...PARAMS[1024],
-});
 
 function shakePRF(dkLen: number, key: Uint8Array, nonce: number) {
   return shake256
@@ -368,36 +327,18 @@ const opts = {
   PRF: shakePRF,
 };
 
-export const kyber512 = /* @__PURE__ */ createKyber({
-  ...opts,
-  ...PARAMS[512],
-});
-export const kyber768 = /* @__PURE__ */ createKyber({
-  ...opts,
-  ...PARAMS[768],
-});
-export const kyber1024 = /* @__PURE__ */ createKyber({
-  ...opts,
-  ...PARAMS[1024],
-});
-
 /**
- * FIPS-203 (draft) ML-KEM.
- * Unsafe: we can't cross-verify, because there are no test vectors or other implementations.
+ * FIPS-203 ML-KEM.
  */
-
 export const ml_kem512 = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[512],
-  FIPS203: true,
 });
 export const ml_kem768 = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[768],
-  FIPS203: true,
 });
 export const ml_kem1024 = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[1024],
-  FIPS203: true,
 });
