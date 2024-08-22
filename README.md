@@ -173,6 +173,10 @@ Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.ni
 See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus).
 We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older specs.
 
+> [!WARNING]  
+> SLH-DSA is very slow. The fastest one is SHA2-128f: 4ms keygen, 100ms sign, 6ms verification.
+> SHAKE version is 8x slower. -s (128s etc) version is the slowest.
+
 ## Security
 
 The library has not been independently audited yet.
