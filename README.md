@@ -172,6 +172,7 @@ suffer less from quantum computers. For AES, simply update from AES-128 to AES-2
 The library has not been independently audited yet.
 
 There is no protection against side-channel attacks.
+Keep in mind that even hardware versions ML-KEM [are vulnerable](https://eprint.iacr.org/2023/1084).
 
 If you see anything unusual: investigate and report.
 
