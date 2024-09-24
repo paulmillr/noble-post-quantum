@@ -105,7 +105,7 @@ describe('AVCP', () => {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const rnd = t.p.rnd ? hexToBytes(t.p.rnd) : undefined;
-          const sig = mldsa.sign(hexToBytes(t.p.sk), hexToBytes(t.p.message), rnd);
+          const sig = mldsa.internal.sign(hexToBytes(t.p.sk), hexToBytes(t.p.message), rnd);
           deepStrictEqual(sig, hexToBytes(t.er.signature));
         }
       }
@@ -115,7 +115,11 @@ describe('AVCP', () => {
         const mldsa = NAMES[g.info.p.parameterSet];
         const pk = hexToBytes(g.info.p.pk);
         for (const t of g.tests) {
-          const valid = mldsa.verify(pk, hexToBytes(t.p.message), hexToBytes(t.p.signature));
+          const valid = mldsa.internal.verify(
+            pk,
+            hexToBytes(t.p.message),
+            hexToBytes(t.p.signature)
+          );
           deepStrictEqual(valid, t.er.testPassed);
         }
       }
