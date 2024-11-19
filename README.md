@@ -10,6 +10,11 @@ Auditable & minimal JS implementation of public-key post-quantum cryptography.
 - 🐈 SLH-DSA & SPHINCS+: hash-based signatures from FIPS-205
 - 🪶 77KB (15KB gzipped) for everything with hashes
 
+> [!IMPORTANT]
+> NIST published [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
+> in which they want to prohibit classical, non post-quantum cryptography after 2035.
+> Take it into an account while designing a new cryptographic system.
+
 Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
 
 ### This library belongs to _noble_ cryptography
@@ -98,7 +103,7 @@ There are some concerns with regards to security: see
 [mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
 Old, incompatible version (Kyber) is not provided. Open an issue if you need it.
 
-> [!WARNING]  
+> [!WARNING]
 > Unlike ECDH, KEM doesn't verify whether it was "Bob" who've sent the ciphertext.
 > Instead of throwing an error when the ciphertext is encrypted by a different pubkey,
 > `decapsulate` will simply return a different shared secret.
@@ -142,7 +147,7 @@ Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.ni
 See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus).
 We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older specs.
 
-> [!NOTE]  
+> [!NOTE]
 > SLH-DSA is slow: see benchmarks below
 
 ### What should I use?
@@ -178,12 +183,12 @@ If you see anything unusual: investigate and report.
 Noble is the fastest JS implementation of post-quantum algorithms.
 WASM libraries can be faster.
 
-| OPs/sec      | Keygen | Signing | Verification | Shared secret |
-| ------------ | ------ | ------- | ------------ | ------------- |
-| ECC ed25519  | 10270  | 5110    | 1050         | 1470          |
-| ML-KEM-768   | 2300   |         |              | 2000          |
-| ML-DSA44     | 670    | 120     | 620          |               |
-| SLH-DSA-SHA2-128f | 250    | 10       | 167          |               |
+| OPs/sec           | Keygen | Signing | Verification | Shared secret |
+| ----------------- | ------ | ------- | ------------ | ------------- |
+| ECC ed25519       | 10270  | 5110    | 1050         | 1470          |
+| ML-KEM-768        | 2300   |         |              | 2000          |
+| ML-DSA44          | 670    | 120     | 620          |               |
+| SLH-DSA-SHA2-128f | 250    | 10      | 167          |               |
 
 For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
 
