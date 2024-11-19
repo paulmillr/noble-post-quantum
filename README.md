@@ -10,12 +10,12 @@ Auditable & minimal JS implementation of public-key post-quantum cryptography.
 - 🐈 SLH-DSA & SPHINCS+: hash-based signatures from FIPS-205
 - 🪶 77KB (15KB gzipped) for everything with hashes
 
+Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
+
 > [!IMPORTANT]
 > NIST published [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
-> in which they want to prohibit classical, non post-quantum cryptography after 2035.
+> prohibiting classical cryptography (RSA, DSA, ECDSA, ECDH) after 2035.
 > Take it into an account while designing a new cryptographic system.
-
-Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
 
 ### This library belongs to _noble_ cryptography
 
