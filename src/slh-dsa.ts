@@ -97,8 +97,7 @@ export type GetContext = (
 
 function hexToNumber(hex: string): bigint {
   if (typeof hex !== 'string') throw new Error('hex string expected, got ' + typeof hex);
-  // Big Endian
-  return BigInt(hex === '' ? '0' : `0x${hex}`);
+  return BigInt(hex === '' ? '0' : '0x' + hex); // Big Endian
 }
 
 // BE: Big Endian, LE: Little Endian
