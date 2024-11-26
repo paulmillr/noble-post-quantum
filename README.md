@@ -7,7 +7,7 @@ Auditable & minimal JS implementation of public-key post-quantum cryptography.
 - 🔍 Reliable: tests ensure correctness
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based kem from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
-- 🐈 SLH-DSA & SPHINCS+: hash-based signatures from FIPS-205
+- 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
 - 🪶 37KB (15KB gzipped) for everything with bundled hashes
 
 Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
@@ -160,14 +160,15 @@ We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older spec
 | ML-DSA    | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
 | SLH-DSA   | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
 
-We suggest to use ECC + ML-KEM for key agreement, SLH-DSA for signatures.
+We suggest to use ECC + ML-KEM for key agreement, ECC + SLH-DSA for signatures.
 
-ML-KEM and ML-DSA are lattice-based, so they're less "proven".
-There's some chance of advancement, which will break this algorithm class.
-SLH-DSA, while being slow, is built on top of older, conservative primitives.
+ML-KEM and ML-DSA are lattice-based. SLH-DSA is hash-based, which means it is built on top of older, more conservative primitives. As for security levels, use at least cat-3:
+
+- Category 3 (~AES-192): ML-KEM-768, ML-DSA-65, SLH-DSA-[SHA2/shake]-192[s/f]
+- Category 5 (~AES-256): ML-DSA-1024, ML-DSA-87, SLH-DSA-[SHA2/shake]-256[s/f]
 
 Symmetrical algorithms like AES and ChaCha (available in [noble-ciphers](https://github.com/paulmillr/noble-ciphers))
-suffer less from quantum computers. For AES, simply update from AES-128 to AES-256.
+suffer less from quantum computers. For AES in pq setting, ensure AES-256 is used.
 
 ## Security
 
