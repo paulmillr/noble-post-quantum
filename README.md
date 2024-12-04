@@ -159,6 +159,7 @@ We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older spec
 | ML-KEM    | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
 | ML-DSA    | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
 | SLH-DSA   | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
+| FN-DSA    | Slow   | 0.9 - 1.8KB | 0.6 - 1.2KB | 1990s      | 2020s          | Yes           |
 
 We suggest to use ECC + ML-KEM for key agreement, ECC + SLH-DSA for signatures.
 
@@ -186,10 +187,10 @@ WASM libraries can be faster.
 
 | OPs/sec           | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
-| ECC ed25519       | 10270  | 5110    | 1050         | 1470          |
+| ECC x/ed25519     | 10270  | 5110    | 1050         | 1470          |
 | ML-KEM-768        | 2300   |         |              | 2000          |
-| ML-DSA44          | 670    | 120     | 620          |               |
-| SLH-DSA-SHA2-128f | 250    | 10      | 167          |               |
+| ML-DSA65          | 386    | 120     | 367          |               |
+| SLH-DSA-SHA2-192f | 166    | 6       | 111          |               |
 
 For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
 
