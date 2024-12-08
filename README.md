@@ -68,7 +68,6 @@ import {
 - [Security](#security)
 - [Speed](#speed)
 - [Contributing & testing](#contributing--testing)
-- [Resources](#resources)
 - [License](#license)
 
 ### ML-KEM / Kyber shared secrets
