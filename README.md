@@ -15,6 +15,7 @@ Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-qu
 > [!IMPORTANT]
 > NIST published [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
 > prohibiting classical cryptography (RSA, DSA, ECDSA, ECDH) after 2035.
+> Australian ASD does same thing [after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
 > Take it into an account while designing a new cryptographic system.
 
 ### This library belongs to _noble_ cryptography
@@ -162,13 +163,14 @@ We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older spec
 
 We suggest to use ECC + ML-KEM for key agreement, ECC + SLH-DSA for signatures.
 
-ML-KEM and ML-DSA are lattice-based. SLH-DSA is hash-based, which means it is built on top of older, more conservative primitives. As for security levels, use at least cat-3:
+ML-KEM and ML-DSA are lattice-based. SLH-DSA is hash-based, which means it is built on top of older, more conservative primitives. NIST guidance for security levels:
 
 - Category 3 (~AES-192): ML-KEM-768, ML-DSA-65, SLH-DSA-[SHA2/shake]-192[s/f]
-- Category 5 (~AES-256): ML-DSA-1024, ML-DSA-87, SLH-DSA-[SHA2/shake]-256[s/f]
+- Category 5 (~AES-256): ML-KEM-1024, ML-DSA-87, SLH-DSA-[SHA2/shake]-256[s/f]
 
-Symmetrical algorithms like AES and ChaCha (available in [noble-ciphers](https://github.com/paulmillr/noble-ciphers))
-suffer less from quantum computers. For AES in pq setting, ensure AES-256 is used.
+NIST recommends to use cat-3+, while australian [ASD only allows cat-5 after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
+
+For [hashes](https://github.com/paulmillr/noble-hashes), use SHA512 or SHA3-512 (not SHA256); and for [ciphers](https://github.com/paulmillr/noble-ciphers) ensure AES-256 or ChaCha.
 
 ## Security
 
