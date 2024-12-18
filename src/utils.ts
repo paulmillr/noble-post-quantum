@@ -1,10 +1,10 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { bytes as abytes } from '@noble/hashes/_assert';
-import { TypedArray, randomBytes as randb, concatBytes } from '@noble/hashes/utils';
+import { TypedArray, concatBytes, utf8ToBytes, randomBytes as randb } from '@noble/hashes/utils';
 
 export const ensureBytes = abytes;
 export const randomBytes = randb;
-export { concatBytes };
+export { concatBytes, utf8ToBytes };
 
 // Compares 2 u8a-s in kinda constant time
 export function equalBytes(a: Uint8Array, b: Uint8Array) {
