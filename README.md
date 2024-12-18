@@ -75,15 +75,17 @@ import {
 
 ```ts
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
-// [Alice] generates secret & public keys, then sends publicKey to Bob
-const aliceKeys = ml_kem768.keygen();
-const alicePub = aliceKeys.publicKey;
+import { randomBytes } from '@noble/post-quantum/utils';
 
-// [Bob] generates shared secret for Alice publicKey
+// 1. [Alice] generates secret & public keys, then sends publicKey to Bob
+const seed = randomBytes(64); // seed is optional
+const aliceKeys = ml_kem768.keygen(seed);
+
+// 2. [Bob] generates shared secret for Alice publicKey
 // bobShared never leaves [Bob] system and is unknown to other parties
-const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(alicePub);
+const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(aliceKeys.publicKey);
 
-// Alice gets and decrypts cipherText from Bob
+// 3. [Alice] gets and decrypts cipherText from Bob
 const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey);
 
 // Now, both Alice and Both have same sharedSecret key
@@ -113,11 +115,12 @@ Old, incompatible version (Kyber) is not provided. Open an issue if you need it.
 
 ```ts
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
-const seed = new TextEncoder().encode('not a safe seed');
-const aliceKeys = ml_dsa65.keygen(seed);
-const msg = new Uint8Array(1);
-const sig = ml_dsa65.sign(aliceKeys.secretKey, msg);
-const isValid = ml_dsa65.verify(aliceKeys.publicKey, msg, sig);
+import { utf8ToBytes, randomBytes } from '@noble/post-quantum/utils';
+const seed = randomBytes(32); // seed is optional
+const keys = ml_dsa65.keygen(seed);
+const msg = utf8ToBytes('hello noble');
+const sig = ml_dsa65.sign(keys.secretKey, msg);
+const isValid = ml_dsa65.verify(keys.publicKey, msg, sig);
 ```
 
 Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). See
@@ -136,11 +139,12 @@ import {
   slh_dsa_shake_192f, slh_dsa_shake_192s,
   slh_dsa_shake_256f, slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa';
+import { utf8ToBytes } from '@noble/post-quantum/utils';
 
-const aliceKeys = sph.keygen();
-const msg = new Uint8Array(1);
-const sig = sph.sign(aliceKeys.secretKey, msg);
-const isValid = sph.verify(aliceKeys.publicKey, msg, sig);
+const keys2 = sph.keygen();
+const msg2 = utf8ToBytes('hello noble');
+const sig2 = sph.sign(keys2.secretKey, msg2);
+const isValid2 = sph.verify(keys2.publicKey, msg2, sig2);
 ```
 
 Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf).
