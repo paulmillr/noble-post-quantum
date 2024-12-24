@@ -148,11 +148,11 @@ const isValid2 = sph.verify(keys2.publicKey, msg2, sig2);
 ```
 
 Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf).
-See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus).
-We implement spec v3.1 with FIPS adjustments. Some wasm libraries use older specs.
+See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus). We implement spec v3.1 with FIPS adjustments.
 
-> [!NOTE]
-> SLH-DSA is slow: see benchmarks below
+There are many different kinds,
+but basically `sha2` / `shake` indicate internal hash, `128` / `192` / `256` indicate security level, and `s` /`f` indicate trade-off (Small / Fast).
+SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 
 ### What should I use?
 
@@ -229,39 +229,18 @@ verify
 ├─ML-DSA44 x 618 ops/sec @ 1ms/op
 ├─ML-DSA65 x 367 ops/sec @ 2ms/op
 └─ML-DSA87 x 220 ops/sec @ 4ms/op
-
-SLH-DSA
-keygen
-├─slh_dsa_sha2_128f x 245 ops/sec @ 4ms/op
-├─slh_dsa_sha2_192f x 166 ops/sec @ 6ms/op
-├─slh_dsa_sha2_256f x 64 ops/sec @ 15ms/op
-├─slh_dsa_shake_128f x 35 ops/sec @ 28ms/op
-├─slh_dsa_shake_192f x 23 ops/sec @ 41ms/op
-├─slh_dsa_shake_256f x 9 ops/sec @ 110ms/op
-├─slh_dsa_sha2_128s x 3 ops/sec @ 257ms/op
-├─slh_dsa_sha2_192s x 2 ops/sec @ 381ms/op
-└─slh_dsa_sha2_256s x 3 ops/sec @ 250ms/op
-sign
-├─slh_dsa_sha2_128f x 10 ops/sec @ 94ms/op
-├─slh_dsa_sha2_192f x 6 ops/sec @ 163ms/op
-├─slh_dsa_sha2_256f x 2 ops/sec @ 338ms/op
-├─slh_dsa_shake_128f x 1 ops/sec @ 671ms/op
-├─slh_dsa_shake_192f x 0 ops/sec @ 1088ms/op
-├─slh_dsa_shake_256f x 0 ops/sec @ 2219ms/op
-├─slh_dsa_sha2_128s x 0 ops/sec @ 1954ms/op
-├─slh_dsa_sha2_192s x 0 ops/sec @ 3789ms/op
-└─slh_dsa_sha2_256s x 0 ops/sec @ 3404ms/op
-verify
-├─slh_dsa_sha2_128f x 162 ops/sec @ 6ms/op
-├─slh_dsa_sha2_192f x 111 ops/sec @ 9ms/op
-├─slh_dsa_sha2_256f x 105 ops/sec @ 9ms/op
-├─slh_dsa_shake_128f x 24 ops/sec @ 40ms/op
-├─slh_dsa_shake_192f x 17 ops/sec @ 58ms/op
-├─slh_dsa_shake_256f x 16 ops/sec @ 59ms/op
-├─slh_dsa_sha2_128s x 495 ops/sec @ 2ms/op
-├─slh_dsa_sha2_192s x 293 ops/sec @ 3ms/op
-└─slh_dsa_sha2_256s x 220 ops/sec @ 4ms/op
 ```
+
+SLH-DSA (_shake is 8x slower):
+
+|           | sig size | keygen | sign   | verify |
+|-----------|----------|--------|--------|--------|
+| sha2_128f | 18088    | 4ms    | 90ms   | 6ms    |
+| sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
+| sha2_192f | 35664    | 6ms    | 160ms  | 9ms    |
+| sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
+| sha2_256f | 49856    | 15ms   | 340ms  | 9ms    |
+| sha2_256s | 29792    | 250ms  | 3400ms | 4ms    |
 
 ## Contributing & testing
 
