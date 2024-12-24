@@ -6,7 +6,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "bench": "node index.js"
+    "bench": "node index.js",
+    "bench:install": "npm install; npm install .. --install-links"
   },
   "keywords": [],
   "author": "",
