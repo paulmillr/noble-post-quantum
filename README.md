@@ -39,9 +39,9 @@ Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-qu
 
 > npm install @noble/post-quantum
 
+> deno add jsr:@noble/post-quantum
+
 We support all major platforms and runtimes.
-For [Deno](https://deno.land), ensure to use
-[npm specifier](https://deno.land/manual@v1.28.0/node/npm_specifiers).
 For React Native, you may need a
 [polyfill for getRandomValues](https://github.com/LinusU/react-native-get-random-values).
 A standalone file
