@@ -1,7 +1,7 @@
 {
   "name": "@noble/post-quantum",
   "version": "0.2.1",
-  "description": "Auditable & minimal JS implementation of public-key post-quantum cryptography: FIPS 203, 204, 205",
+  "description": "Auditable & minimal JS implementation of post-quantum public-key cryptography: FIPS 203, 204, 205",
   "files": [
     "*.js",
     "*.js.map",
@@ -35,7 +35,6 @@
   },
   "devDependencies": {
     "@paulmillr/jsbt": "0.2.1",
-    "@scure/base": "1.1.5",
     "micro-bmark": "0.3.1",
     "micro-should": "0.4.0",
     "prettier": "3.3.2",
