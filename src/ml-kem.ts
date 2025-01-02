@@ -34,6 +34,23 @@ import {
  * @module
  */
 
+export type KEM = {
+  publicKeyLen: number;
+  msgLen: number;
+  keygen: (seed?: Uint8Array) => {
+    publicKey: Uint8Array;
+    secretKey: Uint8Array;
+  };
+  encapsulate: (
+    publicKey: Uint8Array,
+    msg?: Uint8Array
+  ) => {
+    cipherText: Uint8Array;
+    sharedSecret: Uint8Array;
+  };
+  decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => Uint8Array;
+};
+
 const N = 256; // Kyber (not FIPS-203) supports different lengths, but all std modes were using 256
 const Q = 3329; // 13*(2**8)+1, modulo prime
 const F = 3303; // 3303 ≡ 128**(−1) mod q (FIPS-203)
@@ -330,15 +347,15 @@ const opts = {
 /**
  * FIPS-203 ML-KEM.
  */
-export const ml_kem512 = /* @__PURE__ */ createKyber({
+export const ml_kem512: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[512],
 });
-export const ml_kem768 = /* @__PURE__ */ createKyber({
+export const ml_kem768: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[768],
 });
-export const ml_kem1024 = /* @__PURE__ */ createKyber({
+export const ml_kem1024: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[1024],
 });

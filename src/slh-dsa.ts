@@ -560,12 +560,12 @@ const genShake =
 const SHAKE_SIMPLE = { getContext: genShake() };
 
 // Only simple mode in SLH-DSA
-export const slh_dsa_shake_128f = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_SIMPLE);
-export const slh_dsa_shake_128s = /* @__PURE__ */ gen(PARAMS['128s'], SHAKE_SIMPLE);
-export const slh_dsa_shake_192f = /* @__PURE__ */ gen(PARAMS['192f'], SHAKE_SIMPLE);
-export const slh_dsa_shake_192s = /* @__PURE__ */ gen(PARAMS['192s'], SHAKE_SIMPLE);
-export const slh_dsa_shake_256f = /* @__PURE__ */ gen(PARAMS['256f'], SHAKE_SIMPLE);
-export const slh_dsa_shake_256s = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_SIMPLE);
+export const slh_dsa_shake_128f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_SIMPLE);
+export const slh_dsa_shake_128s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128s'], SHAKE_SIMPLE);
+export const slh_dsa_shake_192f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192f'], SHAKE_SIMPLE);
+export const slh_dsa_shake_192s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192s'], SHAKE_SIMPLE);
+export const slh_dsa_shake_256f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256f'], SHAKE_SIMPLE);
+export const slh_dsa_shake_256s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_SIMPLE);
 
 type ShaType = typeof sha256 | typeof sha512;
 const genSha =
@@ -666,9 +666,9 @@ const SHA512_SIMPLE = {
 };
 
 // Only simple mode in SLH-DSA
-export const slh_dsa_sha2_128f = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_SIMPLE);
-export const slh_dsa_sha2_128s = /* @__PURE__ */ gen(PARAMS['128s'], SHA256_SIMPLE);
-export const slh_dsa_sha2_192f = /* @__PURE__ */ gen(PARAMS['192f'], SHA512_SIMPLE);
-export const slh_dsa_sha2_192s = /* @__PURE__ */ gen(PARAMS['192s'], SHA512_SIMPLE);
-export const slh_dsa_sha2_256f = /* @__PURE__ */ gen(PARAMS['256f'], SHA512_SIMPLE);
-export const slh_dsa_sha2_256s = /* @__PURE__ */ gen(PARAMS['256s'], SHA512_SIMPLE);
+export const slh_dsa_sha2_128f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_SIMPLE);
+export const slh_dsa_sha2_128s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128s'], SHA256_SIMPLE);
+export const slh_dsa_sha2_192f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192f'], SHA512_SIMPLE);
+export const slh_dsa_sha2_192s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192s'], SHA512_SIMPLE);
+export const slh_dsa_sha2_256f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256f'], SHA512_SIMPLE);
+export const slh_dsa_sha2_256s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256s'], SHA512_SIMPLE);

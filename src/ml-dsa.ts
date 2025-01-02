@@ -525,8 +525,10 @@ function getDilithium(opts: DilithiumOpts) {
   };
 }
 
+export type SignerWithInternal = Signer & { internal: Signer };
+
 // ML-DSA
-export const ml_dsa44 = /* @__PURE__ */ getDilithium({
+export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[2],
   CRH_BYTES: 64,
   TR_BYTES: 64,
@@ -535,7 +537,7 @@ export const ml_dsa44 = /* @__PURE__ */ getDilithium({
   XOF256,
 });
 
-export const ml_dsa65 = /* @__PURE__ */ getDilithium({
+export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[3],
   CRH_BYTES: 64,
   TR_BYTES: 64,
@@ -544,7 +546,7 @@ export const ml_dsa65 = /* @__PURE__ */ getDilithium({
   XOF256,
 });
 
-export const ml_dsa87 = /* @__PURE__ */ getDilithium({
+export const ml_dsa87: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[5],
   CRH_BYTES: 64,
   TR_BYTES: 64,

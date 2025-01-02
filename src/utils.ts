@@ -2,12 +2,12 @@
 import { bytes as abytes } from '@noble/hashes/_assert';
 import { TypedArray, concatBytes, utf8ToBytes, randomBytes as randb } from '@noble/hashes/utils';
 
-export const ensureBytes = abytes;
-export const randomBytes = randb;
+export const ensureBytes: typeof abytes = abytes;
+export const randomBytes: typeof randb = randb;
 export { concatBytes, utf8ToBytes };
 
 // Compares 2 u8a-s in kinda constant time
-export function equalBytes(a: Uint8Array, b: Uint8Array) {
+export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
@@ -102,13 +102,13 @@ export function vecCoder<T>(c: BytesCoderLen<T>, vecLen: number): BytesCoderLen<
 }
 
 // cleanBytes(new Uint8Array(), [new Uint16Array(), new Uint32Array()])
-export function cleanBytes(...list: (TypedArray | TypedArray[])[]) {
+export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
   for (const t of list) {
     if (Array.isArray(t)) for (const b of t) b.fill(0);
     else t.fill(0);
   }
 }
 
-export function getMask(bits: number) {
+export function getMask(bits: number): number {
   return (1 << bits) - 1; // 4 -> 0b1111
 }

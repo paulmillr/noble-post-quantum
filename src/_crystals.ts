@@ -32,7 +32,18 @@ function bitReversal(n: number, bits: number = 8) {
   return Number.parseInt(revrsd, 2);
 }
 
-export const genCrystals = <T extends TypedArray>(opts: CrystalOpts<T>) => {
+export const genCrystals = <T extends TypedArray>(
+  opts: CrystalOpts<T>
+): {
+  mod: (a: number, modulo?: number) => number;
+  smod: (a: number, modulo?: number) => number;
+  nttZetas: T;
+  NTT: {
+    encode: (r: T) => T;
+    decode: (r: T) => T;
+  };
+  bitsCoder: (d: number, c: Coder<number, number>) => BytesCoderLen<T>;
+} => {
   // isKyber: true means Kyber, false means Dilithium
   const { newPoly, N, Q, F, ROOT_OF_UNITY, brvBits, isKyber } = opts;
   const mod = (a: number, modulo = Q): number => {
@@ -160,5 +171,5 @@ const createXofShake =
     };
   };
 
-export const XOF128 = /* @__PURE__ */ createXofShake(shake128);
-export const XOF256 = /* @__PURE__ */ createXofShake(shake256);
+export const XOF128: XOF = /* @__PURE__ */ createXofShake(shake128);
+export const XOF256: XOF = /* @__PURE__ */ createXofShake(shake256);
