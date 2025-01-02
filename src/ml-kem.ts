@@ -12,27 +12,27 @@ import {
   vecCoder,
 } from './utils.js';
 
-/*
-Lattice-based key encapsulation mechanism.
-See [official site](https://www.pq-crystals.org/kyber/resources.shtml),
-[repo](https://github.com/pq-crystals/kyber),
-[spec](https://datatracker.ietf.org/doc/draft-cfrg-schwabe-kyber/).
-
-Key encapsulation is similar to DH / ECDH (think X25519), with important differences:
-
-- We can't verify if it was "Bob" who've sent the shared secret.
-  In ECDH, it's always verified
-- Kyber is probabalistic and relies on quality of randomness (CSPRNG).
-  ECDH doesn't (to this extent).
-- Kyber decapsulation never throws an error, even when shared secret was
-  encrypted by a different public key. It will just return a different
-  shared secret
-
-There are some concerns with regards to security: see
-[djb blog](https://blog.cr.yp.to/20231003-countcorrectly.html) and
-[mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
-
-*/
+/**
+ * Module Lattice-based Key Encapsulation Mechanism (ML-KEM). A.k.a. CRYSTALS-Kyber.
+ * FIPS-203 is implemented.
+ *
+ * Key encapsulation is similar to DH / ECDH (think X25519), with important differences:
+ * * Unlike in ECDH, we can't verify if it was "Bob" who've sent the shared secret
+ * * Unlike ECDH, it is probabalistic and relies on quality of randomness (CSPRNG).
+ * * Decapsulation never throws an error, even when shared secret was
+ *   encrypted by a different public key. It will just return a different shared secret.
+ *
+ * There are some concerns with regards to security: see
+ * [djb blog](https://blog.cr.yp.to/20231003-countcorrectly.html) and
+ * [mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
+ *
+ * Has similar internals to ML-DSA, but their keys and params are different.
+ *
+ * Check out [official site](https://www.pq-crystals.org/kyber/resources.shtml),
+ * [repo](https://github.com/pq-crystals/kyber),
+ * [spec](https://datatracker.ietf.org/doc/draft-cfrg-schwabe-kyber/).
+ * @module
+ */
 
 const N = 256; // Kyber (not FIPS-203) supports different lengths, but all std modes were using 256
 const Q = 3329; // 13*(2**8)+1, modulo prime

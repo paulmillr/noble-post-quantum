@@ -13,13 +13,15 @@ import {
   concatBytes,
 } from './utils.js';
 
-/*
-Lattice-based digital signature algorithm. See
-[official site](https://www.pq-crystals.org/dilithium/index.shtml),
-[repo](https://github.com/pq-crystals/dilithium).
-Dilithium has similar internals to Kyber, but their keys and params are different.
-
-*/
+/**
+ * Module Lattice-based Digital Signature Algorithm (ML-DSA). A.k.a. CRYSTALS-Dilithium.
+ * FIPS-204 is implemented.
+ *
+ * Has similar internals to ML-KEM, but their keys and params are different.
+ * Check out [official site](https://www.pq-crystals.org/dilithium/index.shtml),
+ * [repo](https://github.com/pq-crystals/dilithium).
+ * @module
+ */
 
 // Constants
 const N = 256;

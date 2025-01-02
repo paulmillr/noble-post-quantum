@@ -14,34 +14,31 @@ import {
   vecCoder,
 } from './utils.js';
 
-/*
-Hash-based digital signature algorithm. See [official site](https://sphincs.org).
-We implement spec v3.1 with latest FIPS-205 changes.
-It's compatible with the latest version in the [official repo](https://github.com/sphincs/sphincsplus).
-
-*/
-
-/*
-WOTS: One-time signatures (can be forged if same key used twice)
-FORS: Forest of Random Subsets
-
-Hashes are like signatures. You take private key, hash it, and share the result pubKey.
-After that you can verify it was yours by also sharing the private key.
-However, it will only work once: after pre-image was disclosed, it can't be used again.
-It also doesn't sign the message: can be interceptd and message can be replaced.
-
-How to solve "one-time" hashing? Instead of hash(k), we can provide merkle tree root hash:
-
-    h(h(h(0) || h(1)) || h(h(2) || h(3))))
-
-Now, we have the same pubKey output of hash, but disclosing one path in tree doesn't
-invalidate the others, since they are still unknown. By choosing path which is related
-to the message, we can "sign" it.
-
-There is a limitation: only a fixed amount of signatures can be made,
-a merkle tree with depth: 8 would mean 2**8 (256) paths aka 256 distinct messages.
-Attaching a different tree to each node will solve forgeries, but the key would still degrade.
-*/
+/**
+ * StateLess Hash-based Digital Signature Standard (SLH-DSA). A.k.a. Sphincs+.
+ * FIPS-205 (spec v3.1) is implemented.
+ *
+ * Hashes function similarly to signatures. You hash a private key to get a public key,
+ * which can be used to verify the private key. However, this only works once since
+ * disclosing the pre-image invalidates the key.
+ *
+ * To address the "one-time" limitation, we can use a Merkle tree root hash:
+ * h(h(h(0) || h(1)) || h(h(2) || h(3))))
+ *
+ * This allows us to have the same public key output from the hash, but disclosing one
+ * path in the tree doesn't invalidate the others. By choosing a path related to the
+ * message, we can "sign" it.
+ *
+ * Limitation: Only a fixed number of signatures can be made. For instance, a Merkle tree
+ * with depth 8 allows 256 distinct messages. Using different trees for each node can
+ * prevent forgeries, but the key will still degrade over time.
+ *
+ * WOTS: One-time signatures (can be forged if same key used twice).
+ * FORS: Forest of Random Subsets
+ *
+ * Check out [official site](https://sphincs.org) & [repo](https://github.com/sphincs/sphincsplus).
+ * @module
+ */
 
 /**
  * * N: Security parameter (in bytes). W: Winternitz parameter
