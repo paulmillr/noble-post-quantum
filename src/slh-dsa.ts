@@ -18,6 +18,9 @@ import {
  * StateLess Hash-based Digital Signature Standard (SLH-DSA). A.k.a. Sphincs+.
  * FIPS-205 (spec v3.1) is implemented.
  *
+ * There are many different kinds of SLH, but basically `sha2` / `shake` indicate internal hash,
+ * `128` / `192` / `256` indicate security level, and `s` /`f` indicate trade-off (Small / Fast).
+ *
  * Hashes function similarly to signatures. You hash a private key to get a public key,
  * which can be used to verify the private key. However, this only works once since
  * disclosing the pre-image invalidates the key.
@@ -559,12 +562,17 @@ const genShake =
 
 const SHAKE_SIMPLE = { getContext: genShake() };
 
-// Only simple mode in SLH-DSA
+/** SLH-DSA: 128-bit fast SHAKE version. */
 export const slh_dsa_shake_128f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_SIMPLE);
+/** SLH-DSA: 128-bit short SHAKE version. */
 export const slh_dsa_shake_128s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128s'], SHAKE_SIMPLE);
+/** SLH-DSA: 192-bit fast SHAKE version. */
 export const slh_dsa_shake_192f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192f'], SHAKE_SIMPLE);
+/** SLH-DSA: 192-bit short SHAKE version. */
 export const slh_dsa_shake_192s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192s'], SHAKE_SIMPLE);
+/** SLH-DSA: 256-bit fast SHAKE version. */
 export const slh_dsa_shake_256f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256f'], SHAKE_SIMPLE);
+/** SLH-DSA: 256-bit short SHAKE version. */
 export const slh_dsa_shake_256s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_SIMPLE);
 
 type ShaType = typeof sha256 | typeof sha512;
@@ -665,10 +673,15 @@ const SHA512_SIMPLE = {
   getContext: genSha(sha256, sha512),
 };
 
-// Only simple mode in SLH-DSA
+/** SLH-DSA: 128-bit fast SHA2 version. */
 export const slh_dsa_sha2_128f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_SIMPLE);
+/** SLH-DSA: 128-bit small SHA2 version. */
 export const slh_dsa_sha2_128s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128s'], SHA256_SIMPLE);
+/** SLH-DSA: 192-bit fast SHA2 version. */
 export const slh_dsa_sha2_192f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192f'], SHA512_SIMPLE);
+/** SLH-DSA: 192-bit small SHA2 version. */
 export const slh_dsa_sha2_192s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192s'], SHA512_SIMPLE);
+/** SLH-DSA: 256-bit fast SHA2 version. */
 export const slh_dsa_sha2_256f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256f'], SHA512_SIMPLE);
+/** SLH-DSA: 256-bit small SHA2 version. */
 export const slh_dsa_sha2_256s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256s'], SHA512_SIMPLE);

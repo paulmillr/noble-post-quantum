@@ -34,6 +34,7 @@ import {
  * @module
  */
 
+/** Key encapsulation mechanism interface */
 export type KEM = {
   publicKeyLen: number;
   msgLen: number;
@@ -65,7 +66,7 @@ const { mod, nttZetas, NTT, bitsCoder } = genCrystals({
   isKyber: true,
 });
 
-// FIPS 203: 7. Parameter Sets
+/** FIPS 203: 7. Parameter Sets */
 type ParameterSet = {
   N: number;
   K: number;
@@ -76,6 +77,7 @@ type ParameterSet = {
   dv: number;
   RBGstrength: number;
 };
+/** Internal params of ML-KEM versions */
 // prettier-ignore
 export const PARAMS: Record<string, ParameterSet> = {
   512: { N, Q, K: 2, ETA1: 3, ETA2: 2, du: 10, dv: 4, RBGstrength: 128 },
@@ -344,17 +346,19 @@ const opts = {
   PRF: shakePRF,
 };
 
-/**
- * FIPS-203 ML-KEM.
- */
+/** ML-KEM-512 for 128-bit security level. As per ASD, not recommended after 2030. */
 export const ml_kem512: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[512],
 });
+
+/** ML-KEM-768, for 192-bit security level. As per ASD, not recommended after 2030. */
 export const ml_kem768: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[768],
 });
+
+/** ML-KEM-1024 for 256-bit security level. As per ASD, OK after 2030. */
 export const ml_kem1024: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[1024],

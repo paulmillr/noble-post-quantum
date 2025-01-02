@@ -47,6 +47,7 @@ type Param = {
   ETA: number;
   OMEGA: number;
 };
+/** Internal params for different versions of ML-DSA  */
 // prettier-ignore
 export const PARAMS: Record<string, Param> = {
   2: { K: 4, L: 4, D, GAMMA1: 2 ** 17, GAMMA2: GAMMA2_1, TAU: 39, ETA: 2, OMEGA: 80 },
@@ -525,9 +526,10 @@ function getDilithium(opts: DilithiumOpts) {
   };
 }
 
+/** Signer API, containing internal methods */
 export type SignerWithInternal = Signer & { internal: Signer };
 
-// ML-DSA
+/** ML-DSA-44 for 128-bit security level. As per ASD, not recommended after 2030. */
 export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[2],
   CRH_BYTES: 64,
@@ -537,6 +539,7 @@ export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
   XOF256,
 });
 
+/** ML-DSA-65 for 192-bit security level. As per ASD, not recommended after 2030. */
 export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[3],
   CRH_BYTES: 64,
@@ -546,6 +549,7 @@ export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
   XOF256,
 });
 
+/** ML-DSA-87 for 256-bit security level. As per ASD, OK after 2030. */
 export const ml_dsa87: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[5],
   CRH_BYTES: 64,
