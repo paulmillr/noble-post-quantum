@@ -1,3 +1,7 @@
+/**
+ * Methods for lattices on ML-KEM and ML-DSA.
+ * @module
+ */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { shake128, shake256 } from '@noble/hashes/sha3';
 import type { TypedArray } from '@noble/hashes/utils';

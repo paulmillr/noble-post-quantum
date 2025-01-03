@@ -1,3 +1,12 @@
+/**
+ * Module Lattice-based Digital Signature Algorithm (ML-DSA). A.k.a. CRYSTALS-Dilithium.
+ * FIPS-204 is implemented.
+ *
+ * Has similar internals to ML-KEM, but their keys and params are different.
+ * Check out [official site](https://www.pq-crystals.org/dilithium/index.shtml),
+ * [repo](https://github.com/pq-crystals/dilithium).
+ * @module
+ */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { shake256 } from '@noble/hashes/sha3';
 import { genCrystals, XOF, XOF128, XOF256 } from './_crystals.js';
@@ -13,16 +22,6 @@ import {
   concatBytes,
 } from './utils.js';
 
-/**
- * Module Lattice-based Digital Signature Algorithm (ML-DSA). A.k.a. CRYSTALS-Dilithium.
- * FIPS-204 is implemented.
- *
- * Has similar internals to ML-KEM, but their keys and params are different.
- * Check out [official site](https://www.pq-crystals.org/dilithium/index.shtml),
- * [repo](https://github.com/pq-crystals/dilithium).
- * @module
- */
-
 // Constants
 const N = 256;
 // 2**23 − 2**13 + 1, 23 bits: multiply will be 46. We have enough precision in JS to avoid bigints
@@ -37,7 +36,8 @@ const GAMMA2_2 = Math.floor((Q - 1) / 32) | 0;
 
 type XofGet = ReturnType<ReturnType<XOF>['get']>;
 
-type Param = {
+/** Various lattice params. */
+export type DSAParam = {
   K: number;
   L: number;
   D: number;
@@ -49,7 +49,7 @@ type Param = {
 };
 /** Internal params for different versions of ML-DSA  */
 // prettier-ignore
-export const PARAMS: Record<string, Param> = {
+export const PARAMS: Record<string, DSAParam> = {
   2: { K: 4, L: 4, D, GAMMA1: 2 ** 17, GAMMA2: GAMMA2_1, TAU: 39, ETA: 2, OMEGA: 80 },
   3: { K: 6, L: 5, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 49, ETA: 4, OMEGA: 55 },
   5: { K: 8, L: 7, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 60, ETA: 2, OMEGA: 75 },

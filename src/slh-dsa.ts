@@ -1,19 +1,3 @@
-/*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { HMAC } from '@noble/hashes/hmac';
-import { sha256, sha512 } from '@noble/hashes/sha2';
-import { shake256 } from '@noble/hashes/sha3';
-import { bytesToHex, hexToBytes, createView, concatBytes } from '@noble/hashes/utils';
-import {
-  Signer,
-  cleanBytes,
-  ensureBytes,
-  equalBytes,
-  getMask,
-  randomBytes,
-  splitCoder,
-  vecCoder,
-} from './utils.js';
-
 /**
  * StateLess Hash-based Digital Signature Standard (SLH-DSA). A.k.a. Sphincs+.
  * FIPS-205 (spec v3.1) is implemented.
@@ -42,6 +26,21 @@ import {
  * Check out [official site](https://sphincs.org) & [repo](https://github.com/sphincs/sphincsplus).
  * @module
  */
+/*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import { HMAC } from '@noble/hashes/hmac';
+import { sha256, sha512 } from '@noble/hashes/sha2';
+import { shake256 } from '@noble/hashes/sha3';
+import { bytesToHex, hexToBytes, createView, concatBytes } from '@noble/hashes/utils';
+import {
+  Signer,
+  cleanBytes,
+  ensureBytes,
+  equalBytes,
+  getMask,
+  randomBytes,
+  splitCoder,
+  vecCoder,
+} from './utils.js';
 
 /**
  * * N: Security parameter (in bytes). W: Winternitz parameter
@@ -62,6 +61,7 @@ export type SphincsHashOpts = {
   getContext: GetContext;
 };
 
+/** Winternitz signature params. */
 export const PARAMS: Record<string, SphincsOpts> = {
   '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6 },
   '128s': { W: 16, N: 16, H: 63, D: 7, K: 14, A: 12 },
@@ -81,9 +81,10 @@ const enum AddressType {
   FORSPRF,
 }
 
+/** Address, byte array of size ADDR_BYTES */
 export type ADRS = Uint8Array;
 
-type Context = {
+export type Context = {
   PRFaddr: (addr: ADRS) => Uint8Array;
   PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => Uint8Array;
   Hmsg: (R: Uint8Array, pk: Uint8Array, m: Uint8Array, outLen: number) => Uint8Array;
@@ -130,7 +131,7 @@ function getMaskBig(bits: number) {
   return (1n << BigInt(bits)) - 1n; // 4 -> 0b1111
 }
 
-type SphincsSigner = Signer & { seedLen: number };
+export type SphincsSigner = Signer & { seedLen: number };
 
 function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const { N, W, H, D, K, A } = opts;

@@ -1,17 +1,3 @@
-/*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3';
-import { u32, wrapConstructor, wrapConstructorWithOpts } from '@noble/hashes/utils';
-import { genCrystals, XOF, XOF128 } from './_crystals.js';
-import {
-  Coder,
-  cleanBytes,
-  ensureBytes,
-  equalBytes,
-  randomBytes,
-  splitCoder,
-  vecCoder,
-} from './utils.js';
-
 /**
  * Module Lattice-based Key Encapsulation Mechanism (ML-KEM). A.k.a. CRYSTALS-Kyber.
  * FIPS-203 is implemented.
@@ -33,6 +19,19 @@ import {
  * [spec](https://datatracker.ietf.org/doc/draft-cfrg-schwabe-kyber/).
  * @module
  */
+/*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3';
+import { u32, wrapConstructor, wrapConstructorWithOpts } from '@noble/hashes/utils';
+import { genCrystals, XOF, XOF128 } from './_crystals.js';
+import {
+  Coder,
+  cleanBytes,
+  ensureBytes,
+  equalBytes,
+  randomBytes,
+  splitCoder,
+  vecCoder,
+} from './utils.js';
 
 /** Key encapsulation mechanism interface */
 export type KEM = {
@@ -67,7 +66,7 @@ const { mod, nttZetas, NTT, bitsCoder } = genCrystals({
 });
 
 /** FIPS 203: 7. Parameter Sets */
-type ParameterSet = {
+export type KEMParam = {
   N: number;
   K: number;
   Q: number;
@@ -79,7 +78,7 @@ type ParameterSet = {
 };
 /** Internal params of ML-KEM versions */
 // prettier-ignore
-export const PARAMS: Record<string, ParameterSet> = {
+export const PARAMS: Record<string, KEMParam> = {
   512: { N, Q, K: 2, ETA1: 3, ETA2: 2, du: 10, dv: 4, RBGstrength: 128 },
   768: { N, Q, K: 3, ETA1: 2, ETA2: 2, du: 10, dv: 4, RBGstrength: 192 },
   1024:{ N, Q, K: 4, ETA1: 2, ETA2: 2, du: 11, dv: 5, RBGstrength: 256 },
@@ -142,7 +141,7 @@ type Hash = ReturnType<typeof wrapConstructor>;
 type HashWOpts = ReturnType<typeof wrapConstructorWithOpts>;
 type XofGet = ReturnType<ReturnType<XOF>['get']>;
 
-type KyberOpts = ParameterSet & {
+type KyberOpts = KEMParam & {
   HASH256: Hash;
   HASH512: Hash;
   KDF: Hash | HashWOpts;
