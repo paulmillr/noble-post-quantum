@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Auditable & minimal JS implementation of post-quantum public-key cryptography: FIPS 203, 204, 205",
   "files": [
     "*.js",
@@ -31,7 +31,7 @@
   "license": "MIT",
   "sideEffects": false,
   "dependencies": {
-    "@noble/hashes": "1.6.1"
+    "@noble/hashes": "1.7.0"
   },
   "devDependencies": {
     "@paulmillr/jsbt": "0.2.1",
