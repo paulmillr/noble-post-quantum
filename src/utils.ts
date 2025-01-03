@@ -3,7 +3,7 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { bytes as abytes } from '@noble/hashes/_assert';
+import { abytes } from '@noble/hashes/_assert';
 import { TypedArray, concatBytes, utf8ToBytes, randomBytes as randb } from '@noble/hashes/utils';
 
 export const ensureBytes: typeof abytes = abytes;
