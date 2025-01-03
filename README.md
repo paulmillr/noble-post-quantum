@@ -1,6 +1,6 @@
 # noble-post-quantum
 
-Auditable & minimal JS implementation of public-key post-quantum cryptography.
+Auditable & minimal JS implementation of post-quantum public-key cryptography.
 
 - 🔒 Auditable
 - 🔻 Tree-shakeable: unused code is excluded from your builds
