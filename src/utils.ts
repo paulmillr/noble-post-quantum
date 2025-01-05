@@ -18,6 +18,7 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+/** Generic interface for signatures. Has keygen, sign and verify. */
 export type Signer = {
   signRandBytes: number;
   keygen: (seed: Uint8Array) => {

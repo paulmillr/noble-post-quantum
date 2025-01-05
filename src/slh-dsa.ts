@@ -1,6 +1,6 @@
 /**
- * StateLess Hash-based Digital Signature Standard (SLH-DSA). A.k.a. Sphincs+.
- * FIPS-205 (spec v3.1) is implemented.
+ * SLH-DSA: StateLess Hash-based Digital Signature Standard from
+ * [FIPS-205](https://csrc.nist.gov/pubs/fips/205/ipd). A.k.a. Sphincs+ v3.1.
  *
  * There are many different kinds of SLH, but basically `sha2` / `shake` indicate internal hash,
  * `128` / `192` / `256` indicate security level, and `s` /`f` indicate trade-off (Small / Fast).

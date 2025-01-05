@@ -1,6 +1,6 @@
 /**
- * Module Lattice-based Key Encapsulation Mechanism (ML-KEM). A.k.a. CRYSTALS-Kyber.
- * FIPS-203 is implemented.
+ * ML-KEM: Module Lattice-based Key Encapsulation Mechanism from
+ * [FIPS-203](https://csrc.nist.gov/pubs/fips/203/ipd). A.k.a. CRYSTALS-Kyber.
  *
  * Key encapsulation is similar to DH / ECDH (think X25519), with important differences:
  * * Unlike in ECDH, we can't verify if it was "Bob" who've sent the shared secret
@@ -345,19 +345,19 @@ const opts = {
   PRF: shakePRF,
 };
 
-/** ML-KEM-512 for 128-bit security level. As per ASD, not recommended after 2030. */
+/** ML-KEM-512 for 128-bit security level. Not recommended after 2030, as per ASD. */
 export const ml_kem512: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[512],
 });
 
-/** ML-KEM-768, for 192-bit security level. As per ASD, not recommended after 2030. */
+/** ML-KEM-768, for 192-bit security level. Not recommended after 2030, as per ASD. */
 export const ml_kem768: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[768],
 });
 
-/** ML-KEM-1024 for 256-bit security level. As per ASD, OK after 2030. */
+/** ML-KEM-1024 for 256-bit security level. OK after 2030, as per ASD. */
 export const ml_kem1024: KEM = /* @__PURE__ */ createKyber({
   ...opts,
   ...PARAMS[1024],

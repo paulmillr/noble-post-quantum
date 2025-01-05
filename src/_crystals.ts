@@ -1,5 +1,5 @@
 /**
- * Methods for lattices on ML-KEM and ML-DSA.
+ * Internal methods for lattice-based ML-KEM and ML-DSA.
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */

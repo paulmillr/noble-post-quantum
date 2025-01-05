@@ -1,6 +1,6 @@
 /**
- * Module Lattice-based Digital Signature Algorithm (ML-DSA). A.k.a. CRYSTALS-Dilithium.
- * FIPS-204 is implemented.
+ * ML-DSA: Module Lattice-based Digital Signature Algorithm from
+ * [FIPS-204](https://csrc.nist.gov/pubs/fips/204/ipd). A.k.a. CRYSTALS-Dilithium.
  *
  * Has similar internals to ML-KEM, but their keys and params are different.
  * Check out [official site](https://www.pq-crystals.org/dilithium/index.shtml),
@@ -529,7 +529,7 @@ function getDilithium(opts: DilithiumOpts) {
 /** Signer API, containing internal methods */
 export type SignerWithInternal = Signer & { internal: Signer };
 
-/** ML-DSA-44 for 128-bit security level. As per ASD, not recommended after 2030. */
+/** ML-DSA-44 for 128-bit security level. Not recommended after 2030, as per ASD. */
 export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[2],
   CRH_BYTES: 64,
@@ -539,7 +539,7 @@ export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
   XOF256,
 });
 
-/** ML-DSA-65 for 192-bit security level. As per ASD, not recommended after 2030. */
+/** ML-DSA-65 for 192-bit security level. Not recommended after 2030, as per ASD. */
 export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[3],
   CRH_BYTES: 64,
@@ -549,7 +549,7 @@ export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
   XOF256,
 });
 
-/** ML-DSA-87 for 256-bit security level. As per ASD, OK after 2030. */
+/** ML-DSA-87 for 256-bit security level. OK after 2030, as per ASD. */
 export const ml_dsa87: SignerWithInternal = /* @__PURE__ */ getDilithium({
   ...PARAMS[5],
   CRH_BYTES: 64,
