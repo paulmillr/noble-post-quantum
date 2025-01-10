@@ -2,8 +2,8 @@ import { deepStrictEqual, throws } from 'node:assert';
 import { pathToFileURL } from 'node:url';
 import { describe, should } from 'micro-should';
 import { concatBytes, hexToBytes } from '@noble/hashes/utils';
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../ml-dsa.js';
-import { ml_kem512, ml_kem768, ml_kem1024 } from '../ml-kem.js';
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../esm/ml-dsa.js';
+import { ml_kem512, ml_kem768, ml_kem1024 } from '../esm/ml-kem.js';
 import {
   slh_dsa_shake_128f,
   slh_dsa_shake_128s,
@@ -17,7 +17,7 @@ import {
   slh_dsa_sha2_192s,
   slh_dsa_sha2_256f,
   slh_dsa_sha2_256s,
-} from '../slh-dsa.js';
+} from '../esm/slh-dsa.js';
 import { jsonGZ } from './util.js';
 
 // TODO: use in other libraries? seems useful
@@ -188,5 +188,5 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
 /*
 NOTE: we pass tests from NIST test vectors, however:
 - HashML-DSA/HashSLH-DSA not implemented (there is no tests for them)
-- 
+-
 */

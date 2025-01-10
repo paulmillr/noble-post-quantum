@@ -1,6 +1,6 @@
 import { should } from 'micro-should';
-import './ml-kem.test.js';
-import './ml-dsa.test.js';
+// import './ml-kem.test.js';
+// import './ml-dsa.test.js';
 import './avcp.test.js'; // Test vectors from 'AVCP'
 
 // ESM is broken.

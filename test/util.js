@@ -4,13 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 export const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const readGZ = (path) => {
+function readGZ(path) {
   let data = readFileSync(`${__dirname}/${path}`);
   if (path.endsWith('.gz')) data = gunzipSync(data);
-  return Buffer.from(data).toString('utf8');
-};
+  return new TextDecoder().decode(data);
+}
 
-export const readKAT = (name, firstField) => {
+export function jsonGZ(path) {
+  return JSON.parse(readGZ(path));
+}
+
+export function readKAT(name, firstField) {
   const data = readGZ(`vectors/KAT/${name}`);
   let cases;
   if (!firstField) cases = data.split(/\n\n/gm);
@@ -34,6 +38,4 @@ export const readKAT = (name, firstField) => {
     res.push(out);
   }
   return res;
-};
-
-export const jsonGZ = (path) => JSON.parse(readGZ(path));
+}
