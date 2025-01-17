@@ -4,7 +4,12 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { abytes } from '@noble/hashes/_assert';
-import { TypedArray, concatBytes, utf8ToBytes, randomBytes as randb } from '@noble/hashes/utils';
+import {
+  type TypedArray,
+  concatBytes,
+  randomBytes as randb,
+  utf8ToBytes,
+} from '@noble/hashes/utils';
 
 export const ensureBytes: typeof abytes = abytes;
 export const randomBytes: typeof randb = randb;

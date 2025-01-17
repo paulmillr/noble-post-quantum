@@ -22,10 +22,10 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3';
 import { u32, wrapConstructor, wrapConstructorWithOpts } from '@noble/hashes/utils';
-import { genCrystals, XOF, XOF128 } from './_crystals.js';
+import { genCrystals, type XOF, XOF128 } from './_crystals.js';
 import {
-  Coder,
   cleanBytes,
+  type Coder,
   ensureBytes,
   equalBytes,
   randomBytes,

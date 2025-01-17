@@ -9,17 +9,17 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { shake256 } from '@noble/hashes/sha3';
-import { genCrystals, XOF, XOF128, XOF256 } from './_crystals.js';
+import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.js';
 import {
-  BytesCoderLen,
-  Signer,
+  type BytesCoderLen,
   cleanBytes,
+  concatBytes,
   ensureBytes,
   equalBytes,
   randomBytes,
+  type Signer,
   splitCoder,
   vecCoder,
-  concatBytes,
 } from './utils.js';
 
 // Constants

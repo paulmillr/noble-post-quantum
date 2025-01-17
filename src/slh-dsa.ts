@@ -30,9 +30,9 @@
 import { HMAC } from '@noble/hashes/hmac';
 import { sha256, sha512 } from '@noble/hashes/sha2';
 import { shake256 } from '@noble/hashes/sha3';
-import { bytesToHex, hexToBytes, createView, concatBytes } from '@noble/hashes/utils';
+import { bytesToHex, concatBytes, createView, hexToBytes } from '@noble/hashes/utils';
 import {
-  Signer,
+  type Signer,
   cleanBytes,
   ensureBytes,
   equalBytes,
