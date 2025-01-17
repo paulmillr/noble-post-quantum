@@ -37,11 +37,11 @@ Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-qu
 
 ## Usage
 
-> npm install @noble/post-quantum
+> `npm install @noble/post-quantum`
 
-> deno add jsr:@noble/post-quantum
+> `deno add jsr:@noble/post-quantum`
 
-> deno doc jsr:@noble/post-quantum  # command-line documentation
+> `deno doc jsr:@noble/post-quantum` # command-line documentation
 
 We support all major platforms and runtimes.
 For React Native, you may need a
