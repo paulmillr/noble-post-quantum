@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "exports": {
     ".": "./src/index.ts",
     "./_crystals": "./src/_crystals.ts",
@@ -10,7 +10,7 @@
     "./utils": "./src/utils.ts"
   },
   "imports": {
-    "@noble/hashes": "jsr:@noble/hashes@1.7.0"
+    "@noble/hashes": "jsr:@noble/hashes@1.7.1"
   },
   "publish": {
     "include": [
