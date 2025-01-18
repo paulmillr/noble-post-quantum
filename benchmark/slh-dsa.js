@@ -1,5 +1,5 @@
+import { compare } from 'micro-bmark';
 import { deepStrictEqual } from 'node:assert';
-import { compare, utils } from 'micro-bmark';
 import * as dsa from '../slh-dsa.js';
 
 const msg = new Uint8Array(32).fill(2);
@@ -71,7 +71,6 @@ export async function main() {
       );
     }
   }
-  utils.logMem();
 }
 
 // ESM is broken.

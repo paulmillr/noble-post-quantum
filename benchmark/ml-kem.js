@@ -1,10 +1,6 @@
+import { compare } from 'micro-bmark';
 import { deepStrictEqual } from 'node:assert';
-import { compare, utils } from 'micro-bmark';
-import {
-  ml_kem512,
-  ml_kem768,
-  ml_kem1024,
-} from '../ml-kem.js';
+import { ml_kem1024, ml_kem512, ml_kem768 } from '../ml-kem.js';
 
 const getOpts = (lib) => {
   const { publicKey, secretKey } = lib.keygen();
@@ -65,7 +61,6 @@ export async function main() {
       );
     }
   }
-  utils.logMem();
 }
 
 // ESM is broken.

@@ -1,10 +1,6 @@
+import { compare } from 'micro-bmark';
 import { deepStrictEqual } from 'node:assert';
-import { compare, utils } from 'micro-bmark';
-import {
-  ml_dsa44,
-  ml_dsa65,
-  ml_dsa87,
-} from '../ml-dsa.js';
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../ml-dsa.js';
 const seed = new Uint8Array(32).fill(1);
 const msg = new Uint8Array(32).fill(2);
 
@@ -21,15 +17,15 @@ const getNoble = (lib) => ({
 });
 
 const MLDSA = {
-  'v44': {
+  v44: {
     opts: getOpts(ml_dsa44),
     noble: getNoble(ml_dsa44),
   },
-  'v65': {
+  v65: {
     opts: getOpts(ml_dsa65),
     noble: getNoble(ml_dsa65),
   },
-  'v87': {
+  v87: {
     opts: getOpts(ml_dsa87),
     noble: getNoble(ml_dsa87),
   },
@@ -70,7 +66,6 @@ export async function main() {
       MLDSA.v87.noble.verify(MLDSA.v87.opts);
     },
   });
-  utils.logMem();
 }
 
 // ESM is broken.
