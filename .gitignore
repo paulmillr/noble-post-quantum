@@ -4,4 +4,4 @@ node_modules
 *.d.ts
 *.d.ts.map
 *.js.map
-/build/noble-post-quantum.js
+/test/build
