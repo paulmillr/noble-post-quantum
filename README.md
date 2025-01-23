@@ -54,14 +54,19 @@ A standalone file
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
 import {
-  slh_dsa_sha2_128f, slh_dsa_sha2_128s,
-  slh_dsa_sha2_192f, slh_dsa_sha2_192s,
-  slh_dsa_sha2_256f, slh_dsa_sha2_256s,
-  slh_dsa_shake_128f, slh_dsa_shake_128s,
-  slh_dsa_shake_192f, slh_dsa_shake_192s,
-  slh_dsa_shake_256f, slh_dsa_shake_256s,
+  slh_dsa_sha2_128f,
+  slh_dsa_sha2_128s,
+  slh_dsa_sha2_192f,
+  slh_dsa_sha2_192s,
+  slh_dsa_sha2_256f,
+  slh_dsa_sha2_256s,
+  slh_dsa_shake_128f,
+  slh_dsa_shake_128s,
+  slh_dsa_shake_192f,
+  slh_dsa_shake_192s,
+  slh_dsa_shake_256f,
+  slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa';
-// import { ml_kem768 } from 'npm:@noble/post-quantum@0.1.0/ml-kem'; // Deno
 ```
 
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
@@ -134,12 +139,18 @@ The internals are similar to ML-KEM, but keys and params are different.
 
 ```ts
 import {
-  slh_dsa_sha2_128f, slh_dsa_sha2_128s,
-  slh_dsa_sha2_192f, slh_dsa_sha2_192s,
-  slh_dsa_sha2_256f, slh_dsa_sha2_256s,
-  slh_dsa_shake_128f, slh_dsa_shake_128s,
-  slh_dsa_shake_192f, slh_dsa_shake_192s,
-  slh_dsa_shake_256f, slh_dsa_shake_256s,
+  slh_dsa_sha2_128f,
+  slh_dsa_sha2_128s,
+  slh_dsa_sha2_192f,
+  slh_dsa_sha2_192s,
+  slh_dsa_sha2_256f,
+  slh_dsa_sha2_256s,
+  slh_dsa_shake_128f,
+  slh_dsa_shake_128s,
+  slh_dsa_shake_192f,
+  slh_dsa_shake_192s,
+  slh_dsa_shake_256f,
+  slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa';
 import { utf8ToBytes } from '@noble/post-quantum/utils';
 
@@ -158,14 +169,14 @@ SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 
 ### What should I use?
 
-|           | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
-| --------- | ------ | ----------- | ----------- | ---------- | -------------- | ------------- |
-| RSA       | Normal | 256B - 2KB  | 256B - 2KB  | 1970s      | 1990s          | No            |
-| ECC       | Normal | 32 - 256B   | 48 - 128B   | 1980s      | 2010s          | No            |
-| ML-KEM    | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
-| ML-DSA    | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
-| SLH-DSA   | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
-| FN-DSA    | Slow   | 0.9 - 1.8KB | 0.6 - 1.2KB | 1990s      | 2020s          | Yes           |
+|         | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
+| ------- | ------ | ----------- | ----------- | ---------- | -------------- | ------------- |
+| RSA     | Normal | 256B - 2KB  | 256B - 2KB  | 1970s      | 1990s          | No            |
+| ECC     | Normal | 32 - 256B   | 48 - 128B   | 1980s      | 2010s          | No            |
+| ML-KEM  | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
+| ML-DSA  | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
+| SLH-DSA | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
+| FN-DSA  | Slow   | 0.9 - 1.8KB | 0.6 - 1.2KB | 1990s      | 2020s          | Yes           |
 
 We suggest to use ECC + ML-KEM for key agreement, ECC + SLH-DSA for signatures.
 
@@ -233,10 +244,10 @@ verify
 └─ML-DSA87 x 220 ops/sec @ 4ms/op
 ```
 
-SLH-DSA (_shake is 8x slower):
+SLH-DSA (\_shake is 8x slower):
 
 |           | sig size | keygen | sign   | verify |
-|-----------|----------|--------|--------|--------|
+| --------- | -------- | ------ | ------ | ------ |
 | sha2_128f | 18088    | 4ms    | 90ms   | 6ms    |
 | sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
 | sha2_192f | 35664    | 6ms    | 160ms  | 9ms    |
@@ -246,10 +257,10 @@ SLH-DSA (_shake is 8x slower):
 
 ## Contributing & testing
 
-* `npm install && npm run build && npm test` will build the code and run tests.
-* `npm run lint` / `npm run format` will run linter / fix linter issues.
-* `npm run bench` will run benchmarks, which may need their deps first (`npm run bench:install`)
-* `cd build && npm install && npm run build:release` will build single file
+- `npm install && npm run build && npm test` will build the code and run tests.
+- `npm run lint` / `npm run format` will run linter / fix linter issues.
+- `npm run bench` will run benchmarks, which may need their deps first (`npm run bench:install`)
+- `cd build && npm install && npm run build:release` will build single file
 
 Check out [github.com/paulmillr/guidelines](https://github.com/paulmillr/guidelines)
 for general coding practices and rules.
