@@ -13,9 +13,11 @@ import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.js';
 import {
   type BytesCoderLen,
   cleanBytes,
-  concatBytes,
+  EMPTY,
   ensureBytes,
   equalBytes,
+  getMessage,
+  getMessagePrehash,
   randomBytes,
   type Signer,
   splitCoder,
@@ -123,8 +125,6 @@ function RejNTTPoly(xof: XofGet) {
   }
   return r;
 }
-
-const EMPTY = new Uint8Array(0);
 
 type DilithiumOpts = {
   K: number;
@@ -370,7 +370,7 @@ function getDilithium(opts: DilithiumOpts) {
       return { publicKey, secretKey };
     },
     // NOTE: random is optional.
-    sign: (secretKey: Uint8Array, msg: Uint8Array, random?: Uint8Array) => {
+    sign: (secretKey: Uint8Array, msg: Uint8Array, random?: Uint8Array, externalMu = false) => {
       // This part can be pre-cached per secretKey, but there is only minor performance improvement,
       // since we re-use a lot of variables to computation.
       const [rho, _K, tr, s1, s2, t0] = secretCoder.decode(secretKey); // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
@@ -389,7 +389,9 @@ function getDilithium(opts: DilithiumOpts) {
         NTT.encode(t0[i]); // tˆ0 ← NTT(t0)
       }
       // This part is per msg
-      const mu = shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 6: µ ← H(tr||M, 512) ▷ Compute message representative µ
+      const mu = externalMu
+        ? msg
+        : shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 6: µ ← H(tr||M, 512) ▷ Compute message representative µ
 
       // Compute private random seed
       const rnd = random ? random : new Uint8Array(32);
@@ -458,7 +460,7 @@ function getDilithium(opts: DilithiumOpts) {
       // @ts-ignore
       throw new Error('Unreachable code path reached, report this error');
     },
-    verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array) => {
+    verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, externalMu = false) => {
       // ML-DSA.Verify(pk, M, σ): Verifes a signature σ for a message M.
       const [rho, t1] = publicCoder.decode(publicKey); // (ρ, t1) ← pkDecode(pk)
       const tr = shake256(publicKey, { dkLen: TR_BYTES }); // 6: tr ← H(BytesToBits(pk), 512)
@@ -467,7 +469,9 @@ function getDilithium(opts: DilithiumOpts) {
       const [cTilde, z, h] = sigCoder.decode(sig); // (c˜, z, h) ← sigDecode(σ), ▷ Signer’s commitment hash c ˜, response z and hint
       if (h === false) return false; // if h = ⊥ then return false
       for (let i = 0; i < L; i++) if (polyChknorm(z[i], GAMMA1 - BETA)) return false;
-      const mu = shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 7: µ ← H(tr||M, 512)
+      const mu = externalMu
+        ? msg
+        : shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 7: µ ← H(tr||M, 512)
       // Compute verifer’s challenge from c˜
       const c = NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1)
       const zNtt = z.map((i) => i.slice()); // zNtt = NTT(z)
@@ -503,13 +507,6 @@ function getDilithium(opts: DilithiumOpts) {
       return equalBytes(cTilde, c2);
     },
   };
-  const getMessage = (msg: Uint8Array, ctx = EMPTY) => {
-    ensureBytes(msg);
-    ensureBytes(ctx);
-    if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
-    return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
-  };
-  // TODO: no hash-dsa vectors for now, so we don't implement it yet
   return {
     internal,
     keygen: internal.keygen,
@@ -523,6 +520,17 @@ function getDilithium(opts: DilithiumOpts) {
     verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
       return internal.verify(publicKey, getMessage(msg, ctx), sig);
     },
+    prehash: (hashName: string) => ({
+      sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
+        const M = getMessagePrehash(hashName, msg, ctx);
+        const res = internal.sign(secretKey, M, random);
+        M.fill(0);
+        return res;
+      },
+      verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
+        return internal.verify(publicKey, getMessagePrehash(hashName, msg, ctx), sig);
+      },
+    }),
   };
 }
 

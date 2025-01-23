@@ -16,6 +16,7 @@ export type XOF = (
   clean: () => void;
 };
 
+/** CRYSTALS (ml-kem, ml-dsa) options */
 export type CrystalOpts<T extends TypedArray> = {
   newPoly: TypedCons<T>;
   N: number; // poly size, 256

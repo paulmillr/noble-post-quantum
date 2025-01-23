@@ -32,11 +32,14 @@ import { sha256, sha512 } from '@noble/hashes/sha2';
 import { shake256 } from '@noble/hashes/sha3';
 import { bytesToHex, concatBytes, createView, hexToBytes } from '@noble/hashes/utils';
 import {
+  EMPTY,
   type Signer,
   cleanBytes,
   ensureBytes,
   equalBytes,
   getMask,
+  getMessage,
+  getMessagePrehash,
   randomBytes,
   splitCoder,
   vecCoder,
@@ -131,7 +134,10 @@ function getMaskBig(bits: number) {
   return (1n << BigInt(bits)) - 1n; // 4 -> 0b1111
 }
 
-export type SphincsSigner = Signer & { seedLen: number };
+export type SphincsSigner = Signer & { seedLen: number } & {
+  internal: Signer;
+  prehash: (hashName: string) => Signer;
+};
 
 function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const { N, W, H, D, K, A } = opts;
@@ -373,8 +379,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const forsCoder = vecCoder(splitCoder(N, N * A), K);
   const wotsCoder = vecCoder(splitCoder(WOTS_LEN * N, TREE_HEIGHT * N), D);
   const sigCoder = splitCoder(N, forsCoder, wotsCoder); // random || fors || wots
-  return {
-    seedLen: seedCoder.bytesLen,
+  const internal: Signer = {
     signRandBytes: N,
     keygen(seed = randomBytes(seedCoder.bytesLen)) {
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
@@ -519,6 +524,35 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       }
       return equalBytes(root, pubRoot);
     },
+  };
+  return {
+    internal,
+    seedLen: seedCoder.bytesLen,
+    keygen: internal.keygen,
+    signRandBytes: internal.signRandBytes,
+    sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
+      const M = getMessage(msg, ctx);
+      const res = internal.sign(secretKey, M, random);
+      M.fill(0);
+      return res;
+    },
+    verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
+      return internal.verify(publicKey, getMessage(msg, ctx), sig);
+    },
+    prehash: (hashName: string) => ({
+      seedLen: seedCoder.bytesLen,
+      keygen: internal.keygen,
+      signRandBytes: internal.signRandBytes,
+      sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
+        const M = getMessagePrehash(hashName, msg, ctx);
+        const res = internal.sign(secretKey, M, random);
+        M.fill(0);
+        return res;
+      },
+      verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
+        return internal.verify(publicKey, getMessagePrehash(hashName, msg, ctx), sig);
+      },
+    }),
   };
 }
 
