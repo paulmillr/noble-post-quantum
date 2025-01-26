@@ -193,10 +193,39 @@ For [hashes](https://github.com/paulmillr/noble-hashes), use SHA512 or SHA3-512 
 
 The library has not been independently audited yet.
 
+If you see anything unusual: investigate and report.
+
+### Constant-timeness
+
 There is no protection against side-channel attacks.
+We actively research how to provide this property for post-quantum algorithms in JS.
 Keep in mind that even hardware versions ML-KEM [are vulnerable](https://eprint.iacr.org/2023/1084).
 
-If you see anything unusual: investigate and report.
+### Supply chain security
+
+- **Commits** are signed with PGP keys, to prevent forgery. Make sure to verify commit signatures
+- **Releases** are transparent and built on GitHub CI. Make sure to verify [provenance](https://docs.npmjs.com/generating-provenance-statements) logs
+- **Rare releasing** is followed to ensure less re-audit need for end-users
+- **Dependencies** are minimized and locked-down: any dependency could get hacked and users will be downloading malware with every install.
+  - We make sure to use as few dependencies as possible
+  - Automatic dep updates are prevented by locking-down version ranges; diffs are checked with `npm-diff`
+- **Dev Dependencies** are disabled for end-users; they are only used to develop / build the source code
+
+For this package, there is 1 dependency; and a few dev dependencies:
+
+- [noble-hashes](https://github.com/paulmillr/noble-hashes) provides cryptographic hashing functionality
+- micro-bmark, micro-should and jsbt are used for benchmarking / testing / build tooling and developed by the same author
+- prettier, fast-check and typescript are used for code quality / test generation / ts compilation. It's hard to audit their source code thoroughly and fully because of their size
+
+### Randomness
+
+We're deferring to built-in
+[crypto.getRandomValues](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/getRandomValues)
+which is considered cryptographically secure (CSPRNG).
+
+In the past, browsers had bugs that made it weak: it may happen again.
+Implementing a userspace CSPRNG to get resilient to the weakness
+is even worse: there is no reliable userspace source of quality entropy.
 
 ## Speed
 
@@ -260,7 +289,7 @@ SLH-DSA (\_shake is 8x slower):
 - `npm install && npm run build && npm test` will build the code and run tests.
 - `npm run lint` / `npm run format` will run linter / fix linter issues.
 - `npm run bench` will run benchmarks, which may need their deps first (`npm run bench:install`)
-- `cd build && npm install && npm run build:release` will build single file
+- `npm run build:release` will build single file
 
 Check out [github.com/paulmillr/guidelines](https://github.com/paulmillr/guidelines)
 for general coding practices and rules.
