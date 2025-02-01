@@ -74,15 +74,15 @@ export const PARAMS: Record<string, SphincsOpts> = {
   '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14 },
 } as const;
 
-const enum AddressType {
-  WOTS,
-  WOTSPK,
-  HASHTREE,
-  FORSTREE,
-  FORSPK,
-  WOTSPRF,
-  FORSPRF,
-}
+const AddressType = {
+  WOTS: 0,
+  WOTSPK: 1,
+  HASHTREE: 2,
+  FORSTREE: 3,
+  FORSPK: 4,
+  WOTSPRF: 5,
+  FORSPRF: 6,
+} as const;
 
 /** Address, byte array of size ADDR_BYTES */
 export type ADRS = Uint8Array;
@@ -172,7 +172,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
 
   const setAddr = (
     opts: {
-      type?: AddressType;
+      type?: (typeof AddressType)[keyof typeof AddressType];
       height?: number;
       tree?: bigint;
       index?: number;
