@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join as pjoin } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 export const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function readGZ(path) {
-  let data = readFileSync(`${__dirname}/${path}`);
+  let data = readFileSync(pjoin(__dirname, path));
   if (path.endsWith('.gz')) data = gunzipSync(data);
   return new TextDecoder().decode(data);
 }
@@ -15,7 +15,7 @@ export function jsonGZ(path) {
 }
 
 export function readKAT(name, firstField) {
-  const data = readGZ(`vectors/KAT/${name}`);
+  const data = readGZ(pjoin('vectors', 'KAT', name));
   let cases;
   if (!firstField) cases = data.split(/\n\n/gm);
   else {
