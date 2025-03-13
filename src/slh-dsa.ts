@@ -44,7 +44,7 @@ import {
   randomBytes,
   splitCoder,
   vecCoder,
-} from './utils.js';
+} from './utils.ts';
 
 /**
  * * N: Security parameter (in bytes). W: Winternitz parameter

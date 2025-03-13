@@ -5,7 +5,7 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { shake128, shake256 } from '@noble/hashes/sha3';
 import type { TypedArray } from '@noble/hashes/utils';
-import { type BytesCoderLen, type Coder, getMask } from './utils.js';
+import { type BytesCoderLen, type Coder, getMask } from './utils.ts';
 
 export type XOF = (
   seed: Uint8Array,

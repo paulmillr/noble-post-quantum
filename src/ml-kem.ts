@@ -22,7 +22,7 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3';
 import { u32, wrapConstructor, wrapConstructorWithOpts } from '@noble/hashes/utils';
-import { genCrystals, type XOF, XOF128 } from './_crystals.js';
+import { genCrystals, type XOF, XOF128 } from './_crystals.ts';
 import {
   cleanBytes,
   type Coder,
@@ -31,7 +31,7 @@ import {
   randomBytes,
   splitCoder,
   vecCoder,
-} from './utils.js';
+} from './utils.ts';
 
 /** Key encapsulation mechanism interface */
 export type KEM = {
