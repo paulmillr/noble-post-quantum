@@ -95,7 +95,7 @@ const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(aliceKeys.
 // 3. [Alice] gets and decrypts cipherText from Bob
 const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey);
 
-// Now, both Alice and Both have same sharedSecret key
+// Now, both Alice and Bob have same sharedSecret key
 // without exchanging in plainText: aliceShared == bobShared
 
 // Warning: Can be MITM-ed
