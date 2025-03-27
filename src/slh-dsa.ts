@@ -382,7 +382,8 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const sigCoder = splitCoder(N, forsCoder, wotsCoder); // random || fors || wots
   const internal: Signer = {
     signRandBytes: N,
-    keygen(seed = randomBytes(seedCoder.bytesLen)) {
+    keygen(seed?: Uint8Array) {
+      seed = seed === undefined ? randomBytes(seedCoder.bytesLen) : seed.slice(); // copy only if provided
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
       const [secretSeed, secretPRF, publicSeed] = seedCoder.decode(seed);
       const context = getContext(publicSeed, secretSeed);

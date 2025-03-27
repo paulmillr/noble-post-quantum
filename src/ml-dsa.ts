@@ -326,10 +326,16 @@ function getDilithium(opts: DilithiumOpts) {
   // API & argument positions are exactly as in FIPS204.
   const internal: Signer = {
     signRandBytes,
-    keygen: (seed = randomBytes(32)) => {
+    keygen: (seed?: Uint8Array) => {
+      ensureBytes(seed, 32);
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
       const seedDst = new Uint8Array(32 + 2);
-      seedDst.set(seed);
+      // Cleanup random buffer if seed is not provided
+      if (seed === undefined) {
+        seed = randomBytes(32);
+        seedDst.set(seed);
+        seed.fill(0);
+      } else seedDst.set(seed);
       seedDst[32] = K;
       seedDst[33] = L;
       const [rho, rhoPrime, K_] = seedCoder.decode(
