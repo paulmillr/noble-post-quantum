@@ -1,18 +1,13 @@
 {
   "name": "benchmark",
   "private": true,
-  "version": "0.1.0",
-  "description": "benchmarks",
-  "main": "index.js",
   "type": "module",
   "scripts": {
-    "bench": "node index.js",
+    "bench": "node noble.js",
     "bench:install": "npm install; npm install .. --install-links"
   },
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
-    "micro-bmark": "0.3.1"
-  }
+    "@noble/post-quantum": "file:.."
+  },
+  "version": "0.1.0"
 }

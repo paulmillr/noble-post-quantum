@@ -11,9 +11,8 @@
     "src"
   ],
   "scripts": {
-    "bench": "node benchmark/ml-kem.js noble; node benchmark/ml-dsa.js noble; node benchmark/slh-dsa.js noble",
-    "bench:all": "node benchmark/{ml-kem,ml-dsa,slh-dsa}.js",
-    "bench:install": "cd benchmark && npm install && cd ../../",
+    "bench": "node benchmark/noble.js",
+    "bench:install": "cd benchmark; npm install; npm install .. --install-links",
     "build": "tsc && tsc -p tsconfig.cjs.json",
     "build:release": "npx jsbt esbuild test/build",
     "build:clean": "rm {.,esm}/*.{js,d.ts,d.ts.map,js.map} 2> /dev/null",
