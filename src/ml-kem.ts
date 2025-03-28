@@ -209,6 +209,7 @@ const genKPKE = (opts: KyberOpts) => {
     publicKeyLen: publicCoder.bytesLen,
     cipherTextLen: cipherCoder.bytesLen,
     keygen: (seed: Uint8Array) => {
+      ensureBytes(seed, 32);
       const seedDst = new Uint8Array(33);
       seedDst.set(seed);
       seedDst[32] = K;

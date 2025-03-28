@@ -327,15 +327,13 @@ function getDilithium(opts: DilithiumOpts) {
   const internal: Signer = {
     signRandBytes,
     keygen: (seed?: Uint8Array) => {
-      ensureBytes(seed, 32);
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
       const seedDst = new Uint8Array(32 + 2);
-      // Cleanup random buffer if seed is not provided
-      if (seed === undefined) {
-        seed = randomBytes(32);
-        seedDst.set(seed);
-        seed.fill(0);
-      } else seedDst.set(seed);
+      const randSeed = seed === undefined;
+      if (randSeed) seed = randomBytes(32);
+      ensureBytes(seed, 32);
+      seedDst.set(seed!);
+      if (randSeed) seed!.fill(0);
       seedDst[32] = K;
       seedDst[33] = L;
       const [rho, rhoPrime, K_] = seedCoder.decode(
