@@ -233,46 +233,30 @@ is even worse: there is no reliable userspace source of quality entropy.
 
 Noble is the fastest JS implementation of post-quantum algorithms.
 WASM libraries can be faster.
+For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
+
+Benchmarks on Apple M4:
 
 | OPs/sec           | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
-| ECC x/ed25519     | 10270  | 5110    | 1050         | 1470          |
-| ML-KEM-768        | 2300   |         |              | 2000          |
-| ML-DSA65          | 386    | 120     | 367          |               |
-| SLH-DSA-SHA2-192f | 166    | 6       | 111          |               |
-
-For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
-
-Detailed benchmarks on Apple M2:
+| ECC x/ed25519     | 14216  | 6849    | 1400         | 1981          |
+| ML-KEM-768        | 3778   |         |              | 3750          |
+| ML-DSA65          | 580    | 272     | 546          |               |
+| SLH-DSA-SHA2-192f | 245    | 8       | 169          |               |
 
 ```
-ML-KEM
-keygen
-├─ML-KEM-512 x 3,784 ops/sec @ 264μs/op
-├─ML-KEM-768 x 2,305 ops/sec @ 433μs/op
-└─ML-KEM-1024 x 1,510 ops/sec @ 662μs/op
-encrypt
-├─ML-KEM-512 x 3,283 ops/sec @ 304μs/op
-├─ML-KEM-768 x 1,993 ops/sec @ 501μs/op
-└─ML-KEM-1024 x 1,366 ops/sec @ 731μs/op
-decrypt
-├─ML-KEM-512 x 3,450 ops/sec @ 289μs/op
-├─ML-KEM-768 x 2,035 ops/sec @ 491μs/op
-└─ML-KEM-1024 x 1,343 ops/sec @ 744μs/op
-
-ML-DSA
-keygen
-├─ML-DSA44 x 669 ops/sec @ 1ms/op
-├─ML-DSA65 x 386 ops/sec @ 2ms/op
-└─ML-DSA87 x 236 ops/sec @ 4ms/op
-sign
-├─ML-DSA44 x 123 ops/sec @ 8ms/op
-├─ML-DSA65 x 120 ops/sec @ 8ms/op
-└─ML-DSA87 x 78 ops/sec @ 12ms/op
-verify
-├─ML-DSA44 x 618 ops/sec @ 1ms/op
-├─ML-DSA65 x 367 ops/sec @ 2ms/op
-└─ML-DSA87 x 220 ops/sec @ 4ms/op
+# ML-KEM768
+keygen x 3,778 ops/sec @ 264μs/op
+encapsulate x 3,220 ops/sec @ 310μs/op
+decapsulate x 4,029 ops/sec @ 248μs/op
+# ML-DSA65
+keygen x 580 ops/sec @ 1ms/op
+sign x 272 ops/sec @ 3ms/op
+verify x 546 ops/sec @ 1ms/op
+# SLH-DSA SHA2 192f
+keygen x 245 ops/sec @ 4ms/op
+sign x 8 ops/sec @ 114ms/op
+verify x 169 ops/sec @ 5ms/op
 ```
 
 SLH-DSA (\_shake is 8x slower):
