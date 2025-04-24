@@ -1,16 +1,21 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "exports": {
     ".": "./src/index.ts",
     "./_crystals": "./src/_crystals.ts",
     "./ml-dsa": "./src/ml-dsa.ts",
     "./ml-kem": "./src/ml-kem.ts",
     "./slh-dsa": "./src/slh-dsa.ts",
-    "./utils": "./src/utils.ts"
+    "./utils": "./src/utils.ts",
+    "./_crystals.js": "./src/_crystals.ts",
+    "./ml-dsa.js": "./src/ml-dsa.ts",
+    "./ml-kem.js": "./src/ml-kem.ts",
+    "./slh-dsa.js": "./src/slh-dsa.ts",
+    "./utils.js": "./src/utils.ts"
   },
   "imports": {
-    "@noble/hashes": "jsr:@noble/hashes@1.7.1"
+    "@noble/hashes": "jsr:@noble/hashes@1.8.0"
   },
   "publish": {
     "include": [

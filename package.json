@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Auditable & minimal JS implementation of post-quantum public-key cryptography: FIPS 203, 204, 205",
   "files": [
     "*.js",
@@ -68,6 +68,30 @@
       "require": "./slh-dsa.js"
     },
     "./utils": {
+      "import": "./esm/utils.js",
+      "require": "./utils.js"
+    },
+    "./index.js": {
+      "import": "./esm/index.js",
+      "require": "./index.js"
+    },
+    "./_crystals.js": {
+      "import": "./esm/_crystals.js",
+      "require": "./_crystals.js"
+    },
+    "./ml-dsa.js": {
+      "import": "./esm/ml-dsa.js",
+      "require": "./ml-dsa.js"
+    },
+    "./ml-kem.js": {
+      "import": "./esm/ml-kem.js",
+      "require": "./ml-kem.js"
+    },
+    "./slh-dsa.js": {
+      "import": "./esm/slh-dsa.js",
+      "require": "./slh-dsa.js"
+    },
+    "./utils.js": {
       "import": "./esm/utils.js",
       "require": "./utils.js"
     }
