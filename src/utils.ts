@@ -3,12 +3,11 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { abytes } from '@noble/hashes/_assert';
-import { sha224, sha256 } from '@noble/hashes/sha256';
+import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2';
 import { sha3_224, sha3_256, sha3_384, sha3_512, shake128, shake256 } from '@noble/hashes/sha3';
-import { sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha512';
 import {
   type TypedArray,
+  abytes,
   concatBytes,
   hexToBytes,
   randomBytes as randb,
