@@ -458,7 +458,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
           root: r,
         } = merkleSign(context, wotsAddr, treeAddr, leafIdx, root);
         root.set(r);
-        r.fill(0);
+        cleanBytes(r);
         wots.push([sigWots, sigAuth]);
         leafIdx = Number(tree & getMaskBig(TREE_HEIGHT));
       }
@@ -535,7 +535,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
       const M = getMessage(msg, ctx);
       const res = internal.sign(secretKey, M, random);
-      M.fill(0);
+      cleanBytes(M);
       return res;
     },
     verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
@@ -548,7 +548,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
         const M = getMessagePrehash(hashName, msg, ctx);
         const res = internal.sign(secretKey, M, random);
-        M.fill(0);
+        cleanBytes(M);
         return res;
       },
       verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
@@ -640,16 +640,18 @@ const genSha =
     const h0tmp = h0ps.clone();
     const h1tmp = h1ps.clone();
 
+    // https://www.rfc-editor.org/rfc/rfc8017.html#appendix-B.2.1
     function mgf1(seed: Uint8Array, length: number, hash: ShaType) {
       stats.mgf1++;
       const out = new Uint8Array(Math.ceil(length / hash.outputLen) * hash.outputLen);
+      // NOT 2^32-1
       if (length > 2 ** 32) throw new Error('mask too long');
       for (let counter = 0, o = out; o.length; counter++) {
         counterV.setUint32(0, counter, false);
         hash.create().update(seed).update(counterB).digestInto(o);
         o = o.subarray(hash.outputLen);
       }
-      out.subarray(length).fill(0);
+      cleanBytes(out.subarray(length));
       return out.subarray(0, length);
     }
 

@@ -26,15 +26,18 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+export type KeygenFn = (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey: Uint8Array };
 /** Generic interface for signatures. Has keygen, sign and verify. */
 export type Signer = {
   signRandBytes: number;
-  keygen: (seed: Uint8Array) => {
-    secretKey: Uint8Array;
-    publicKey: Uint8Array;
-  };
-  sign: (secretKey: Uint8Array, msg: Uint8Array, random?: Uint8Array) => Uint8Array;
-  verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array) => boolean;
+  keygen: KeygenFn;
+  sign: (
+    secretKey: Uint8Array,
+    msg: Uint8Array,
+    ctx?: Uint8Array,
+    random?: Uint8Array
+  ) => Uint8Array;
+  verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx?: Uint8Array) => boolean;
 };
 
 export interface Coder<F, T> {
@@ -135,25 +138,27 @@ export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array
   return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
 }
 
-// OIDS from https://csrc.nist.gov/projects/computer-security-objects-register/algorithm-registration
-// TODO: maybe add 'OID' property to hashes themselves to improve tree-shaking?
+// OIDS from
+// https://csrc.nist.gov/projects/computer-security-objects-register/algorithm-registration
+// TODO: maybe add 'OID' property to hashes themselves to improve tree-shaking
+const oid = (suffix: string) => hexToBytes('06096086480165030402' + suffix);
 const HASHES: Record<string, { oid: Uint8Array; hash: (msg: Uint8Array) => Uint8Array }> = {
-  'SHA2-256': { oid: hexToBytes('0609608648016503040201'), hash: sha256 },
-  'SHA2-384': { oid: hexToBytes('0609608648016503040202'), hash: sha384 },
-  'SHA2-512': { oid: hexToBytes('0609608648016503040203'), hash: sha512 },
-  'SHA2-224': { oid: hexToBytes('0609608648016503040204'), hash: sha224 },
-  'SHA2-512/224': { oid: hexToBytes('0609608648016503040205'), hash: sha512_224 },
-  'SHA2-512/256': { oid: hexToBytes('0609608648016503040206'), hash: sha512_256 },
-  'SHA3-224': { oid: hexToBytes('0609608648016503040207'), hash: sha3_224 },
-  'SHA3-256': { oid: hexToBytes('0609608648016503040208'), hash: sha3_256 },
-  'SHA3-384': { oid: hexToBytes('0609608648016503040209'), hash: sha3_384 },
-  'SHA3-512': { oid: hexToBytes('060960864801650304020A'), hash: sha3_512 },
+  'SHA2-256': { oid: oid('01'), hash: sha256 },
+  'SHA2-384': { oid: oid('02'), hash: sha384 },
+  'SHA2-512': { oid: oid('03'), hash: sha512 },
+  'SHA2-224': { oid: oid('04'), hash: sha224 },
+  'SHA2-512/224': { oid: oid('05'), hash: sha512_224 },
+  'SHA2-512/256': { oid: oid('06'), hash: sha512_256 },
+  'SHA3-224': { oid: oid('07'), hash: sha3_224 },
+  'SHA3-256': { oid: oid('08'), hash: sha3_256 },
+  'SHA3-384': { oid: oid('09'), hash: sha3_384 },
+  'SHA3-512': { oid: oid('0A'), hash: sha3_512 },
   'SHAKE-128': {
-    oid: hexToBytes('060960864801650304020B'),
+    oid: oid('0B'),
     hash: (msg) => shake128(msg, { dkLen: 32 }),
   },
   'SHAKE-256': {
-    oid: hexToBytes('060960864801650304020C'),
+    oid: oid('0C'),
     hash: (msg) => shake256(msg, { dkLen: 64 }),
   },
 };

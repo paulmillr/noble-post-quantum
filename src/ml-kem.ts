@@ -28,6 +28,7 @@ import {
   type Coder,
   ensureBytes,
   equalBytes,
+  type KeygenFn,
   randomBytes,
   splitCoder,
   vecCoder,
@@ -37,10 +38,7 @@ import {
 export type KEM = {
   publicKeyLen: number;
   msgLen: number;
-  keygen: (seed?: Uint8Array) => {
-    publicKey: Uint8Array;
-    secretKey: Uint8Array;
-  };
+  keygen: KeygenFn;
   encapsulate: (
     publicKey: Uint8Array,
     msg?: Uint8Array
@@ -253,7 +251,7 @@ const genKPKE = (opts: KyberOpts) => {
         polyAdd(e1, NTT.decode(tmp)); // e1 += tmp
         u.push(e1);
         polyAdd(tmp2, MultiplyNTTs(tHat[i], rHat[i])); // t2 += tHat[i] * rHat[i]
-        tmp.fill(0);
+        cleanBytes(tmp);
       }
       x.clean();
       const e2 = sampleCBD(PRF, seed, 2 * K, ETA2);
@@ -311,7 +309,7 @@ function createKyber(opts: KyberOpts) {
       cleanBytes(ek);
       const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest(); // derive randomness
       const cipherText = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
-      kr.subarray(32).fill(0);
+      cleanBytes(kr.subarray(32));
       return { cipherText, sharedSecret: kr.subarray(0, 32) };
     },
     decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => {

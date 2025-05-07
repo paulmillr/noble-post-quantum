@@ -18,11 +18,26 @@ import {
   equalBytes,
   getMessage,
   getMessagePrehash,
+  type KeygenFn,
   randomBytes,
   type Signer,
   splitCoder,
   vecCoder,
 } from './utils.ts';
+
+/** Signer API, containing internal methods */
+export type DSAInternal = {
+  signRandBytes: number;
+  keygen: KeygenFn;
+  sign: (
+    privKey: Uint8Array,
+    msg: Uint8Array,
+    random?: Uint8Array,
+    externalMu?: boolean
+  ) => Uint8Array;
+  verify: (pubKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, externalMu?: boolean) => boolean;
+};
+export type DSA = Signer & { internal: DSAInternal };
 
 // Constants
 const N = 256;
@@ -324,7 +339,7 @@ function getDilithium(opts: DilithiumOpts) {
   const signRandBytes = 32;
   const seedCoder = splitCoder(32, 64, 32);
   // API & argument positions are exactly as in FIPS204.
-  const internal: Signer = {
+  const internal: DSAInternal = {
     signRandBytes,
     keygen: (seed?: Uint8Array) => {
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
@@ -333,7 +348,7 @@ function getDilithium(opts: DilithiumOpts) {
       if (randSeed) seed = randomBytes(32);
       ensureBytes(seed, 32);
       seedDst.set(seed!);
-      if (randSeed) seed!.fill(0);
+      if (randSeed) cleanBytes(seed!);
       seedDst[32] = K;
       seedDst[33] = L;
       const [rho, rhoPrime, K_] = seedCoder.decode(
@@ -352,7 +367,7 @@ function getDilithium(opts: DilithiumOpts) {
       const t = newPoly(N);
       for (let i = 0; i < K; i++) {
         // t ← NTT−1(A*NTT(s1)) + s2
-        t.fill(0); // don't-reallocate
+        cleanBytes(t); // don't-reallocate
         for (let j = 0; j < L; j++) {
           const aij = RejNTTPoly(xof.get(j, i)); // super slow!
           polyAdd(t, MultiplyNTTs(aij, s1Hat[j]));
@@ -518,7 +533,7 @@ function getDilithium(opts: DilithiumOpts) {
     sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
       const M = getMessage(msg, ctx);
       const res = internal.sign(secretKey, M, random);
-      M.fill(0);
+      cleanBytes(M);
       return res;
     },
     verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
@@ -528,7 +543,7 @@ function getDilithium(opts: DilithiumOpts) {
       sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
         const M = getMessagePrehash(hashName, msg, ctx);
         const res = internal.sign(secretKey, M, random);
-        M.fill(0);
+        cleanBytes(M);
         return res;
       },
       verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
@@ -538,11 +553,8 @@ function getDilithium(opts: DilithiumOpts) {
   };
 }
 
-/** Signer API, containing internal methods */
-export type SignerWithInternal = Signer & { internal: Signer };
-
 /** ML-DSA-44 for 128-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
+export const ml_dsa44: DSA = /* @__PURE__ */ getDilithium({
   ...PARAMS[2],
   CRH_BYTES: 64,
   TR_BYTES: 64,
@@ -552,7 +564,7 @@ export const ml_dsa44: SignerWithInternal = /* @__PURE__ */ getDilithium({
 });
 
 /** ML-DSA-65 for 192-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
+export const ml_dsa65: DSA = /* @__PURE__ */ getDilithium({
   ...PARAMS[3],
   CRH_BYTES: 64,
   TR_BYTES: 64,
@@ -562,7 +574,7 @@ export const ml_dsa65: SignerWithInternal = /* @__PURE__ */ getDilithium({
 });
 
 /** ML-DSA-87 for 256-bit security level. OK after 2030, as per ASD. */
-export const ml_dsa87: SignerWithInternal = /* @__PURE__ */ getDilithium({
+export const ml_dsa87: DSA = /* @__PURE__ */ getDilithium({
   ...PARAMS[5],
   CRH_BYTES: 64,
   TR_BYTES: 64,
