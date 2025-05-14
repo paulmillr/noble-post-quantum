@@ -6,6 +6,7 @@
 import { shake128, shake256 } from '@noble/hashes/sha3';
 import type { TypedArray } from '@noble/hashes/utils';
 import { type BytesCoderLen, cleanBytes, type Coder, getMask } from './utils.ts';
+import { reverseBits, FFTCore } from '@noble/curves/abstract/fft';
 
 export type XOF = (
   seed: Uint8Array,
@@ -28,14 +29,6 @@ export type CrystalOpts<T extends TypedArray> = {
 };
 
 export type TypedCons<T extends TypedArray> = (n: number) => T;
-
-// TODO: benchmark
-function bitReversal(n: number, bits: number = 8) {
-  const padded = n.toString(2).padStart(8, '0');
-  const sliced = padded.slice(-bits).padStart(7, '0');
-  const revrsd = sliced.split('').reverse().join('');
-  return Number.parseInt(revrsd, 2);
-}
 
 export const genCrystals = <T extends TypedArray>(
   opts: CrystalOpts<T>
@@ -60,11 +53,11 @@ export const genCrystals = <T extends TypedArray>(
     const r = mod(a, modulo) | 0;
     return (r > modulo >> 1 ? (r - modulo) | 0 : r) | 0;
   };
-  // Generate zettas
+  // Generate zettas (different from roots of unity, negacyclic uses phi, where acyclic uses omega)
   function getZettas() {
     const out = newPoly(N);
     for (let i = 0; i < N; i++) {
-      const b = bitReversal(i, brvBits);
+      const b = reverseBits(i, brvBits);
       const p = BigInt(ROOT_OF_UNITY) ** BigInt(b) % BigInt(Q);
       out[i] = Number(p) | 0;
     }
@@ -77,34 +70,31 @@ export const genCrystals = <T extends TypedArray>(
 
   // Kyber has slightly different params, since there is no 512th primitive root of unity mod q,
   // only 256th primitive root of unity mod. Which also complicates MultiplyNTT.
-  // TODO: there should be less ugly way to define this.
-  const LEN1 = isKyber ? 128 : N;
-  const LEN2 = isKyber ? 1 : 0;
-  const NTT = {
-    encode: (r: T) => {
-      for (let k = 1, len = 128; len > LEN2; len >>= 1) {
-        for (let start = 0; start < N; start += 2 * len) {
-          const zeta = nttZetas[k++];
-          for (let j = start; j < start + len; j++) {
-            const t = mod(zeta * r[j + len]);
-            r[j + len] = mod(r[j] - t) | 0;
-            r[j] = mod(r[j] + t) | 0;
-          }
-        }
-      }
-      return r;
+
+  const field = {
+    add: (a: number, b: number) => mod((a | 0) + (b | 0)) | 0,
+    sub: (a: number, b: number) => mod((a | 0) - (b | 0)) | 0,
+    mul: (a: number, b: number) => mod((a | 0) * (b | 0)) | 0,
+    inv: (_a: number) => {
+      throw new Error('not implemented');
     },
-    decode: (r: T) => {
-      for (let k = LEN1 - 1, len = 1 + LEN2; len < LEN1 + LEN2; len <<= 1) {
-        for (let start = 0; start < N; start += 2 * len) {
-          const zeta = nttZetas[k--];
-          for (let j = start; j < start + len; j++) {
-            const t = r[j];
-            r[j] = mod(t + r[j + len]);
-            r[j + len] = mod(zeta * (r[j + len] - t));
-          }
-        }
-      }
+  };
+  const nttOpts = {
+    N,
+    roots: nttZetas as any,
+    invertButterflies: true,
+    skipStages: isKyber ? 1 : 0,
+    brp: false,
+  };
+  const dif = FFTCore(field, { dit: false, ...nttOpts });
+  const dit = FFTCore(field, { dit: true, ...nttOpts });
+  const NTT = {
+    encode: (r: T): T => {
+      return dif(r) as any;
+    },
+    decode: (r: T): T => {
+      dit(r as any);
+      // kyber uses 128 here, because brv && stuff
       for (let i = 0; i < r.length; i++) r[i] = mod(F * r[i]);
       return r;
     },
