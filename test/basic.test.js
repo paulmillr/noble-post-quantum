@@ -1,5 +1,5 @@
 import { describe, should } from 'micro-should';
-import { deepStrictEqual } from 'node:assert';
+import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44 } from '../esm/ml-dsa.js';
 import { ml_kem512 } from '../esm/ml-kem.js';
 import { slh_dsa_sha2_128f } from '../esm/slh-dsa.js';
@@ -12,27 +12,27 @@ describe('Basic', () => {
       const seed = randomBytes(64);
       const seedCopy = Uint8Array.from(seed);
       const keys = ml_kem512.keygen(seed);
-      deepStrictEqual(seed, seedCopy);
+      eql(seed, seedCopy);
       // encapsulate
       const publicKey = Uint8Array.from(keys.publicKey);
       const msg = randomBytes(32);
       const msgCopy = Uint8Array.from(msg);
       const enc = ml_kem512.encapsulate(publicKey, msg);
-      deepStrictEqual(publicKey, keys.publicKey);
-      deepStrictEqual(msg, msgCopy);
+      eql(publicKey, keys.publicKey);
+      eql(msg, msgCopy);
       // decapsulate
       const cipherText = Uint8Array.from(enc.cipherText);
       const secretKey = Uint8Array.from(keys.secretKey);
       const dec = ml_kem512.decapsulate(cipherText, secretKey);
-      deepStrictEqual(cipherText, enc.cipherText);
-      deepStrictEqual(secretKey, keys.secretKey);
+      eql(cipherText, enc.cipherText);
+      eql(secretKey, keys.secretKey);
     });
     should('ML-DSA', () => {
       // keygen
       const seed = randomBytes(32);
       const seedCopy = Uint8Array.from(seed);
       const keys = ml_dsa44.keygen(seed);
-      deepStrictEqual(seed, seedCopy);
+      eql(seed, seedCopy);
       // sign
       const secretKey = Uint8Array.from(keys.secretKey);
       const msg = randomBytes(32);
@@ -40,23 +40,23 @@ describe('Basic', () => {
       const random = randomBytes(32);
       const randomCopy = Uint8Array.from(random);
       const sig = ml_dsa44.sign(secretKey, msg, random);
-      deepStrictEqual(secretKey, keys.secretKey);
-      deepStrictEqual(msg, msgCopy);
-      deepStrictEqual(random, randomCopy);
+      eql(secretKey, keys.secretKey);
+      eql(msg, msgCopy);
+      eql(random, randomCopy);
       // verify
       const sigCopy = Uint8Array.from(sig);
       const publicKey = Uint8Array.from(keys.publicKey);
       ml_dsa44.verify(publicKey, msg, sig);
-      deepStrictEqual(sig, sigCopy);
-      deepStrictEqual(publicKey, keys.publicKey);
-      deepStrictEqual(msg, msgCopy);
+      eql(sig, sigCopy);
+      eql(publicKey, keys.publicKey);
+      eql(msg, msgCopy);
     });
     should('SLH-DSA', () => {
       // keygen
       const seed = randomBytes(48);
       const seedCopy = Uint8Array.from(seed);
       const keys = slh_dsa_sha2_128f.keygen(seed);
-      deepStrictEqual(seed, seedCopy);
+      eql(seed, seedCopy);
       // sign
       const secretKey = Uint8Array.from(keys.secretKey);
       const msg = randomBytes(32);
@@ -64,16 +64,16 @@ describe('Basic', () => {
       const random = randomBytes(32);
       const randomCopy = Uint8Array.from(random);
       const sig = slh_dsa_sha2_128f.sign(secretKey, msg, random);
-      deepStrictEqual(secretKey, keys.secretKey);
-      deepStrictEqual(msg, msgCopy);
-      deepStrictEqual(random, randomCopy);
+      eql(secretKey, keys.secretKey);
+      eql(msg, msgCopy);
+      eql(random, randomCopy);
       // verify
       const sigCopy = Uint8Array.from(sig);
       const publicKey = Uint8Array.from(keys.publicKey);
       slh_dsa_sha2_128f.verify(publicKey, msg, sig);
-      deepStrictEqual(publicKey, keys.publicKey);
-      deepStrictEqual(sig, sigCopy);
-      deepStrictEqual(msg, msgCopy);
+      eql(publicKey, keys.publicKey);
+      eql(sig, sigCopy);
+      eql(msg, msgCopy);
     });
   });
 });

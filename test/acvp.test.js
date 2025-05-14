@@ -1,6 +1,6 @@
 import { concatBytes, hexToBytes as hexx } from '@noble/hashes/utils';
 import { describe, should } from 'micro-should';
-import { deepStrictEqual } from 'node:assert';
+import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../esm/ml-dsa.js';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../esm/ml-kem.js';
 import {
@@ -34,8 +34,8 @@ const loadAVCP = (name, gzip) => {
   const expectedResult = json('expectedResults');
   const internalProjection = json('internalProjection');
   //const registration = json('registration');
-  deepStrictEqual(prompt.testGroups.length, expectedResult.testGroups.length);
-  deepStrictEqual(prompt.testGroups.length, internalProjection.testGroups.length);
+  eql(prompt.testGroups.length, expectedResult.testGroups.length);
+  eql(prompt.testGroups.length, internalProjection.testGroups.length);
   const groups = [];
   const is205 = name.includes('FIPS205');
   for (let gid = 0; gid < prompt.testGroups.length; gid++) {
@@ -43,8 +43,8 @@ const loadAVCP = (name, gzip) => {
     const { tests: erTests, ...erInfo } = expectedResult.testGroups[gid];
     const { tests: ipTests, ...ipInfo } = internalProjection.testGroups[gid];
     const group = { info: { p: pInfo, er: erInfo, ip: ipInfo }, tests: [] };
-    deepStrictEqual(pTests.length, erTests.length);
-    deepStrictEqual(pTests.length, ipTests.length);
+    eql(pTests.length, erTests.length);
+    eql(pTests.length, ipTests.length);
     for (let tid = 0; tid < pTests.length; tid++) {
       const shouldBeIgnored = is205 && tid > 0;
       if (shouldBeIgnored && ignoreSlowTests) continue;
@@ -68,8 +68,8 @@ describe('AVCP', () => {
         const mlkem = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const { publicKey, secretKey } = mlkem.keygen(concatBytes(hexx(t.p.d), hexx(t.p.z)));
-          deepStrictEqual(publicKey, hexx(t.er.ek));
-          deepStrictEqual(secretKey, hexx(t.er.dk));
+          eql(publicKey, hexx(t.er.ek));
+          eql(secretKey, hexx(t.er.dk));
         }
       }
     });
@@ -79,14 +79,14 @@ describe('AVCP', () => {
         if (g.info.p.function === 'encapsulation') {
           for (const t of g.tests) {
             const { cipherText, sharedSecret } = mlkem.encapsulate(hexx(t.p.ek), hexx(t.p.m));
-            deepStrictEqual(cipherText, hexx(t.er.c));
-            deepStrictEqual(sharedSecret, hexx(t.er.k));
+            eql(cipherText, hexx(t.er.c));
+            eql(sharedSecret, hexx(t.er.k));
           }
         } else {
           const dk = hexx(g.info.p.dk);
           for (const t of g.tests) {
             const sharedSecret = mlkem.decapsulate(hexx(t.p.c), dk);
-            deepStrictEqual(sharedSecret, hexx(t.er.k));
+            eql(sharedSecret, hexx(t.er.k));
           }
         }
       }
@@ -99,8 +99,8 @@ describe('AVCP', () => {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const { publicKey, secretKey } = mldsa.keygen(hexx(t.p.seed));
-          deepStrictEqual(publicKey, hexx(t.er.pk));
-          deepStrictEqual(secretKey, hexx(t.er.sk));
+          eql(publicKey, hexx(t.er.pk));
+          eql(secretKey, hexx(t.er.sk));
         }
       }
     });
@@ -122,7 +122,7 @@ describe('AVCP', () => {
               sig = mldsa.sign(hexx(t.p.sk), hexx(t.p.message), ctx, rnd);
             }
           } else throw new Error('unknown signature interface');
-          deepStrictEqual(sig, hexx(t.er.signature));
+          eql(sig, hexx(t.er.signature));
         }
       }
     });
@@ -147,7 +147,7 @@ describe('AVCP', () => {
               valid = mldsa.verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature), ctx);
             }
           } else throw new Error('unknown signature interface');
-          deepStrictEqual(valid, t.er.testPassed);
+          eql(valid, t.er.testPassed);
         }
       }
     });
@@ -174,8 +174,8 @@ describe('AVCP', () => {
           const { publicKey, secretKey } = slhdsa.keygen(
             concatBytes(hexx(t.p.skSeed), hexx(t.p.skPrf), hexx(t.p.pkSeed))
           );
-          deepStrictEqual(publicKey, hexx(t.er.pk));
-          deepStrictEqual(secretKey, hexx(t.er.sk));
+          eql(publicKey, hexx(t.er.pk));
+          eql(secretKey, hexx(t.er.sk));
         }
       }
     });
@@ -201,7 +201,7 @@ describe('AVCP', () => {
           } catch (e) {
             valid = false;
           }
-          deepStrictEqual(valid, t.er.testPassed);
+          eql(valid, t.er.testPassed);
         }
       }
     });
@@ -226,7 +226,7 @@ describe('AVCP', () => {
                 sig = slhdsa.sign(hexx(t.p.sk), hexx(t.p.message), ctx, rnd);
               }
             } else throw new Error('unknown signature interface');
-            deepStrictEqual(sig, hexx(t.er.signature));
+            eql(sig, hexx(t.er.signature));
           });
         }
       }
