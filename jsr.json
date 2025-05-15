@@ -15,6 +15,7 @@
     "./utils.js": "./src/utils.ts"
   },
   "imports": {
+    "@noble/curves": "jsr:@noble/curves@1.9.1",
     "@noble/hashes": "jsr:@noble/hashes@1.8.0"
   },
   "publish": {
