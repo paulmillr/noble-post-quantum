@@ -1,4 +1,4 @@
-import { concatBytes, hexToBytes as hexx } from '@noble/hashes/utils';
+import { concatBytes, hexToBytes as hexx } from '@noble/hashes/utils.js';
 import { describe, should } from 'micro-should';
 import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../esm/ml-dsa.js';

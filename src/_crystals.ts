@@ -3,10 +3,10 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { shake128, shake256 } from '@noble/hashes/sha3';
-import type { TypedArray } from '@noble/hashes/utils';
+import { FFTCore, reverseBits } from '@noble/curves/abstract/fft';
+import { shake128, shake256 } from '@noble/hashes/sha3.js';
+import type { TypedArray } from '@noble/hashes/utils.js';
 import { type BytesCoderLen, cleanBytes, type Coder, getMask } from './utils.ts';
-import { reverseBits, FFTCore } from '@noble/curves/abstract/fft';
 
 export type XOF = (
   seed: Uint8Array,

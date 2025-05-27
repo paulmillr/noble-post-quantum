@@ -27,11 +27,11 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { setBigUint64 } from '@noble/hashes/_md';
-import { HMAC } from '@noble/hashes/hmac';
-import { sha256, sha512 } from '@noble/hashes/sha2';
-import { shake256 } from '@noble/hashes/sha3';
-import { bytesToHex, concatBytes, createView, hexToBytes } from '@noble/hashes/utils';
+import { setBigUint64 } from '@noble/hashes/_md.js';
+import { HMAC } from '@noble/hashes/hmac.js';
+import { sha256, sha512 } from '@noble/hashes/sha2.js';
+import { shake256 } from '@noble/hashes/sha3.js';
+import { bytesToHex, concatBytes, createView, hexToBytes } from '@noble/hashes/utils.js';
 import {
   EMPTY,
   type Signer,

@@ -20,8 +20,8 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3';
-import { u32, wrapConstructor, wrapConstructorWithOpts } from '@noble/hashes/utils';
+import { Keccak, sha3_256, sha3_512, shake256, type ShakeOpts } from '@noble/hashes/sha3.js';
+import { type CHash, u32 } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128 } from './_crystals.ts';
 import {
   cleanBytes,
@@ -135,14 +135,12 @@ function MultiplyNTTs(f: Poly, g: Poly): Poly {
 
 type PRF = (l: number, key: Uint8Array, nonce: number) => Uint8Array;
 
-type Hash = ReturnType<typeof wrapConstructor>;
-type HashWOpts = ReturnType<typeof wrapConstructorWithOpts>;
 type XofGet = ReturnType<ReturnType<XOF>['get']>;
 
 type KyberOpts = KEMParam & {
-  HASH256: Hash;
-  HASH512: Hash;
-  KDF: Hash | HashWOpts;
+  HASH256: CHash;
+  HASH512: CHash;
+  KDF: CHash<Keccak, ShakeOpts>;
   XOF: XOF; // (seed: Uint8Array, len: number, x: number, y: number) => Uint8Array;
   PRF: PRF;
 };

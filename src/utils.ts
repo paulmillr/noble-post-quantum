@@ -3,8 +3,8 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2';
-import { sha3_224, sha3_256, sha3_384, sha3_512, shake128, shake256 } from '@noble/hashes/sha3';
+import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2.js';
+import { sha3_224, sha3_256, sha3_384, sha3_512, shake128, shake256 } from '@noble/hashes/sha3.js';
 import {
   type TypedArray,
   abytes,
@@ -12,7 +12,7 @@ import {
   hexToBytes,
   randomBytes as randb,
   utf8ToBytes,
-} from '@noble/hashes/utils';
+} from '@noble/hashes/utils.js';
 
 export const ensureBytes: typeof abytes = abytes;
 export const randomBytes: typeof randb = randb;
