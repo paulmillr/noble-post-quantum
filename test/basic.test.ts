@@ -1,9 +1,9 @@
 import { describe, should } from 'micro-should';
 import { deepStrictEqual as eql } from 'node:assert';
-import { ml_dsa44 } from '../esm/ml-dsa.js';
-import { ml_kem512 } from '../esm/ml-kem.js';
-import { slh_dsa_sha2_128f } from '../esm/slh-dsa.js';
-import { randomBytes } from '../esm/utils.js';
+import { ml_dsa44 } from '../src/ml-dsa.ts';
+import { ml_kem512 } from '../src/ml-kem.ts';
+import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
+import { randomBytes } from '../src/utils.ts';
 
 describe('Basic', () => {
   describe('Immutability', () => {

@@ -11,17 +11,18 @@
     "src"
   ],
   "scripts": {
-    "bench": "node benchmark/noble.js",
-    "bench:install": "cd benchmark; npm install; npm install .. --install-links",
-    "build": "tsc && tsc -p tsconfig.cjs.json",
+    "bench": "node test/benchmark/noble.ts",
+    "bench:install": "cd test/benchmark; npm install",
+    "build": "tsc",
     "build:release": "npx jsbt esbuild test/build",
     "build:clean": "rm {.,esm}/*.{js,d.ts,d.ts.map,js.map} 2> /dev/null",
     "lint": "prettier --check 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
     "format": "prettier --write 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
-    "test": "node test/index.js",
-    "test:big": "SLOW_TESTS=1 node test/index.js",
-    "test:bun": "bun test/index.js",
-    "test:deno": "deno --allow-env --allow-read test/index.js"
+    "test": "node --experimental-strip-types --no-warnings test/index.ts",
+    "test:bun": "bun test/index.ts",
+    "test:deno": "deno --allow-env --allow-read test/index.ts",
+    "test:node20": "cd test; npx tsc; node compiled/test/index.js",
+    "test:big": "SLOW_TESTS=1 node test/index.js"
   },
   "author": "Paul Miller (https://paulmillr.com)",
   "homepage": "https://paulmillr.com/noble/",
@@ -33,70 +34,19 @@
   "sideEffects": false,
   "dependencies": {
     "@noble/curves": "1.9.1",
-    "@noble/hashes": "1.8.0"
+    "@noble/hashes": "2.0.0-beta.1"
   },
   "devDependencies": {
-    "@paulmillr/jsbt": "0.4.0",
-    "micro-bmark": "0.4.1",
+    "@paulmillr/jsbt": "0.4.1",
+    "@types/node": "22.15.23",
+    "micro-bmark": "0.4.2",
     "micro-should": "0.5.3",
     "prettier": "3.5.3",
     "typescript": "5.8.3"
   },
+  "type": "module",
   "main": "index.js",
-  "exports": {
-    ".": {
-      "import": "./esm/index.js",
-      "require": "./index.js"
-    },
-    "./index": {
-      "import": "./esm/index.js",
-      "require": "./index.js"
-    },
-    "./_crystals": {
-      "import": "./esm/_crystals.js",
-      "require": "./_crystals.js"
-    },
-    "./ml-dsa": {
-      "import": "./esm/ml-dsa.js",
-      "require": "./ml-dsa.js"
-    },
-    "./ml-kem": {
-      "import": "./esm/ml-kem.js",
-      "require": "./ml-kem.js"
-    },
-    "./slh-dsa": {
-      "import": "./esm/slh-dsa.js",
-      "require": "./slh-dsa.js"
-    },
-    "./utils": {
-      "import": "./esm/utils.js",
-      "require": "./utils.js"
-    },
-    "./index.js": {
-      "import": "./esm/index.js",
-      "require": "./index.js"
-    },
-    "./_crystals.js": {
-      "import": "./esm/_crystals.js",
-      "require": "./_crystals.js"
-    },
-    "./ml-dsa.js": {
-      "import": "./esm/ml-dsa.js",
-      "require": "./ml-dsa.js"
-    },
-    "./ml-kem.js": {
-      "import": "./esm/ml-kem.js",
-      "require": "./ml-kem.js"
-    },
-    "./slh-dsa.js": {
-      "import": "./esm/slh-dsa.js",
-      "require": "./slh-dsa.js"
-    },
-    "./utils.js": {
-      "import": "./esm/utils.js",
-      "require": "./utils.js"
-    }
-  },
+  "module": "index.js",
   "keywords": [
     "ml-kem",
     "ml-dsa",

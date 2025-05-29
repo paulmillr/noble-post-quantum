@@ -27,7 +27,6 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { setBigUint64 } from '@noble/hashes/_md.js';
 import { HMAC } from '@noble/hashes/hmac.js';
 import { sha256, sha512 } from '@noble/hashes/sha2.js';
 import { shake256 } from '@noble/hashes/sha3.js';
@@ -197,7 +196,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     if (hash !== undefined) addr[OFFSET_HASH_ADDR] = hash;
     if (index !== undefined) v.setUint32(OFFSET_TREE_INDEX, index, false);
     if (subtreeAddr) addr.set(subtreeAddr.subarray(0, OFFSET_TREE + 8));
-    if (tree !== undefined) setBigUint64(v, OFFSET_TREE, tree, false);
+    if (tree !== undefined) v.setBigUint64(OFFSET_TREE, tree, false);
     if (keypair !== undefined) {
       addr[OFFSET_KP_ADDR1] = keypair;
       if (TREE_HEIGHT > 8) addr[OFFSET_KP_ADDR2] = keypair >>> 8;

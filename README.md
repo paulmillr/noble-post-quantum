@@ -8,7 +8,7 @@ Auditable & minimal JS implementation of post-quantum public-key cryptography.
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based kem from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
-- 🪶 37KB (15KB gzipped) for everything with bundled hashes
+- 🪶 16KB (gzipped) for everything, including bundled noble-hashes & noble-curves
 
 Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
 
@@ -51,8 +51,8 @@ A standalone file
 
 ```js
 // import * from '@noble/post-quantum'; // Error: use sub-imports instead
-import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
+import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem.js';
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa.js';
 import {
   slh_dsa_sha2_128f,
   slh_dsa_sha2_128s,
@@ -66,7 +66,7 @@ import {
   slh_dsa_shake_192s,
   slh_dsa_shake_256f,
   slh_dsa_shake_256s,
-} from '@noble/post-quantum/slh-dsa';
+} from '@noble/post-quantum/slh-dsa.js';
 ```
 
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
@@ -81,8 +81,8 @@ import {
 ### ML-KEM / Kyber shared secrets
 
 ```ts
-import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem';
-import { randomBytes } from '@noble/post-quantum/utils';
+import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem.js';
+import { randomBytes } from '@noble/post-quantum/utils.js';
 
 // 1. [Alice] generates secret & public keys, then sends publicKey to Bob
 const seed = randomBytes(64); // seed is optional
@@ -121,8 +121,8 @@ Old, incompatible version (Kyber) is not provided. Open an issue if you need it.
 ### ML-DSA / Dilithium signatures
 
 ```ts
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa';
-import { utf8ToBytes, randomBytes } from '@noble/post-quantum/utils';
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa.js';
+import { utf8ToBytes, randomBytes } from '@noble/post-quantum/utils.js';
 const seed = randomBytes(32); // seed is optional
 const keys = ml_dsa65.keygen(seed);
 const msg = utf8ToBytes('hello noble');
@@ -151,8 +151,8 @@ import {
   slh_dsa_shake_192s,
   slh_dsa_shake_256f,
   slh_dsa_shake_256s,
-} from '@noble/post-quantum/slh-dsa';
-import { utf8ToBytes } from '@noble/post-quantum/utils';
+} from '@noble/post-quantum/slh-dsa.js';
+import { utf8ToBytes } from '@noble/post-quantum/utils.js';
 
 const keys2 = sph.keygen();
 const msg2 = utf8ToBytes('hello noble');

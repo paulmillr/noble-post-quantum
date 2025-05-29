@@ -20,7 +20,7 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { Keccak, sha3_256, sha3_512, shake256, type ShakeOpts } from '@noble/hashes/sha3.js';
+import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3.js';
 import { type CHash, u32 } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128 } from './_crystals.ts';
 import {
@@ -140,7 +140,8 @@ type XofGet = ReturnType<ReturnType<XOF>['get']>;
 type KyberOpts = KEMParam & {
   HASH256: CHash;
   HASH512: CHash;
-  KDF: CHash<Keccak, ShakeOpts>;
+  // KDF: CHash<Keccak, ShakeOpts>;
+  KDF: any;
   XOF: XOF; // (seed: Uint8Array, len: number, x: number, y: number) => Uint8Array;
   PRF: PRF;
 };
