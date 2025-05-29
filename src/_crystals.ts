@@ -3,7 +3,7 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { FFTCore, reverseBits } from '@noble/curves/abstract/fft';
+import { FFTCore, reverseBits } from '@noble/curves/abstract/fft.js';
 import { shake128, shake256 } from '@noble/hashes/sha3.js';
 import type { TypedArray } from '@noble/hashes/utils.js';
 import { type BytesCoderLen, cleanBytes, type Coder, getMask } from './utils.ts';
