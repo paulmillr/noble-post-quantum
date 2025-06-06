@@ -204,9 +204,9 @@ Keep in mind that even hardware versions ML-KEM [are vulnerable](https://eprint.
 ### Supply chain security
 
 - **Commits** are signed with PGP keys, to prevent forgery. Make sure to verify commit signatures
-- **Releases** are transparent and built on GitHub CI. Make sure to verify [provenance](https://docs.npmjs.com/generating-provenance-statements) logs
-  - Use GitHub CLI to verify single-file builds:
-    `gh attestation verify --owner paulmillr noble-post-quantum.js`
+- **Releases** are transparent and built on GitHub CI.
+  Check out [attested checksums of single-file builds](https://github.com/paulmillr/noble-post-quantum/attestations)
+  and [provenance logs](https://github.com/paulmillr/noble-post-quantum/actions/workflows/release.yml)
 - **Rare releasing** is followed to ensure less re-audit need for end-users
 - **Dependencies** are minimized and locked-down: any dependency could get hacked and users will be downloading malware with every install.
   - We make sure to use as few dependencies as possible
