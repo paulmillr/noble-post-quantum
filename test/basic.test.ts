@@ -13,6 +13,10 @@ describe('Basic', () => {
       const seedCopy = Uint8Array.from(seed);
       const keys = ml_kem512.keygen(seed);
       eql(seed, seedCopy);
+      const secretCopy = Uint8Array.from(keys.secretKey);
+      eql(ml_kem512.getPublicKey(keys.secretKey), keys.publicKey);
+      eql(keys.secretKey, secretCopy);
+
       // encapsulate
       const publicKey = Uint8Array.from(keys.publicKey);
       const msg = randomBytes(32);
@@ -33,6 +37,9 @@ describe('Basic', () => {
       const seedCopy = Uint8Array.from(seed);
       const keys = ml_dsa44.keygen(seed);
       eql(seed, seedCopy);
+      const secretCopy = Uint8Array.from(keys.secretKey);
+      eql(ml_dsa44.getPublicKey(keys.secretKey), keys.publicKey);
+      eql(keys.secretKey, secretCopy);
       // sign
       const secretKey = Uint8Array.from(keys.secretKey);
       const msg = randomBytes(32);
@@ -57,6 +64,10 @@ describe('Basic', () => {
       const seedCopy = Uint8Array.from(seed);
       const keys = slh_dsa_sha2_128f.keygen(seed);
       eql(seed, seedCopy);
+      const secretCopy = Uint8Array.from(keys.secretKey);
+      eql(slh_dsa_sha2_128f.getPublicKey(keys.secretKey), keys.publicKey);
+      eql(keys.secretKey, secretCopy);
+
       // sign
       const secretKey = Uint8Array.from(keys.secretKey);
       const msg = randomBytes(32);

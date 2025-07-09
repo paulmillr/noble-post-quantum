@@ -38,7 +38,10 @@ import {
 export type KEM = {
   publicKeyLen: number;
   msgLen: number;
+  seedLen: number;
+  cipherTextLen: number;
   keygen: KeygenFn;
+  getPublicKey: (secretKey: Uint8Array) => Uint8Array;
   encapsulate: (
     publicKey: Uint8Array,
     msg?: Uint8Array
@@ -280,17 +283,24 @@ function createKyber(opts: KyberOpts) {
   const secretCoder = splitCoder(KPKE.secretKeyLen, KPKE.publicKeyLen, 32, 32);
   const secretKeyLen = secretCoder.bytesLen;
   const msgLen = 32;
+  const seedLen = 64;
   return {
     publicKeyLen,
     msgLen,
-    keygen: (seed = randomBytes(64)) => {
-      ensureBytes(seed, 64);
+    cipherTextLen,
+    seedLen,
+    keygen: (seed = randomBytes(seedLen)) => {
+      ensureBytes(seed, seedLen);
       const { publicKey, secretKey: sk } = KPKE.keygen(seed.subarray(0, 32));
       const publicKeyHash = HASH256(publicKey);
       // (dkPKE||ek||H(ek)||z)
       const secretKey = secretCoder.encode([sk, publicKey, publicKeyHash, seed.subarray(32)]);
       cleanBytes(sk, publicKeyHash);
       return { publicKey, secretKey };
+    },
+    getPublicKey: (secretKey: Uint8Array) => {
+      const [_sk, publicKey, _publicKeyHash, _z] = secretCoder.decode(secretKey);
+      return Uint8Array.from(publicKey);
     },
     encapsulate: (publicKey: Uint8Array, msg = randomBytes(32)) => {
       ensureBytes(publicKey, publicKeyLen);

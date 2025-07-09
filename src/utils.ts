@@ -31,6 +31,7 @@ export type KeygenFn = (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey
 export type Signer = {
   signRandBytes: number;
   keygen: KeygenFn;
+  getPublicKey: (secretKey: Uint8Array) => Uint8Array;
   sign: (
     secretKey: Uint8Array,
     msg: Uint8Array,
@@ -140,39 +141,54 @@ export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array
 
 // OIDS from
 // https://csrc.nist.gov/projects/computer-security-objects-register/algorithm-registration
+// Security strength from: https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf
 // TODO: maybe add 'OID' property to hashes themselves to improve tree-shaking
 const oid = (suffix: string) => hexToBytes('06096086480165030402' + suffix);
-const HASHES: Record<string, { oid: Uint8Array; hash: (msg: Uint8Array) => Uint8Array }> = {
-  'SHA2-256': { oid: oid('01'), hash: sha256 },
-  'SHA2-384': { oid: oid('02'), hash: sha384 },
-  'SHA2-512': { oid: oid('03'), hash: sha512 },
-  'SHA2-224': { oid: oid('04'), hash: sha224 },
-  'SHA2-512/224': { oid: oid('05'), hash: sha512_224 },
-  'SHA2-512/256': { oid: oid('06'), hash: sha512_256 },
-  'SHA3-224': { oid: oid('07'), hash: sha3_224 },
-  'SHA3-256': { oid: oid('08'), hash: sha3_256 },
-  'SHA3-384': { oid: oid('09'), hash: sha3_384 },
-  'SHA3-512': { oid: oid('0A'), hash: sha3_512 },
+export const HASHES: Record<
+  string,
+  { oid: Uint8Array; hash: (msg: Uint8Array) => Uint8Array; collision: number; preimage: number }
+> = {
+  'SHA2-256': { oid: oid('01'), hash: sha256, collision: 128, preimage: 256 },
+  'SHA2-384': { oid: oid('02'), hash: sha384, collision: 192, preimage: 384 },
+  'SHA2-512': { oid: oid('03'), hash: sha512, collision: 256, preimage: 512 },
+  'SHA2-224': { oid: oid('04'), hash: sha224, collision: 112, preimage: 224 },
+  'SHA2-512/224': { oid: oid('05'), hash: sha512_224, collision: 224, preimage: 112 },
+  'SHA2-512/256': { oid: oid('06'), hash: sha512_256, collision: 256, preimage: 128 },
+  'SHA3-224': { oid: oid('07'), hash: sha3_224, collision: 112, preimage: 224 },
+  'SHA3-256': { oid: oid('08'), hash: sha3_256, collision: 128, preimage: 256 },
+  'SHA3-384': { oid: oid('09'), hash: sha3_384, collision: 192, preimage: 384 },
+  'SHA3-512': { oid: oid('0A'), hash: sha3_512, collision: 256, preimage: 512 },
   'SHAKE-128': {
     oid: oid('0B'),
     hash: (msg) => shake128(msg, { dkLen: 32 }),
+    collision: 128,
+    preimage: 256,
   },
   'SHAKE-256': {
     oid: oid('0C'),
     hash: (msg) => shake256(msg, { dkLen: 64 }),
+    collision: 256,
+    preimage: 512,
   },
 };
 
 export function getMessagePrehash(
   hashName: string,
   msg: Uint8Array,
-  ctx: Uint8Array = EMPTY
+  ctx: Uint8Array = EMPTY,
+  requiredStrength: number = 0
 ): Uint8Array {
   ensureBytes(msg);
   ensureBytes(ctx);
   if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
   if (!HASHES[hashName]) throw new Error('unknown hash: ' + hashName);
-  const { oid, hash } = HASHES[hashName];
+  const { oid, hash, collision, preimage } = HASHES[hashName];
+  const fullStrength = Math.min(collision, preimage);
+  if (requiredStrength > Math.min(collision, preimage)) {
+    throw new Error(
+      'Pre-hash security strength too low: ' + fullStrength + ', required: ' + requiredStrength
+    );
+  }
   const hashed = hash(msg);
   return concatBytes(new Uint8Array([1, ctx.length]), ctx, oid, hashed);
 }

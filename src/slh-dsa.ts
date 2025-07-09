@@ -57,6 +57,7 @@ export type SphincsOpts = {
   D: number;
   K: number;
   A: number;
+  securityLevel: number;
 };
 
 export type SphincsHashOpts = {
@@ -66,12 +67,12 @@ export type SphincsHashOpts = {
 
 /** Winternitz signature params. */
 export const PARAMS: Record<string, SphincsOpts> = {
-  '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6 },
-  '128s': { W: 16, N: 16, H: 63, D: 7, K: 14, A: 12 },
-  '192f': { W: 16, N: 24, H: 66, D: 22, K: 33, A: 8 },
-  '192s': { W: 16, N: 24, H: 63, D: 7, K: 17, A: 14 },
-  '256f': { W: 16, N: 32, H: 68, D: 17, K: 35, A: 9 },
-  '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14 },
+  '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6, securityLevel: 128 },
+  '128s': { W: 16, N: 16, H: 63, D: 7, K: 14, A: 12, securityLevel: 128 },
+  '192f': { W: 16, N: 24, H: 66, D: 22, K: 33, A: 8, securityLevel: 192 },
+  '192s': { W: 16, N: 24, H: 63, D: 7, K: 17, A: 14, securityLevel: 192 },
+  '256f': { W: 16, N: 32, H: 68, D: 17, K: 35, A: 9, securityLevel: 256 },
+  '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14, securityLevel: 256 },
 } as const;
 
 const AddressType = {
@@ -136,11 +137,12 @@ function getMaskBig(bits: number) {
 
 export type SphincsSigner = Signer & { seedLen: number } & {
   internal: Signer;
+  securityLevel: number;
   prehash: (hashName: string) => Signer;
 };
 
 function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
-  const { N, W, H, D, K, A } = opts;
+  const { N, W, H, D, K, A, securityLevel: securityLevel } = opts;
   const getContext = hashOpts.getContext(opts);
   if (W !== 16) throw new Error('Unsupported Winternitz parameter');
   const WOTS_LOGW = 4;
@@ -397,11 +399,15 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       cleanBytes(secretSeed, secretPRF, root, wotsAddr, topTreeAddr);
       return { publicKey, secretKey };
     },
-    sign: (sk: Uint8Array, msg: Uint8Array, random?: Uint8Array) => {
+    getPublicKey: (secretKey: Uint8Array) => {
+      const [_skSeed, _skPRF, pk] = secretCoder.decode(secretKey);
+      return Uint8Array.from(pk);
+    },
+    sign: (sk: Uint8Array, msg: Uint8Array, random: Uint8Array | false = randomBytes(N)) => {
       const [skSeed, skPRF, pk] = secretCoder.decode(sk); // todo: fix
       const [pkSeed, _] = publicCoder.decode(pk);
       // Set opt_rand to either PK.seed or to a random n-byte string
-      if (!random) random = pkSeed.slice();
+      if (random === false) random = pkSeed.slice();
       ensureBytes(random, N);
       const context = getContext(pkSeed, skSeed);
       // Generate randomizer
@@ -528,8 +534,10 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   };
   return {
     internal,
+    securityLevel: securityLevel,
     seedLen: seedCoder.bytesLen,
     keygen: internal.keygen,
+    getPublicKey: internal.getPublicKey,
     signRandBytes: internal.signRandBytes,
     sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
       const M = getMessage(msg, ctx);
@@ -543,15 +551,20 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     prehash: (hashName: string) => ({
       seedLen: seedCoder.bytesLen,
       keygen: internal.keygen,
+      getPublicKey: internal.getPublicKey,
       signRandBytes: internal.signRandBytes,
       sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
-        const M = getMessagePrehash(hashName, msg, ctx);
+        const M = getMessagePrehash(hashName, msg, ctx, securityLevel);
         const res = internal.sign(secretKey, M, random);
         cleanBytes(M);
         return res;
       },
       verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
-        return internal.verify(publicKey, getMessagePrehash(hashName, msg, ctx), sig);
+        return internal.verify(
+          publicKey,
+          getMessagePrehash(hashName, msg, ctx, securityLevel),
+          sig
+        );
       },
     }),
   };

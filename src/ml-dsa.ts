@@ -29,6 +29,7 @@ import {
 export type DSAInternal = {
   signRandBytes: number;
   keygen: KeygenFn;
+  getPublicKey: (privKey: Uint8Array) => Uint8Array;
   sign: (
     privKey: Uint8Array,
     msg: Uint8Array,
@@ -154,11 +155,12 @@ type DilithiumOpts = {
   TR_BYTES: number;
   XOF128: XOF;
   XOF256: XOF;
+  securityLevel: number;
 };
 
 function getDilithium(opts: DilithiumOpts) {
   const { K, L, GAMMA1, GAMMA2, TAU, ETA, OMEGA } = opts;
-  const { CRH_BYTES, TR_BYTES, C_TILDE_BYTES, XOF128, XOF256 } = opts;
+  const { CRH_BYTES, TR_BYTES, C_TILDE_BYTES, XOF128, XOF256, securityLevel } = opts;
 
   if (![2, 4].includes(ETA)) throw new Error('Wrong ETA');
   if (![1 << 17, 1 << 19].includes(GAMMA1)) throw new Error('Wrong GAMMA1');
@@ -388,8 +390,34 @@ function getDilithium(opts: DilithiumOpts) {
       cleanBytes(rho, rhoPrime, K_, s1, s2, s1Hat, t, t0, t1, tr, seedDst);
       return { publicKey, secretKey };
     },
+    getPublicKey: (secretKey: Uint8Array) => {
+      const [rho, _K, _tr, s1, s2, _t0] = secretCoder.decode(secretKey); // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
+      const xof = XOF128(rho);
+      const s1Hat = s1.map((p) => NTT.encode(p.slice()));
+      const t1: Poly[] = [];
+      const tmp = newPoly(N);
+      for (let i = 0; i < K; i++) {
+        tmp.fill(0);
+        for (let j = 0; j < L; j++) {
+          const aij = RejNTTPoly(xof.get(j, i)); // A_ij in NTT
+          polyAdd(tmp, MultiplyNTTs(aij, s1Hat[j])); // += A_ij * s1_j
+        }
+        NTT.decode(tmp); // NTT⁻¹
+        polyAdd(tmp, s2[i]); // t_i = A·s1 + s2
+        const { r1 } = polyPowerRound(tmp); // r1 = t1, r0 ≈ t0
+        t1.push(r1);
+      }
+      xof.clean();
+      cleanBytes(tmp, s1Hat, _t0, s1, s2);
+      return publicCoder.encode([rho, t1]);
+    },
     // NOTE: random is optional.
-    sign: (secretKey: Uint8Array, msg: Uint8Array, random?: Uint8Array, externalMu = false) => {
+    sign: (
+      secretKey: Uint8Array,
+      msg: Uint8Array,
+      random: Uint8Array | false = randomBytes(signRandBytes),
+      externalMu = false
+    ) => {
       // This part can be pre-cached per secretKey, but there is only minor performance improvement,
       // since we re-use a lot of variables to computation.
       const [rho, _K, tr, s1, s2, t0] = secretCoder.decode(secretKey); // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
@@ -413,7 +441,7 @@ function getDilithium(opts: DilithiumOpts) {
         : shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 6: µ ← H(tr||M, 512) ▷ Compute message representative µ
 
       // Compute private random seed
-      const rnd = random ? random : new Uint8Array(32);
+      const rnd = random === false ? new Uint8Array(32) : random;
       ensureBytes(rnd);
       const rhoprime = shake256
         .create({ dkLen: CRH_BYTES })
@@ -528,8 +556,10 @@ function getDilithium(opts: DilithiumOpts) {
   };
   return {
     internal,
+    securityLevel: securityLevel,
     keygen: internal.keygen,
     signRandBytes: internal.signRandBytes,
+    getPublicKey: internal.getPublicKey,
     sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
       const M = getMessage(msg, ctx);
       const res = internal.sign(secretKey, M, random);
@@ -541,13 +571,17 @@ function getDilithium(opts: DilithiumOpts) {
     },
     prehash: (hashName: string) => ({
       sign: (secretKey: Uint8Array, msg: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
-        const M = getMessagePrehash(hashName, msg, ctx);
+        const M = getMessagePrehash(hashName, msg, ctx, securityLevel);
         const res = internal.sign(secretKey, M, random);
         cleanBytes(M);
         return res;
       },
       verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx = EMPTY) => {
-        return internal.verify(publicKey, getMessagePrehash(hashName, msg, ctx), sig);
+        return internal.verify(
+          publicKey,
+          getMessagePrehash(hashName, msg, ctx, securityLevel),
+          sig
+        );
       },
     }),
   };
@@ -561,6 +595,7 @@ export const ml_dsa44: DSA = /* @__PURE__ */ getDilithium({
   C_TILDE_BYTES: 32,
   XOF128,
   XOF256,
+  securityLevel: 128,
 });
 
 /** ML-DSA-65 for 192-bit security level. Not recommended after 2030, as per ASD. */
@@ -571,6 +606,7 @@ export const ml_dsa65: DSA = /* @__PURE__ */ getDilithium({
   C_TILDE_BYTES: 48,
   XOF128,
   XOF256,
+  securityLevel: 192,
 });
 
 /** ML-DSA-87 for 256-bit security level. OK after 2030, as per ASD. */
@@ -581,4 +617,5 @@ export const ml_dsa87: DSA = /* @__PURE__ */ getDilithium({
   C_TILDE_BYTES: 64,
   XOF128,
   XOF256,
+  securityLevel: 256,
 });
