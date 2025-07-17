@@ -3,13 +3,11 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2.js';
-import { sha3_224, sha3_256, sha3_384, sha3_512, shake128, shake256 } from '@noble/hashes/sha3.js';
 import {
+  type CHash,
   type TypedArray,
   abytes,
   concatBytes,
-  hexToBytes,
   randomBytes as randb,
   utf8ToBytes,
 } from '@noble/hashes/utils.js';
@@ -26,19 +24,34 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-export type KeygenFn = (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey: Uint8Array };
-/** Generic interface for signatures. Has keygen, sign and verify. */
-export type Signer = {
-  signRandBytes: number;
-  keygen: KeygenFn;
+export type CryptoKeys = {
+  info: { lengths: { seed?: number; public?: number; secret?: number } };
+  keygen: (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey: Uint8Array };
   getPublicKey: (secretKey: Uint8Array) => Uint8Array;
+};
+
+/** Generic interface for signatures. Has keygen, sign and verify. */
+export type Signer = CryptoKeys & {
+  info: { lengths: { signRand?: number; signature?: number } };
   sign: (
-    secretKey: Uint8Array,
     msg: Uint8Array,
+    secretKey: Uint8Array,
     ctx?: Uint8Array,
     random?: Uint8Array
   ) => Uint8Array;
-  verify: (publicKey: Uint8Array, msg: Uint8Array, sig: Uint8Array, ctx?: Uint8Array) => boolean;
+  verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx?: Uint8Array) => boolean;
+};
+
+export type KEM = CryptoKeys & {
+  info: { lengths: { cipherText?: number; msg?: number } };
+  encapsulate: (
+    publicKey: Uint8Array,
+    msg?: Uint8Array
+  ) => {
+    cipherText: Uint8Array;
+    sharedSecret: Uint8Array;
+  };
+  decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => Uint8Array;
 };
 
 export interface Coder<F, T> {
@@ -139,41 +152,8 @@ export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array
   return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
 }
 
-// OIDS from
-// https://csrc.nist.gov/projects/computer-security-objects-register/algorithm-registration
-// Security strength from: https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf
-// TODO: maybe add 'OID' property to hashes themselves to improve tree-shaking
-const oid = (suffix: string) => hexToBytes('06096086480165030402' + suffix);
-export const HASHES: Record<
-  string,
-  { oid: Uint8Array; hash: (msg: Uint8Array) => Uint8Array; collision: number; preimage: number }
-> = {
-  'SHA2-256': { oid: oid('01'), hash: sha256, collision: 128, preimage: 256 },
-  'SHA2-384': { oid: oid('02'), hash: sha384, collision: 192, preimage: 384 },
-  'SHA2-512': { oid: oid('03'), hash: sha512, collision: 256, preimage: 512 },
-  'SHA2-224': { oid: oid('04'), hash: sha224, collision: 112, preimage: 224 },
-  'SHA2-512/224': { oid: oid('05'), hash: sha512_224, collision: 224, preimage: 112 },
-  'SHA2-512/256': { oid: oid('06'), hash: sha512_256, collision: 256, preimage: 128 },
-  'SHA3-224': { oid: oid('07'), hash: sha3_224, collision: 112, preimage: 224 },
-  'SHA3-256': { oid: oid('08'), hash: sha3_256, collision: 128, preimage: 256 },
-  'SHA3-384': { oid: oid('09'), hash: sha3_384, collision: 192, preimage: 384 },
-  'SHA3-512': { oid: oid('0A'), hash: sha3_512, collision: 256, preimage: 512 },
-  'SHAKE-128': {
-    oid: oid('0B'),
-    hash: (msg) => shake128(msg, { dkLen: 32 }),
-    collision: 128,
-    preimage: 256,
-  },
-  'SHAKE-256': {
-    oid: oid('0C'),
-    hash: (msg) => shake256(msg, { dkLen: 64 }),
-    collision: 256,
-    preimage: 512,
-  },
-};
-
 export function getMessagePrehash(
-  hashName: string,
+  hash: CHash,
   msg: Uint8Array,
   ctx: Uint8Array = EMPTY,
   requiredStrength: number = 0
@@ -181,14 +161,22 @@ export function getMessagePrehash(
   ensureBytes(msg);
   ensureBytes(ctx);
   if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
-  if (!HASHES[hashName]) throw new Error('unknown hash: ' + hashName);
-  const { oid, hash, collision, preimage } = HASHES[hashName];
-  const fullStrength = Math.min(collision, preimage);
-  if (requiredStrength > Math.min(collision, preimage)) {
+  // check for NIST prefix
+  if (
+    !hash.oid ||
+    !equalBytes(hash.oid.subarray(0, 10), new Uint8Array([6, 9, 96, 134, 72, 1, 101, 3, 4, 2]))
+  ) {
+    throw new Error('hash.oid is invalid: expected NIST hash');
+  }
+  const collisionResistance = (hash.outputLen * 8) / 2;
+  if (requiredStrength > collisionResistance) {
     throw new Error(
-      'Pre-hash security strength too low: ' + fullStrength + ', required: ' + requiredStrength
+      'Pre-hash security strength too low: ' +
+        collisionResistance +
+        ', required: ' +
+        requiredStrength
     );
   }
   const hashed = hash(msg);
-  return concatBytes(new Uint8Array([1, ctx.length]), ctx, oid, hashed);
+  return concatBytes(new Uint8Array([1, ctx.length]), ctx, hash.oid, hashed);
 }

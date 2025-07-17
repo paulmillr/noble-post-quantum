@@ -28,29 +28,13 @@ import {
   type Coder,
   ensureBytes,
   equalBytes,
-  type KeygenFn,
+  type KEM,
   randomBytes,
   splitCoder,
   vecCoder,
 } from './utils.ts';
 
 /** Key encapsulation mechanism interface */
-export type KEM = {
-  publicKeyLen: number;
-  msgLen: number;
-  seedLen: number;
-  cipherTextLen: number;
-  keygen: KeygenFn;
-  getPublicKey: (secretKey: Uint8Array) => Uint8Array;
-  encapsulate: (
-    publicKey: Uint8Array,
-    msg?: Uint8Array
-  ) => {
-    cipherText: Uint8Array;
-    sharedSecret: Uint8Array;
-  };
-  decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => Uint8Array;
-};
 
 const N = 256; // Kyber (not FIPS-203) supports different lengths, but all std modes were using 256
 const Q = 3329; // 13*(2**8)+1, modulo prime
@@ -205,9 +189,13 @@ const genKPKE = (opts: KyberOpts) => {
   const seedCoder = splitCoder(32, 32);
   return {
     secretCoder,
-    secretKeyLen: secretCoder.bytesLen,
-    publicKeyLen: publicCoder.bytesLen,
-    cipherTextLen: cipherCoder.bytesLen,
+    info: {
+      lengths: {
+        secret: secretCoder.bytesLen,
+        public: publicCoder.bytesLen,
+        cipherText: cipherCoder.bytesLen,
+      },
+    },
     keygen: (seed: Uint8Array) => {
       ensureBytes(seed, 32);
       const seedDst = new Uint8Array(33);
@@ -278,17 +266,13 @@ const genKPKE = (opts: KyberOpts) => {
 function createKyber(opts: KyberOpts) {
   const KPKE = genKPKE(opts);
   const { HASH256, HASH512, KDF } = opts;
-  const { secretCoder: KPKESecretCoder, cipherTextLen } = KPKE;
-  const publicKeyLen = KPKE.publicKeyLen; // 384*K+32
-  const secretCoder = splitCoder(KPKE.secretKeyLen, KPKE.publicKeyLen, 32, 32);
-  const secretKeyLen = secretCoder.bytesLen;
+  const { secretCoder: KPKESecretCoder, info } = KPKE;
+  const lengths = info.lengths;
+  const secretCoder = splitCoder(lengths.secret, lengths.public, 32, 32);
   const msgLen = 32;
   const seedLen = 64;
   return {
-    publicKeyLen,
-    msgLen,
-    cipherTextLen,
-    seedLen,
+    info: { lengths: { ...lengths, seed: 64, msg: 32, secret: secretCoder.bytesLen } },
     keygen: (seed = randomBytes(seedLen)) => {
       ensureBytes(seed, seedLen);
       const { publicKey, secretKey: sk } = KPKE.keygen(seed.subarray(0, 32));
@@ -303,7 +287,7 @@ function createKyber(opts: KyberOpts) {
       return Uint8Array.from(publicKey);
     },
     encapsulate: (publicKey: Uint8Array, msg = randomBytes(32)) => {
-      ensureBytes(publicKey, publicKeyLen);
+      ensureBytes(publicKey, lengths.public);
       ensureBytes(msg, msgLen);
 
       // FIPS-203 includes additional verification check for modulus
@@ -322,8 +306,8 @@ function createKyber(opts: KyberOpts) {
       return { cipherText, sharedSecret: kr.subarray(0, 32) };
     },
     decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => {
-      ensureBytes(secretKey, secretKeyLen); // 768*k + 96
-      ensureBytes(cipherText, cipherTextLen); // 32(du*k + dv)
+      ensureBytes(secretKey, secretCoder.bytesLen); // 768*k + 96
+      ensureBytes(cipherText, lengths.cipherText); // 32(du*k + dv)
       const [sk, publicKey, publicKeyHash, z] = secretCoder.decode(secretKey);
       const msg = KPKE.decrypt(cipherText, sk);
       const kr = HASH512.create().update(msg).update(publicKeyHash).digest(); // derive randomness, Khat, rHat = G(mHat || h)
