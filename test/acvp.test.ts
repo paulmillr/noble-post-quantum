@@ -17,8 +17,17 @@ import {
   slh_dsa_shake_256f,
   slh_dsa_shake_256s,
 } from '../src/slh-dsa.ts';
-import { HASHES } from '../src/utils.ts';
+import { equalBytes } from '../src/utils.ts';
 
+import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2.js';
+import {
+  sha3_224,
+  sha3_256,
+  sha3_384,
+  sha3_512,
+  shake128_32,
+  shake256_64,
+} from '@noble/hashes/sha3.js';
 import { jsonGZ } from './util.ts';
 
 const ignoreSlowTests = !['1', 'true'].includes(process.env.SLOW_TESTS);
@@ -27,10 +36,24 @@ function sum(array) {
   return array.reduce((a, b) => a + b, 0);
 }
 
-function checkStrength(name) {
-  const { collision, preimage } = HASHES[name];
-  return Math.min(collision, preimage);
+function checkStrength(hash) {
+  return (hash.outputLen * 8) / 2;
 }
+
+const HASHES = {
+  'SHA2-256': sha256,
+  'SHA2-384': sha384,
+  'SHA2-512': sha512,
+  'SHA2-224': sha224,
+  'SHA2-512/224': sha512_224,
+  'SHA2-512/256': sha512_256,
+  'SHA3-224': sha3_224,
+  'SHA3-256': sha3_256,
+  'SHA3-384': sha3_384,
+  'SHA3-512': sha3_512,
+  'SHAKE-128': shake128_32,
+  'SHAKE-256': shake256_64,
+};
 
 // TODO: use in other libraries? seems useful
 // These tests are from 'https://github.com/usnistgov/ACVP-Server/tree/master/gen-val/json-files'
@@ -85,18 +108,40 @@ describe('AVCP', () => {
     should('encapDecap', () => {
       for (const g of loadACVP('ML-KEM-encapDecap-FIPS203')) {
         const mlkem = NAMES[g.info.p.parameterSet];
-        if (g.info.p.function === 'encapsulation') {
-          for (const t of g.tests) {
+        for (const t of g.tests) {
+          if (g.info.p.function === 'encapsulation') {
             const { cipherText, sharedSecret } = mlkem.encapsulate(hexx(t.p.ek), hexx(t.p.m));
             eql(cipherText, hexx(t.er.c));
             eql(sharedSecret, hexx(t.er.k));
-          }
-        } else if (g.info.p.function === 'decapsulation') {
-          for (const t of g.tests) {
+          } else if (g.info.p.function === 'decapsulation') {
             const dk = hexx(t.p.dk);
             const c = hexx(t.p.c);
             const sharedSecret = mlkem.decapsulate(c, dk);
             eql(sharedSecret, hexx(t.er.k));
+          } else if (g.info.p.function === 'encapsulationKeyCheck') {
+            // NOTE: spec doesn't provide any functions for these check and explicitly returns pseudo-random if key is not valid/cipherText broken
+            // so we try to emulate key checks using these functions.
+            let passed;
+            try {
+              mlkem.encapsulate(hexx(t.p.ek));
+              passed = true;
+            } catch {
+              passed = false;
+            }
+            eql(passed, t.ip.testPassed);
+          } else if (g.info.p.function === 'decapsulationKeyCheck') {
+            const dk = hexx(t.ip.dk);
+            const ek = hexx(t.ip.ek);
+            eql(mlkem.getPublicKey(dk), ek);
+            const c = mlkem.encapsulate(ek);
+            let passed;
+            try {
+              const shared = mlkem.decapsulate(c.cipherText, dk); // mlkem returns pseudo-random garbage if not valid
+              passed = equalBytes(shared, c.sharedSecret);
+            } catch (e) {
+              passed = false;
+            }
+            eql(passed, t.ip.testPassed);
           }
         }
       }
@@ -123,15 +168,16 @@ describe('AVCP', () => {
           let sig;
           if (g.info.p.signatureInterface === 'internal') {
             if (g.info.p.externalMu) {
-              sig = mldsa.internal.sign(hexx(t.p.sk), hexx(t.p.mu), rnd, true);
-            } else sig = mldsa.internal.sign(hexx(t.p.sk), hexx(t.p.message), rnd);
+              sig = mldsa.internal.sign(hexx(t.p.mu), hexx(t.p.sk), rnd, true);
+            } else sig = mldsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), rnd);
           } else if (g.info.p.signatureInterface === 'external') {
             const ctx = t.p.context ? hexx(t.p.context) : undefined;
             if (g.info.p.preHash === 'preHash') {
-              if (checkStrength(t.p.hashAlg) < mldsa.securityLevel) continue;
-              sig = mldsa.prehash(t.p.hashAlg).sign(hexx(t.p.sk), hexx(t.p.message), ctx, rnd);
+              const hash = HASHES[t.p.hashAlg];
+              if (checkStrength(hash) < mldsa.securityLevel) continue;
+              sig = mldsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
             } else {
-              sig = mldsa.sign(hexx(t.p.sk), hexx(t.p.message), ctx, rnd);
+              sig = mldsa.sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
             }
           } else throw new Error('unknown signature interface');
           eql(sig, hexx(t.er.signature));
@@ -145,19 +191,20 @@ describe('AVCP', () => {
           let valid;
           if (g.info.p.signatureInterface === 'internal') {
             if (g.info.p.externalMu) {
-              valid = mldsa.internal.verify(hexx(t.p.pk), hexx(t.p.mu), hexx(t.p.signature), true);
+              valid = mldsa.internal.verify(hexx(t.p.signature), hexx(t.p.mu), hexx(t.p.pk), true);
             } else {
-              valid = mldsa.internal.verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature));
+              valid = mldsa.internal.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk));
             }
           } else if (g.info.p.signatureInterface === 'external') {
             const ctx = t.p.context ? hexx(t.p.context) : undefined;
             if (g.info.p.preHash === 'preHash') {
-              if (checkStrength(t.p.hashAlg) < mldsa.securityLevel) continue;
+              const hash = HASHES[t.p.hashAlg];
+              if (checkStrength(hash) < mldsa.securityLevel) continue;
               valid = mldsa
-                .prehash(t.p.hashAlg)
-                .verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature), ctx);
+                .prehash(hash)
+                .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
             } else {
-              valid = mldsa.verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature), ctx);
+              valid = mldsa.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
             }
           } else throw new Error('unknown signature interface');
           eql(valid, t.er.testPassed);
@@ -201,16 +248,17 @@ describe('AVCP', () => {
           // We throw error on invalid signature size, so this is reason
           try {
             if (g.info.p.signatureInterface === 'internal') {
-              valid = slhdsa.internal.verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature));
+              valid = slhdsa.internal.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk));
             } else if (g.info.p.signatureInterface === 'external') {
               const ctx = t.p.context ? hexx(t.p.context) : undefined;
               if (g.info.p.preHash === 'preHash') {
-                if (checkStrength(t.p.hashAlg) < slhdsa.securityLevel) return;
+                const hash = HASHES[t.p.hashAlg];
+                if (checkStrength(hash) < slhdsa.securityLevel) return;
                 valid = slhdsa
-                  .prehash(t.p.hashAlg)
-                  .verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature), ctx);
+                  .prehash(hash)
+                  .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
               } else {
-                valid = slhdsa.verify(hexx(t.p.pk), hexx(t.p.message), hexx(t.p.signature), ctx);
+                valid = slhdsa.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
               }
             } else throw new Error('unknown signature interface');
           } catch (e) {
@@ -232,14 +280,15 @@ describe('AVCP', () => {
             const rnd = t.p.additionalRandomness ? hexx(t.p.additionalRandomness) : false;
             let sig;
             if (g.info.p.signatureInterface === 'internal') {
-              sig = slhdsa.internal.sign(hexx(t.p.sk), hexx(t.p.message), rnd);
+              sig = slhdsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), rnd);
             } else if (g.info.p.signatureInterface === 'external') {
+              const hash = HASHES[t.p.hashAlg];
               const ctx = t.p.context ? hexx(t.p.context) : undefined;
               if (g.info.p.preHash === 'preHash') {
-                if (checkStrength(t.p.hashAlg) < slhdsa.securityLevel) return;
-                sig = slhdsa.prehash(t.p.hashAlg).sign(hexx(t.p.sk), hexx(t.p.message), ctx, rnd);
+                if (checkStrength(hash) < slhdsa.securityLevel) return;
+                sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
               } else {
-                sig = slhdsa.sign(hexx(t.p.sk), hexx(t.p.message), ctx, rnd);
+                sig = slhdsa.sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
               }
             } else throw new Error('unknown signature interface');
             eql(sig, hexx(t.er.signature));

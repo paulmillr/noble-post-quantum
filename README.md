@@ -8,6 +8,7 @@ Auditable & minimal JS implementation of post-quantum public-key cryptography.
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based kem from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
+- 🍡 Hybrid algorithms, combining classic & post-quantum
 - 🪶 16KB (gzipped) for everything, including bundled noble-hashes & noble-curves
 
 Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
@@ -166,6 +167,24 @@ See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincs
 There are many different kinds,
 but basically `sha2` / `shake` indicate internal hash, `128` / `192` / `256` indicate security level, and `s` /`f` indicate trade-off (Small / Fast).
 SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
+
+### Hybrids: XWing, KitchenSink and others
+
+```js
+import {
+  XWing,
+  KitchenSinkMLKEM768X25519,
+  QSFMLKEM768P256, QSFMLKEM1024P384
+} from '@noble/post-quantum/hybrids.js';
+```
+
+XWing is x25519+mlkem768, just like kitchensink.
+
+The following spec drafts are matched:
+
+- [irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/)
+- [connolly-cfrg-xwing-kem](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/)
+- [tls-westerbaan-xyber768d00](https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/)
 
 ### What should I use?
 

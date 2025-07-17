@@ -1,9 +1,21 @@
 import { describe, should } from 'micro-should';
-import { deepStrictEqual as eql } from 'node:assert';
-import { ml_dsa44 } from '../src/ml-dsa.ts';
+import { deepStrictEqual as eql, throws } from 'node:assert';
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem512 } from '../src/ml-kem.ts';
 import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
 import { randomBytes } from '../src/utils.ts';
+import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2.js';
+import {
+  sha3_224,
+  sha3_256,
+  sha3_384,
+  sha3_512,
+  shake128,
+  shake256,
+  keccak_512,
+  shake128_32,
+  shake256_64,
+} from '@noble/hashes/sha3.js';
 
 describe('Basic', () => {
   describe('Immutability', () => {
@@ -46,14 +58,14 @@ describe('Basic', () => {
       const msgCopy = Uint8Array.from(msg);
       const random = randomBytes(32);
       const randomCopy = Uint8Array.from(random);
-      const sig = ml_dsa44.sign(secretKey, msg, random);
+      const sig = ml_dsa44.sign(msg, secretKey, random);
       eql(secretKey, keys.secretKey);
       eql(msg, msgCopy);
       eql(random, randomCopy);
       // verify
       const sigCopy = Uint8Array.from(sig);
       const publicKey = Uint8Array.from(keys.publicKey);
-      ml_dsa44.verify(publicKey, msg, sig);
+      ml_dsa44.verify(sig, msg, publicKey);
       eql(sig, sigCopy);
       eql(publicKey, keys.publicKey);
       eql(msg, msgCopy);
@@ -74,18 +86,33 @@ describe('Basic', () => {
       const msgCopy = Uint8Array.from(msg);
       const random = randomBytes(32);
       const randomCopy = Uint8Array.from(random);
-      const sig = slh_dsa_sha2_128f.sign(secretKey, msg, random);
+      const sig = slh_dsa_sha2_128f.sign(msg, secretKey, random);
       eql(secretKey, keys.secretKey);
       eql(msg, msgCopy);
       eql(random, randomCopy);
       // verify
       const sigCopy = Uint8Array.from(sig);
       const publicKey = Uint8Array.from(keys.publicKey);
-      slh_dsa_sha2_128f.verify(publicKey, msg, sig);
+      slh_dsa_sha2_128f.verify(sig, msg, publicKey);
       eql(publicKey, keys.publicKey);
       eql(sig, sigCopy);
       eql(msg, msgCopy);
     });
+  });
+  should('Hash compatibility', () => {
+    const keys44 = ml_dsa44.keygen();
+    const keys65 = ml_dsa65.keygen();
+    const keys87 = ml_dsa87.keygen();
+    const msg = new Uint8Array([1, 2, 3, 4]);
+    throws(() => ml_dsa44.prehash(sha3_224).sign(msg, keys44.secretKey));
+    ml_dsa44.prehash(sha3_256).sign(msg, keys44.secretKey);
+    ml_dsa44.prehash(shake128_32).sign(msg, keys44.secretKey);
+    throws(() => ml_dsa44.prehash(shake128).sign(msg, keys44.secretKey)); // small output
+    throws(() => ml_dsa44.prehash(keccak_512).sign(msg, keys44.secretKey)); // non nist hash
+    throws(() => ml_dsa65.prehash(sha3_256).sign(msg, keys65.secretKey));
+    ml_dsa65.prehash(sha3_384).sign(msg, keys65.secretKey);
+    throws(() => ml_dsa87.prehash(sha3_384).sign(msg, keys87.secretKey));
+    ml_dsa87.prehash(sha3_512).sign(msg, keys87.secretKey);
   });
 });
 
