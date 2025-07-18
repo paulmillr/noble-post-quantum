@@ -309,11 +309,11 @@ function createKyber(opts: KyberOpts) {
       ensureBytes(secretKey, secretCoder.bytesLen); // 768*k + 96
       ensureBytes(cipherText, lengths.cipherText); // 32(du*k + dv)
       // test ← H(dk[384𝑘 ∶ 768𝑘 + 32])) .
-      const _768k = secretCoder.bytesLen - 96;
-      const _start = _768k + 32;
-      const test = HASH256(secretKey.subarray(_768k / 2, _start));
+      const k768 = secretCoder.bytesLen - 96;
+      const start = k768 + 32;
+      const test = HASH256(secretKey.subarray(k768 / 2, start));
       // If test ≠ dk[768𝑘 + 32 ∶ 768𝑘 + 64], then input checking has failed.
-      if (!equalBytes(test, secretKey.subarray(_start, _start + 32)))
+      if (!equalBytes(test, secretKey.subarray(start, start + 32)))
         throw new Error('invalid secretKey: hash check failed');
       const [sk, publicKey, publicKeyHash, z] = secretCoder.decode(secretKey);
       const msg = KPKE.decrypt(cipherText, sk);
