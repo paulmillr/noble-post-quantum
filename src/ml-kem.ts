@@ -305,17 +305,17 @@ function createKyber(opts: KyberOpts) {
       cleanBytes(kr.subarray(32));
       return { cipherText, sharedSecret: kr.subarray(0, 32) };
     },
-    decapsulate: (cipherText: Uint8Array, dk: Uint8Array) => {
-      ensureBytes(dk, secretCoder.bytesLen); // 768*k + 96
+    decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => {
+      ensureBytes(secretKey, secretCoder.bytesLen); // 768*k + 96
       ensureBytes(cipherText, lengths.cipherText); // 32(du*k + dv)
       // test ← H(dk[384𝑘 ∶ 768𝑘 + 32])) .
-      // If test ≠ dk[768𝑘 + 32 ∶ 768𝑘 + 64], then input checking has failed.
       const _768k = secretCoder.bytesLen - 96;
       const _start = _768k + 32;
-      const test = HASH256(dk.subarray(_768k / 2, _start));
-      if (!equalBytes(test, dk.subarray(_start, _start + 32)))
+      const test = HASH256(secretKey.subarray(_768k / 2, _start));
+      // If test ≠ dk[768𝑘 + 32 ∶ 768𝑘 + 64], then input checking has failed.
+      if (!equalBytes(test, secretKey.subarray(_start, _start + 32)))
         throw new Error('invalid secretKey: hash check failed');
-      const [sk, publicKey, publicKeyHash, z] = secretCoder.decode(dk);
+      const [sk, publicKey, publicKeyHash, z] = secretCoder.decode(secretKey);
       const msg = KPKE.decrypt(cipherText, sk);
       const kr = HASH512.create().update(msg).update(publicKeyHash).digest(); // derive randomness, Khat, rHat = G(mHat || h)
       const Khat = kr.subarray(0, 32);

@@ -152,6 +152,9 @@ export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array
   return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
 }
 
+// 06 09 60 86 48 01 65 03 04 02
+const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x65, 3, 4, 2]);
+
 export function getMessagePrehash(
   hash: CHash,
   msg: Uint8Array,
@@ -161,13 +164,8 @@ export function getMessagePrehash(
   ensureBytes(msg);
   ensureBytes(ctx);
   if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
-  // check for NIST prefix
-  if (
-    !hash.oid ||
-    !equalBytes(hash.oid.subarray(0, 10), new Uint8Array([6, 9, 96, 134, 72, 1, 101, 3, 4, 2]))
-  ) {
+  if (!hash.oid || !equalBytes(hash.oid.subarray(0, 10), oidNistP))
     throw new Error('hash.oid is invalid: expected NIST hash');
-  }
   const collisionResistance = (hash.outputLen * 8) / 2;
   if (requiredStrength > collisionResistance) {
     throw new Error(
