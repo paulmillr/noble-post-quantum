@@ -87,7 +87,15 @@ import { p256, p384 } from '@noble/curves/nist';
 import { expand, extract } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
-import { abytes, ahash, anumber, isBytes, utf8ToBytes, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
+import {
+  abytes,
+  ahash,
+  anumber,
+  isBytes,
+  utf8ToBytes,
+  type CHash,
+  type CHashXOF,
+} from '@noble/hashes/utils.js';
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
   cleanBytes,
