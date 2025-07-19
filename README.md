@@ -84,28 +84,26 @@ import {
 ```ts
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem.js';
 import { randomBytes } from '@noble/post-quantum/utils.js';
-
-// 1. [Alice] generates secret & public keys, then sends publicKey to Bob
 const seed = randomBytes(64); // seed is optional
 const aliceKeys = ml_kem768.keygen(seed);
-
-// 2. [Bob] generates shared secret for Alice publicKey
-// bobShared never leaves [Bob] system and is unknown to other parties
 const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(aliceKeys.publicKey);
-
-// 3. [Alice] gets and decrypts cipherText from Bob
 const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey);
 
-// Now, both Alice and Bob have same sharedSecret key
-// without exchanging in plainText: aliceShared == bobShared
-
 // Warning: Can be MITM-ed
-const carolKeys = kyber1024.keygen();
-const carolShared = kyber1024.decapsulate(cipherText, carolKeys.secretKey); // No error!
-notDeepStrictEqual(aliceShared, carolShared); // Different key!
+const malloryKeys = ml_kem768.keygen();
+const malloryShared = ml_kem768.decapsulate(cipherText, malloryKeys.secretKey); // No error!
+notDeepStrictEqual(aliceShared, malloryShared); // Different key!
 ```
 
 Lattice-based key encapsulation mechanism, defined in [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf).
+Can be used as follows:
+
+1. *Alice* generates secret & public keys, then sends publicKey to *Bob*
+2. *Bob* generates shared secret for Alice publicKey.
+  bobShared never leaves *Bob* system and is unknown to other parties
+3. *Alice* gets and decrypts cipherText from Bob
+  Now, both Alice and Bob have same sharedSecret key
+  without exchanging in plainText: aliceShared == bobShared.
 
 See [website](https://www.pq-crystals.org/kyber/resources.shtml) and [repo](https://github.com/pq-crystals/kyber).
 There are some concerns with regards to security: see
@@ -254,7 +252,7 @@ Noble is the fastest JS implementation of post-quantum algorithms.
 WASM libraries can be faster.
 For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
 
-Benchmarks on Apple M4:
+Benchmarks on Apple M4 (**higher is better**):
 
 | OPs/sec           | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
