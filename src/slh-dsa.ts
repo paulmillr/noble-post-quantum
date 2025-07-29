@@ -49,6 +49,8 @@ import {
   randomBytes,
   splitCoder,
   vecCoder,
+  copyBytes,
+  checkHash,
 } from './utils.ts';
 
 /**
@@ -388,17 +390,17 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const wotsCoder = vecCoder(splitCoder(WOTS_LEN * N, TREE_HEIGHT * N), D);
   const sigCoder = splitCoder(N, forsCoder, wotsCoder); // random || fors || wots
   const internal: Signer = {
-    info: {
-      lengths: {
-        public: publicCoder.bytesLen,
-        secret: secretCoder.bytesLen,
-        signature: sigCoder.bytesLen,
-        seed: seedCoder.bytesLen,
-        signRand: N,
-      },
+    info: { type: 'internal-slh-dsa' },
+    lengths: {
+      public: publicCoder.bytesLen,
+      secret: secretCoder.bytesLen,
+      signature: sigCoder.bytesLen,
+      seed: seedCoder.bytesLen,
+      signRand: N,
     },
     keygen(seed?: Uint8Array) {
-      seed = seed === undefined ? randomBytes(seedCoder.bytesLen) : seed.slice();
+      if (seed !== undefined) ensureBytes(seed, seedCoder.bytesLen);
+      seed = seed === undefined ? randomBytes(seedCoder.bytesLen) : copyBytes(seed);
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
       const [secretSeed, secretPRF, publicSeed] = seedCoder.decode(seed);
       const context = getContext(publicSeed, secretSeed);
@@ -421,7 +423,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       const [skSeed, skPRF, pk] = secretCoder.decode(sk); // todo: fix
       const [pkSeed, _] = publicCoder.decode(pk);
       // Set opt_rand to either PK.seed or to a random n-byte string
-      if (random === false) random = pkSeed.slice();
+      if (random === false) random = copyBytes(pkSeed);
       ensureBytes(random, N);
       const context = getContext(pkSeed, skSeed);
       // Generate randomizer
@@ -547,9 +549,10 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     },
   };
   return {
+    info: { type: 'slh-dsa' },
     internal,
     securityLevel: securityLevel,
-    info: internal.info,
+    lengths: internal.lengths,
     keygen: internal.keygen,
     getPublicKey: internal.getPublicKey,
     sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
@@ -561,20 +564,24 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
       return internal.verify(sig, getMessage(msg, ctx), publicKey);
     },
-    prehash: (hash: CHash) => ({
-      info: internal.info,
-      keygen: internal.keygen,
-      getPublicKey: internal.getPublicKey,
-      sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
-        const M = getMessagePrehash(hash, msg, ctx, securityLevel);
-        const res = internal.sign(M, secretKey, random);
-        cleanBytes(M);
-        return res;
-      },
-      verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
-        return internal.verify(sig, getMessagePrehash(hash, msg, ctx, securityLevel), publicKey);
-      },
-    }),
+    prehash: (hash: CHash) => {
+      checkHash(hash, securityLevel);
+      return {
+        info: { type: 'hashslh-dsa' },
+        lengths: internal.lengths,
+        keygen: internal.keygen,
+        getPublicKey: internal.getPublicKey,
+        sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
+          const M = getMessagePrehash(hash, msg, ctx);
+          const res = internal.sign(M, secretKey, random);
+          cleanBytes(M);
+          return res;
+        },
+        verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
+          return internal.verify(sig, getMessagePrehash(hash, msg, ctx), publicKey);
+        },
+      };
+    },
   };
 }
 

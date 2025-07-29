@@ -24,15 +24,21 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
+// copy bytes to new u8a (aligned). Because Buffer.slice is broken.
+export function copyBytes(bytes: Uint8Array): Uint8Array {
+  return Uint8Array.from(bytes);
+}
+
 export type CryptoKeys = {
-  info: { lengths: { seed?: number; public?: number; secret?: number } };
+  info?: { type?: string };
+  lengths: { seed?: number; public?: number; secret?: number };
   keygen: (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey: Uint8Array };
   getPublicKey: (secretKey: Uint8Array) => Uint8Array;
 };
 
 /** Generic interface for signatures. Has keygen, sign and verify. */
 export type Signer = CryptoKeys & {
-  info: { lengths: { signRand?: number; signature?: number } };
+  lengths: { signRand?: number; signature?: number };
   sign: (
     msg: Uint8Array,
     secretKey: Uint8Array,
@@ -43,7 +49,7 @@ export type Signer = CryptoKeys & {
 };
 
 export type KEM = CryptoKeys & {
-  info: { lengths: { cipherText?: number; msg?: number } };
+  lengths: { cipherText?: number; msg?: number; msgRand?: number };
   encapsulate: (
     publicKey: Uint8Array,
     msg?: Uint8Array
@@ -155,15 +161,7 @@ export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array
 // 06 09 60 86 48 01 65 03 04 02
 const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x65, 3, 4, 2]);
 
-export function getMessagePrehash(
-  hash: CHash,
-  msg: Uint8Array,
-  ctx: Uint8Array = EMPTY,
-  requiredStrength: number = 0
-): Uint8Array {
-  ensureBytes(msg);
-  ensureBytes(ctx);
-  if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
+export function checkHash(hash: CHash, requiredStrength: number = 0): void {
   if (!hash.oid || !equalBytes(hash.oid.subarray(0, 10), oidNistP))
     throw new Error('hash.oid is invalid: expected NIST hash');
   const collisionResistance = (hash.outputLen * 8) / 2;
@@ -175,6 +173,16 @@ export function getMessagePrehash(
         requiredStrength
     );
   }
+}
+
+export function getMessagePrehash(
+  hash: CHash,
+  msg: Uint8Array,
+  ctx: Uint8Array = EMPTY
+): Uint8Array {
+  ensureBytes(msg);
+  ensureBytes(ctx);
+  if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
   const hashed = hash(msg);
-  return concatBytes(new Uint8Array([1, ctx.length]), ctx, hash.oid, hashed);
+  return concatBytes(new Uint8Array([1, ctx.length]), ctx, hash.oid!, hashed);
 }

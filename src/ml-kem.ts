@@ -32,6 +32,7 @@ import {
   randomBytes,
   splitCoder,
   vecCoder,
+  copyBytes,
 } from './utils.ts';
 
 /** Key encapsulation mechanism interface */
@@ -189,12 +190,10 @@ const genKPKE = (opts: KyberOpts) => {
   const seedCoder = splitCoder(32, 32);
   return {
     secretCoder,
-    info: {
-      lengths: {
-        secret: secretCoder.bytesLen,
-        public: publicCoder.bytesLen,
-        cipherText: cipherCoder.bytesLen,
-      },
+    lengths: {
+      secret: secretCoder.bytesLen,
+      public: publicCoder.bytesLen,
+      cipherText: cipherCoder.bytesLen,
     },
     keygen: (seed: Uint8Array) => {
       ensureBytes(seed, 32);
@@ -266,13 +265,13 @@ const genKPKE = (opts: KyberOpts) => {
 function createKyber(opts: KyberOpts) {
   const KPKE = genKPKE(opts);
   const { HASH256, HASH512, KDF } = opts;
-  const { secretCoder: KPKESecretCoder, info } = KPKE;
-  const lengths = info.lengths;
+  const { secretCoder: KPKESecretCoder, lengths } = KPKE;
   const secretCoder = splitCoder(lengths.secret, lengths.public, 32, 32);
   const msgLen = 32;
   const seedLen = 64;
   return {
-    info: { lengths: { ...lengths, seed: 64, msg: 32, secret: secretCoder.bytesLen } },
+    info: { type: 'ml-kem' },
+    lengths: { ...lengths, seed: 64, msg: msgLen, msgRand: msgLen, secret: secretCoder.bytesLen },
     keygen: (seed = randomBytes(seedLen)) => {
       ensureBytes(seed, seedLen);
       const { publicKey, secretKey: sk } = KPKE.keygen(seed.subarray(0, 32));
@@ -286,13 +285,13 @@ function createKyber(opts: KyberOpts) {
       const [_sk, publicKey, _publicKeyHash, _z] = secretCoder.decode(secretKey);
       return Uint8Array.from(publicKey);
     },
-    encapsulate: (publicKey: Uint8Array, msg = randomBytes(32)) => {
+    encapsulate: (publicKey: Uint8Array, msg = randomBytes(msgLen)) => {
       ensureBytes(publicKey, lengths.public);
       ensureBytes(msg, msgLen);
 
       // FIPS-203 includes additional verification check for modulus
       const eke = publicKey.subarray(0, 384 * opts.K);
-      const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(eke.slice())); // Copy because of inplace encoding
+      const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(copyBytes(eke))); // Copy because of inplace encoding
       // (Modulus check.) Perform the computation ek ← ByteEncode12(ByteDecode12(eke)).
       // If ek = ̸ eke, the input is invalid. (See Section 4.2.1.)
       if (!equalBytes(ek, eke)) {

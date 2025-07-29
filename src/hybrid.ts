@@ -73,17 +73,17 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { type EdDSA } from '@noble/curves/abstract/edwards';
-import { type MontgomeryECDH } from '@noble/curves/abstract/montgomery';
+import { type EdDSA } from '@noble/curves/abstract/edwards.js';
+import { type MontgomeryECDH } from '@noble/curves/abstract/montgomery.js';
 import {
   bytesToNumberBE,
   bytesToNumberLE,
   concatBytes,
   numberToBytesBE,
-} from '@noble/curves/abstract/utils';
-import { type ECDSA } from '@noble/curves/abstract/weierstrass';
-import { x25519 } from '@noble/curves/ed25519';
-import { p256, p384 } from '@noble/curves/nist';
+} from '@noble/curves/abstract/utils.js';
+import { type ECDSA } from '@noble/curves/abstract/weierstrass.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { p256, p384 } from '@noble/curves/nist.js';
 import { expand, extract } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
@@ -91,7 +91,6 @@ import {
   abytes,
   ahash,
   anumber,
-  isBytes,
   utf8ToBytes,
   type CHash,
   type CHashXOF,
@@ -112,7 +111,7 @@ type CurveSign = ECDSA | EdDSA;
 
 // Can re-use if decide to signatures support, on other hand getSecretKey is specific and ugly
 function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
-  const lengths = curve.info.lengths;
+  const lengths = curve.lengths;
   let keygen = curve.keygen;
   if (allowZeroKey) {
     // This is ugly, but we need to return exact results here.
@@ -120,14 +119,14 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
     const Fn = wCurve.Point.Fn;
     if (!Fn) throw new Error('No Point.Fn');
     keygen = (seed: Uint8Array = randomBytes(lengths.seed)) => {
-      abytes(seed, lengths.seed);
+      abytes(seed, lengths.seed!);
       const seedScalar = Fn.isLE ? bytesToNumberLE(seed) : bytesToNumberBE(seed);
       const secretKey = Fn.toBytes(Fn.create(seedScalar)); // Fixes modulo bias, but not zero
       return { secretKey, publicKey: curve.getPublicKey(secretKey) };
     };
   }
   return {
-    info: { lengths: { secret: lengths.secret, public: lengths.public, seed: lengths.seed } },
+    lengths: { secret: lengths.secret, public: lengths.public, seed: lengths.seed },
     keygen,
     getPublicKey: (secretKey: Uint8Array) => curve.getPublicKey(secretKey),
   };
@@ -137,16 +136,10 @@ export const ecdhKem = (curve: CurveECDH, allowZeroKey: boolean = false): KEM =>
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
-    info: {
-      lengths: {
-        ...kg.info.lengths,
-        msg: kg.info.lengths.seed,
-        cipherText: kg.info.lengths.public,
-      },
-    },
+    lengths: { ...kg.lengths, msg: kg.lengths.seed, cipherText: kg.lengths.public },
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
-    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.info.lengths.secret)) {
+    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.secret)) {
       const ek = this.keygen(rand).secretKey;
       const sharedSecret = this.decapsulate(publicKey, ek);
       const cipherText = curve.getPublicKey(ek);
@@ -164,26 +157,22 @@ export const ecSigner = (curve: CurveSign, allowZeroKey: boolean = false): Signe
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.sign || !curve.verify) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
-    info: { lengths: { ...kg.info.lengths, signature: curve.info.lengths.signature, signRand: 0 } },
+    lengths: { ...kg.lengths, signature: curve.lengths.signature, signRand: 0 },
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
-    // TODO: make here same API as in curves?
-    sign(message, secretKey) {
-      const res = curve.sign(message, secretKey, { prehash: true });
-      return isBytes(res) ? res : res.toBytes();
-    },
+    sign: (message, secretKey) => curve.sign(message, secretKey),
     verify: (signature, message, publicKey) => curve.verify(signature, message, publicKey),
   };
 };
 
-function splitLengths<
-  K extends string,
-  T extends { info: { lengths: Partial<Record<K, number>> } },
->(lst: T[], name: K) {
+function splitLengths<K extends string, T extends { lengths: Partial<Record<K, number>> }>(
+  lst: T[],
+  name: K
+) {
   return splitCoder(
     ...lst.map((i) => {
-      if (typeof i.info.lengths[name] !== 'number') throw new Error('wrong length: ' + name);
-      return i.info.lengths[name];
+      if (typeof i.lengths[name] !== 'number') throw new Error('wrong length: ' + name);
+      return i.lengths[name];
     })
   );
 }
@@ -252,7 +241,12 @@ export function combineKEMS(
   if (realMsgLen === undefined) realMsgLen = msgCoder.bytesLen;
   anumber(realMsgLen);
   return {
-    info: { lengths: { ...keys.info.lengths, msg: realMsgLen, cipherText: ctCoder.bytesLen } },
+    lengths: {
+      ...keys.info.lengths,
+      msg: realMsgLen,
+      msgRand: msgCoder.bytesLen,
+      cipherText: ctCoder.bytesLen,
+    },
     getPublicKey: keys.getPublicKey,
     keygen: keys.keygen,
     encapsulate(pk: Uint8Array, randomness: Uint8Array = randomBytes(msgCoder.bytesLen)) {
@@ -287,7 +281,7 @@ export function combineSigners(
   const sigCoder = splitLengths(signers, 'signature');
   const pkCoder = splitLengths(signers, 'public');
   return {
-    info: { lengths: { ...keys.info.lengths, signature: sigCoder.bytesLen, signRand: 0 } },
+    lengths: { ...keys.info.lengths, signature: sigCoder.bytesLen, signRand: 0 },
     getPublicKey: keys.getPublicKey,
     keygen: keys.keygen,
     sign(message, seed) {

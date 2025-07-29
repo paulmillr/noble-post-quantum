@@ -12,6 +12,7 @@ import { shake256 } from '@noble/hashes/sha3.js';
 import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.ts';
 import {
   type BytesCoderLen,
+  checkHash,
   cleanBytes,
   type CryptoKeys,
   EMPTY,
@@ -28,7 +29,7 @@ import type { CHash } from '@noble/hashes/utils.js';
 
 /** Signer API, containing internal methods */
 export type DSAInternal = CryptoKeys & {
-  info: Signer['info'];
+  lengths: Signer['lengths'];
   sign: (
     msg: Uint8Array,
     secretKey: Uint8Array,
@@ -341,14 +342,13 @@ function getDilithium(opts: DilithiumOpts) {
   const seedCoder = splitCoder(32, 64, 32);
   // API & argument positions are exactly as in FIPS204.
   const internal: DSAInternal = {
-    info: {
-      lengths: {
-        secret: secretCoder.bytesLen,
-        public: publicCoder.bytesLen,
-        seed: 32,
-        signature: sigCoder.bytesLen,
-        signRand: signRandBytes,
-      },
+    info: { type: 'internal-ml-dsa' },
+    lengths: {
+      secret: secretCoder.bytesLen,
+      public: publicCoder.bytesLen,
+      seed: 32,
+      signature: sigCoder.bytesLen,
+      signRand: signRandBytes,
     },
     keygen: (seed?: Uint8Array) => {
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
@@ -562,10 +562,11 @@ function getDilithium(opts: DilithiumOpts) {
     },
   };
   return {
+    info: { type: 'ml-dsa' },
     internal,
     securityLevel: securityLevel,
     keygen: internal.keygen,
-    info: internal.info,
+    lengths: internal.lengths,
     getPublicKey: internal.getPublicKey,
     sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
       const M = getMessage(msg, ctx);
@@ -576,18 +577,22 @@ function getDilithium(opts: DilithiumOpts) {
     verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
       return internal.verify(sig, getMessage(msg, ctx), publicKey);
     },
-    prehash: (hash: CHash) => ({
-      info: internal.info,
-      sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
-        const M = getMessagePrehash(hash, msg, ctx, securityLevel);
-        const res = internal.sign(M, secretKey, random);
-        cleanBytes(M);
-        return res;
-      },
-      verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
-        return internal.verify(sig, getMessagePrehash(hash, msg, ctx, securityLevel), publicKey);
-      },
-    }),
+    prehash: (hash: CHash) => {
+      checkHash(hash, securityLevel);
+      return {
+        info: { type: 'hashml-dsa' },
+        lengths: internal.lengths,
+        sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
+          const M = getMessagePrehash(hash, msg, ctx);
+          const res = internal.sign(M, secretKey, random);
+          cleanBytes(M);
+          return res;
+        },
+        verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
+          return internal.verify(sig, getMessagePrehash(hash, msg, ctx), publicKey);
+        },
+      };
+    },
   };
 }
 
