@@ -11,7 +11,7 @@ import {
 } from '../src/hybrid.ts';
 import { jsonGZ } from './util.ts';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { ed25519 } from '@noble/curves/ed25519';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import { ml_dsa44 } from '../src/ml-dsa.ts';
 import { shake256 } from '@noble/hashes/sha3.js';
 
@@ -90,10 +90,10 @@ describe('Hybrids', () => {
       });
       should('random', () => {
         const { secretKey, publicKey } = lib.keygen();
-        deepStrictEqual(publicKey.length, lib.info.lengths.public);
+        deepStrictEqual(publicKey.length, lib.lengths.public);
         const { sharedSecret, cipherText } = lib.encapsulate(publicKey);
-        deepStrictEqual(cipherText.length, lib.info.lengths.cipherText);
-        deepStrictEqual(sharedSecret.length, lib.info.lengths.msg);
+        deepStrictEqual(cipherText.length, lib.lengths.cipherText);
+        deepStrictEqual(sharedSecret.length, lib.lengths.msg);
         const sharedSecret2 = lib.decapsulate(cipherText, secretKey);
         deepStrictEqual(sharedSecret2, sharedSecret);
       });
@@ -106,7 +106,7 @@ describe('Hybrids', () => {
     const bobKeys = combined.keygen();
     const msg = new Uint8Array([1, 2, 3, 4]);
     const aliceSig = combined.sign(msg, aliceKeys.secretKey);
-    eql(aliceSig.length, ed25519.info.lengths.signature + ml_dsa44.info.lengths.signature);
+    eql(aliceSig.length, ed25519.lengths.signature + ml_dsa44.lengths.signature);
     const bobSig = combined.sign(msg, bobKeys.secretKey);
 
     eql(combined.verify(aliceSig, msg, aliceKeys.publicKey), true);
@@ -116,9 +116,9 @@ describe('Hybrids', () => {
     eql(combined.verify(bobSig, msg, bobKeys.publicKey), true);
     // Remove parts
     const aliceSig0 = aliceSig.slice();
-    aliceSig0.subarray(0, ed25519.info.lengths.signature).fill(0);
+    aliceSig0.subarray(0, ed25519.lengths.signature).fill(0);
     const aliceSig1 = aliceSig.slice();
-    aliceSig1.subarray(ed25519.info.lengths.signature).fill(0);
+    aliceSig1.subarray(ed25519.lengths.signature).fill(0);
     eql(combined.verify(aliceSig0, msg, aliceKeys.publicKey), false);
     eql(combined.verify(aliceSig1, msg, aliceKeys.publicKey), false);
   });
