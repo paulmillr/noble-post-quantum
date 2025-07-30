@@ -75,15 +75,15 @@
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { type EdDSA } from '@noble/curves/abstract/edwards.js';
 import { type MontgomeryECDH } from '@noble/curves/abstract/montgomery.js';
+import { type ECDSA } from '@noble/curves/abstract/weierstrass.js';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { p256, p384 } from '@noble/curves/nist.js';
 import {
   bytesToNumberBE,
   bytesToNumberLE,
   concatBytes,
   numberToBytesBE,
-} from '@noble/curves/abstract/utils.js';
-import { type ECDSA } from '@noble/curves/abstract/weierstrass.js';
-import { x25519 } from '@noble/curves/ed25519.js';
-import { p256, p384 } from '@noble/curves/nist.js';
+} from '@noble/curves/utils.js';
 import { expand, extract } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
@@ -126,7 +126,7 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
     };
   }
   return {
-    lengths: { secret: lengths.secret, public: lengths.public, seed: lengths.seed },
+    lengths: { secretKey: lengths.secretKey, publicKey: lengths.publicKey, seed: lengths.seed },
     keygen,
     getPublicKey: (secretKey: Uint8Array) => curve.getPublicKey(secretKey),
   };
@@ -136,10 +136,10 @@ export const ecdhKem = (curve: CurveECDH, allowZeroKey: boolean = false): KEM =>
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
-    lengths: { ...kg.lengths, msg: kg.lengths.seed, cipherText: kg.lengths.public },
+    lengths: { ...kg.lengths, msg: kg.lengths.seed, cipherText: kg.lengths.publicKey },
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
-    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.secret)) {
+    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.secretKey)) {
       const ek = this.keygen(rand).secretKey;
       const sharedSecret = this.decapsulate(publicKey, ek);
       const cipherText = curve.getPublicKey(ek);
@@ -148,7 +148,7 @@ export const ecdhKem = (curve: CurveECDH, allowZeroKey: boolean = false): KEM =>
     },
     decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
       const res = curve.getSharedSecret(secretKey, cipherText);
-      return curve.info.publicKeyHasPrefix ? res.subarray(1) : res;
+      return curve.lengths.publicKeyHasPrefix ? res.subarray(1) : res;
     },
   };
 };
@@ -197,7 +197,7 @@ function combineKeys(
   ...ck: CryptoKeys[]
 ) {
   const seedCoder = splitLengths(ck, 'seed');
-  const pkCoder = splitLengths(ck, 'public');
+  const pkCoder = splitLengths(ck, 'publicKey');
   // Allows to use identity functions for combiner/expandSeed
   if (realSeedLen === undefined) realSeedLen = seedCoder.bytesLen;
   anumber(realSeedLen);
@@ -210,7 +210,7 @@ function combineKeys(
     return { secretKey, publicKey };
   }
   return {
-    info: { lengths: { seed: realSeedLen, public: pkCoder.bytesLen, secret: realSeedLen } },
+    info: { lengths: { seed: realSeedLen, publicKey: pkCoder.bytesLen, secretKey: realSeedLen } },
     getPublicKey(secretKey: Uint8Array) {
       return this.keygen(secretKey).publicKey;
     },
@@ -236,7 +236,7 @@ export function combineKEMS(
 ): KEM {
   const keys = combineKeys(realSeedLen, expandSeed, ...kems);
   const ctCoder = splitLengths(kems, 'cipherText');
-  const pkCoder = splitLengths(kems, 'public');
+  const pkCoder = splitLengths(kems, 'publicKey');
   const msgCoder = splitLengths(kems, 'msg');
   if (realMsgLen === undefined) realMsgLen = msgCoder.bytesLen;
   anumber(realMsgLen);
@@ -279,7 +279,7 @@ export function combineSigners(
 ): Signer {
   const keys = combineKeys(realSeedLen, expandSeed, ...signers);
   const sigCoder = splitLengths(signers, 'signature');
-  const pkCoder = splitLengths(signers, 'public');
+  const pkCoder = splitLengths(signers, 'publicKey');
   return {
     lengths: { ...keys.info.lengths, signature: sigCoder.bytesLen, signRand: 0 },
     getPublicKey: keys.getPublicKey,

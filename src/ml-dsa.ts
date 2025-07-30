@@ -9,14 +9,15 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { shake256 } from '@noble/hashes/sha3.js';
+import type { CHash } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.ts';
 import {
+  abytes,
   type BytesCoderLen,
   checkHash,
   cleanBytes,
   type CryptoKeys,
   EMPTY,
-  ensureBytes,
   equalBytes,
   getMessage,
   getMessagePrehash,
@@ -25,7 +26,6 @@ import {
   splitCoder,
   vecCoder,
 } from './utils.ts';
-import type { CHash } from '@noble/hashes/utils.js';
 
 /** Signer API, containing internal methods */
 export type DSAInternal = CryptoKeys & {
@@ -344,8 +344,8 @@ function getDilithium(opts: DilithiumOpts) {
   const internal: DSAInternal = {
     info: { type: 'internal-ml-dsa' },
     lengths: {
-      secret: secretCoder.bytesLen,
-      public: publicCoder.bytesLen,
+      secretKey: secretCoder.bytesLen,
+      publicKey: publicCoder.bytesLen,
       seed: 32,
       signature: sigCoder.bytesLen,
       signRand: signRandBytes,
@@ -355,7 +355,7 @@ function getDilithium(opts: DilithiumOpts) {
       const seedDst = new Uint8Array(32 + 2);
       const randSeed = seed === undefined;
       if (randSeed) seed = randomBytes(32);
-      ensureBytes(seed, 32);
+      abytes(seed!, 32);
       seedDst.set(seed!);
       if (randSeed) cleanBytes(seed!);
       seedDst[32] = K;
@@ -449,7 +449,7 @@ function getDilithium(opts: DilithiumOpts) {
 
       // Compute private random seed
       const rnd = random === false ? new Uint8Array(32) : random;
-      ensureBytes(rnd, 32);
+      abytes(rnd, 32);
       const rhoprime = shake256
         .create({ dkLen: CRH_BYTES })
         .update(_K)
@@ -457,7 +457,7 @@ function getDilithium(opts: DilithiumOpts) {
         .update(mu)
         .digest(); // ρ′← H(K||rnd||µ, 512)
 
-      ensureBytes(rhoprime, CRH_BYTES);
+      abytes(rhoprime, CRH_BYTES);
       const x256 = XOF256(rhoprime, ZCoder.bytesLen);
       //  Rejection sampling loop
       main_loop: for (let kappa = 0; ; ) {

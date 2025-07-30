@@ -6,15 +6,14 @@
 import {
   type CHash,
   type TypedArray,
-  abytes,
+  abytes as abytes_,
   concatBytes,
   randomBytes as randb,
   utf8ToBytes,
 } from '@noble/hashes/utils.js';
-
-export const ensureBytes: typeof abytes = abytes;
-export const randomBytes: typeof randb = randb;
+export { abytes } from '@noble/hashes/utils.js';
 export { concatBytes, utf8ToBytes };
+export const randomBytes: typeof randb = randb;
 
 // Compares 2 u8a-s in kinda constant time
 export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -31,7 +30,7 @@ export function copyBytes(bytes: Uint8Array): Uint8Array {
 
 export type CryptoKeys = {
   info?: { type?: string };
-  lengths: { seed?: number; public?: number; secret?: number };
+  lengths: { seed?: number; publicKey?: number; secretKey?: number };
   keygen: (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey: Uint8Array };
   getPublicKey: (secretKey: Uint8Array) => Uint8Array;
 };
@@ -90,7 +89,7 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
         const c = lengths[i];
         const l = getLength(c);
         const b: Uint8Array = typeof c === 'number' ? (bufs[i] as any) : c.encode(bufs[i]);
-        ensureBytes(b, l);
+        abytes_(b, l);
         res.set(b, pos);
         if (typeof c !== 'number') b.fill(0); // clean
         pos += l;
@@ -98,7 +97,7 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
       return res;
     },
     decode: (buf: Uint8Array) => {
-      ensureBytes(buf, bytesLen);
+      abytes_(buf, bytesLen);
       const res = [];
       for (const c of lengths) {
         const l = getLength(c);
@@ -128,7 +127,7 @@ export function vecCoder<T>(c: BytesCoderLen<T>, vecLen: number): BytesCoderLen<
       return res;
     },
     decode: (a: Uint8Array): T[] => {
-      ensureBytes(a, bytesLen);
+      abytes_(a, bytesLen);
       const r: T[] = [];
       for (let i = 0; i < a.length; i += c.bytesLen)
         r.push(c.decode(a.subarray(i, i + c.bytesLen)));
@@ -152,8 +151,8 @@ export function getMask(bits: number): number {
 export const EMPTY: Uint8Array = new Uint8Array(0);
 
 export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array {
-  ensureBytes(msg);
-  ensureBytes(ctx);
+  abytes_(msg);
+  abytes_(ctx);
   if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
   return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
 }
@@ -180,8 +179,8 @@ export function getMessagePrehash(
   msg: Uint8Array,
   ctx: Uint8Array = EMPTY
 ): Uint8Array {
-  ensureBytes(msg);
-  ensureBytes(ctx);
+  abytes_(msg);
+  abytes_(ctx);
   if (ctx.length > 255) throw new Error('context should be less than 255 bytes');
   const hashed = hash(msg);
   return concatBytes(new Uint8Array([1, ctx.length]), ctx, hash.oid!, hashed);

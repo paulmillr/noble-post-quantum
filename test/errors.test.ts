@@ -1,28 +1,15 @@
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { sha1 } from '@noble/hashes/legacy.js';
+import { sha224, sha512 } from '@noble/hashes/sha2.js';
+import { shake256 } from '@noble/hashes/sha3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { should } from 'micro-should';
 import { deepStrictEqual as eql } from 'node:assert';
 import { randomBytes } from 'node:crypto';
-import { bytesToHex } from '@noble/hashes/utils.js';
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
-import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
-import {
-  slh_dsa_sha2_128f,
-  slh_dsa_sha2_128s,
-  slh_dsa_sha2_192f,
-  slh_dsa_sha2_192s,
-  slh_dsa_sha2_256f,
-  slh_dsa_sha2_256s,
-  slh_dsa_shake_128f,
-  slh_dsa_shake_128s,
-  slh_dsa_shake_192f,
-  slh_dsa_shake_192s,
-  slh_dsa_shake_256f,
-  slh_dsa_shake_256s,
-} from '../src/slh-dsa.ts';
-import { sha512, sha224 } from '@noble/hashes/sha2.js';
-import { sha1 } from '@noble/hashes/legacy.js';
-import { QSFMLKEM768P256, combineSigners, expandSeedXof, ecSigner } from '../src/hybrid.ts';
-import { shake256 } from '@noble/hashes/sha3.js';
-import { ed25519 } from '@noble/curves/ed25519.js';
+import { QSFMLKEM768P256, combineSigners, ecSigner, expandSeedXof } from '../src/hybrid.ts';
+import { ml_dsa44 } from '../src/ml-dsa.ts';
+import { ml_kem512 } from '../src/ml-kem.ts';
+import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
 
 const ALGO = {
   ml_dsa44,
@@ -92,8 +79,8 @@ should('Errors', () => {
       const seed = randomBytes(C.lengths.seed);
       CEG('keygen: wrong seed=', U8, seed, (s) => C.keygen(s));
       const keys = C.keygen();
-      if (C.lengths.public) eql(keys.publicKey.length, C.lengths.public);
-      if (C.lengths.secret) eql(keys.secretKey.length, C.lengths.secret);
+      if (C.lengths.publicKey) eql(keys.publicKey.length, C.lengths.publicKey);
+      if (C.lengths.secretKey) eql(keys.secretKey.length, C.lengths.secretKey);
       if (C.getPublicKey) {
         CEG('getPublicKey: wrong secretKey=', U8, keys.secretKey, (s) => C.getPublicKey(s));
       }

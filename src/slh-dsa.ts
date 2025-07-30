@@ -27,7 +27,7 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { HMAC } from '@noble/hashes/hmac.js';
+import { hmac } from '@noble/hashes/hmac.js';
 import { sha256, sha512 } from '@noble/hashes/sha2.js';
 import { shake256 } from '@noble/hashes/sha3.js';
 import {
@@ -38,10 +38,11 @@ import {
   type CHash,
 } from '@noble/hashes/utils.js';
 import {
-  EMPTY,
-  type Signer,
+  abytes,
+  checkHash,
   cleanBytes,
-  ensureBytes,
+  copyBytes,
+  EMPTY,
   equalBytes,
   getMask,
   getMessage,
@@ -49,8 +50,7 @@ import {
   randomBytes,
   splitCoder,
   vecCoder,
-  copyBytes,
-  checkHash,
+  type Signer,
 } from './utils.ts';
 
 /**
@@ -392,14 +392,14 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const internal: Signer = {
     info: { type: 'internal-slh-dsa' },
     lengths: {
-      public: publicCoder.bytesLen,
-      secret: secretCoder.bytesLen,
+      publicKey: publicCoder.bytesLen,
+      secretKey: secretCoder.bytesLen,
       signature: sigCoder.bytesLen,
       seed: seedCoder.bytesLen,
       signRand: N,
     },
     keygen(seed?: Uint8Array) {
-      if (seed !== undefined) ensureBytes(seed, seedCoder.bytesLen);
+      if (seed !== undefined) abytes(seed, seedCoder.bytesLen);
       seed = seed === undefined ? randomBytes(seedCoder.bytesLen) : copyBytes(seed);
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
       const [secretSeed, secretPRF, publicSeed] = seedCoder.decode(seed);
@@ -424,7 +424,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       const [pkSeed, _] = publicCoder.decode(pk);
       // Set opt_rand to either PK.seed or to a random n-byte string
       if (random === false) random = copyBytes(pkSeed);
-      ensureBytes(random, N);
+      abytes(random, N);
       const context = getContext(pkSeed, skSeed);
       // Generate randomizer
       const R = context.PRFmsg(skPRF, random, msg); // R ← PRFmsg(SK.prf, opt_rand, M)
@@ -707,7 +707,7 @@ const genSha =
       },
       PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => {
         stats.gen_message_random++;
-        return new HMAC(h1, skPRF).update(random).update(msg).digest().subarray(0, N);
+        return hmac.create(h1, skPRF).update(random).update(msg).digest().subarray(0, N);
       },
       Hmsg: (R: Uint8Array, pk: Uint8Array, m: Uint8Array, outLen) => {
         stats.hmsg++;

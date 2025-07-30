@@ -1,19 +1,19 @@
+import { ed25519 } from '@noble/curves/ed25519.js';
+import { shake256 } from '@noble/hashes/sha3.js';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { describe, should } from 'micro-should';
 import { deepStrictEqual, deepStrictEqual as eql } from 'node:assert';
 import {
-  QSFMLKEM768P256,
-  QSFMLKEM1024P384,
   KitchenSinkMLKEM768X25519,
+  QSFMLKEM1024P384,
+  QSFMLKEM768P256,
   XWing,
-  ecSigner,
   combineSigners,
+  ecSigner,
   expandSeedXof,
 } from '../src/hybrid.ts';
-import { jsonGZ } from './util.ts';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { ed25519 } from '@noble/curves/ed25519.js';
 import { ml_dsa44 } from '../src/ml-dsa.ts';
-import { shake256 } from '@noble/hashes/sha3.js';
+import { jsonGZ } from './util.ts';
 
 const VECTORS = {
   'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)': {
@@ -90,7 +90,7 @@ describe('Hybrids', () => {
       });
       should('random', () => {
         const { secretKey, publicKey } = lib.keygen();
-        deepStrictEqual(publicKey.length, lib.lengths.public);
+        deepStrictEqual(publicKey.length, lib.lengths.publicKey);
         const { sharedSecret, cipherText } = lib.encapsulate(publicKey);
         deepStrictEqual(cipherText.length, lib.lengths.cipherText);
         deepStrictEqual(sharedSecret.length, lib.lengths.msg);
