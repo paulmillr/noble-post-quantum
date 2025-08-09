@@ -92,7 +92,7 @@ const compress = (d: number): Coder<number, number> => {
 const polyCoder = (d: number) => bitsCoder(d, compress(d));
 
 // Poly is mod Q, so 12 bits
-type Poly = Uint16Array;
+type Poly = Uint16Array<any>;
 
 function polyAdd(a: Poly, b: Poly) {
   for (let i = 0; i < N; i++) a[i] = mod(a[i] + b[i]); // a += b
@@ -152,7 +152,7 @@ function SampleNTT(xof: XofGet) {
 
 // Sampling from the centered binomial distribution
 // Returns poly with small coefficients (noise/errors)
-function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly {
+function sampleCBD(PRF: PRF, seed: Uint8Array<any>, nonce: number, eta: number): Poly {
   const buf = PRF((eta * N) / 4, seed, nonce);
   const r: Poly = new Uint16Array(N);
   const b32 = u32(buf);

@@ -74,7 +74,7 @@ export const PARAMS: Record<string, DSAParam> = {
 } as const;
 
 // NOTE: there is a lot cases where negative numbers used (with smod instead of mod).
-type Poly = Int32Array;
+type Poly = Int32Array<any>;
 const newPoly = (n: number) => new Int32Array(n);
 
 const { mod, smod, NTT, bitsCoder } = genCrystals({
@@ -350,7 +350,7 @@ function getDilithium(opts: DilithiumOpts) {
       signature: sigCoder.bytesLen,
       signRand: signRandBytes,
     },
-    keygen: (seed?: Uint8Array) => {
+    keygen: (seed?: Uint8Array<any>) => {
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
       const seedDst = new Uint8Array(32 + 2);
       const randSeed = seed === undefined;

@@ -324,7 +324,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     wotsAddr: ADRS,
     treeAddr: ADRS,
     leafIdx: number,
-    prevRoot = new Uint8Array(N)
+    prevRoot: Uint8Array<any> = new Uint8Array(N)
   ) => {
     setAddr({ type: AddressType.HASHTREE }, treeAddr);
     // State variables
