@@ -74,7 +74,7 @@ export const PARAMS: Record<string, DSAParam> = {
 } as const;
 
 // NOTE: there is a lot cases where negative numbers used (with smod instead of mod).
-type Poly = Int32Array<any>;
+type Poly = Int32Array;
 const newPoly = (n: number) => new Int32Array(n);
 
 const { mod, smod, NTT, bitsCoder } = genCrystals({
