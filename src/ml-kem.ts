@@ -46,7 +46,7 @@ const { mod, nttZetas, NTT, bitsCoder } = genCrystals({
   Q,
   F,
   ROOT_OF_UNITY,
-  newPoly: (n: number) => new Uint16Array(n),
+  newPoly: (n: number): Uint16Array => new Uint16Array(n),
   brvBits: 7,
   isKyber: true,
 });
