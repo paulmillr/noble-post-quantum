@@ -19,19 +19,19 @@ const VECTORS = {
   'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)': {
     lib: QSFMLKEM768P256,
     tests: jsonGZ(
-      './hybrids/test-vectors-QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256).json'
+      './vectors/hybrids/test-vectors-QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256).json'
     ),
   },
   'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)': {
     lib: QSFMLKEM1024P384,
     tests: jsonGZ(
-      './hybrids/test-vectors-QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256).json'
+      './vectors/hybrids/test-vectors-QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256).json'
     ),
   },
   'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)': {
     lib: KitchenSinkMLKEM768X25519,
     tests: jsonGZ(
-      './hybrids/test-vectors-KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256).json'
+      './vectors/hybrids/test-vectors-KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256).json'
     ),
   },
   XWing: {
