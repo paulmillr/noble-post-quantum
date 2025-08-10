@@ -33,8 +33,8 @@
   "license": "MIT",
   "sideEffects": false,
   "dependencies": {
-    "@noble/curves": "2.0.0-beta.1",
-    "@noble/hashes": "2.0.0-beta.3"
+    "@noble/curves": "2.0.0-beta.2",
+    "@noble/hashes": "2.0.0-beta.4"
   },
   "devDependencies": {
     "@paulmillr/jsbt": "0.4.1",
