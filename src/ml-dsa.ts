@@ -350,7 +350,7 @@ function getDilithium(opts: DilithiumOpts) {
       signature: sigCoder.bytesLen,
       signRand: signRandBytes,
     },
-    keygen: (seed?: Uint8Array<any>) => {
+    keygen: (seed?: Uint8Array) => {
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
       const seedDst = new Uint8Array(32 + 2);
       const randSeed = seed === undefined;

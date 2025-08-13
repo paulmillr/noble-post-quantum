@@ -64,9 +64,9 @@ export interface Coder<F, T> {
   decode(to: T): F;
 }
 
-export interface BytesCoder<T> extends Coder<T, Uint8Array<any>> {
-  encode: (data: T) => Uint8Array<any>;
-  decode: (bytes: Uint8Array<any>) => T;
+export interface BytesCoder<T> extends Coder<T, Uint8Array> {
+  encode: (data: T) => Uint8Array;
+  decode: (bytes: Uint8Array) => T;
 }
 
 export type BytesCoderLen<T> = BytesCoder<T> & { bytesLen: number };

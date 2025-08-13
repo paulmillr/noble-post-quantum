@@ -152,7 +152,7 @@ function SampleNTT(xof: XofGet) {
 
 // Sampling from the centered binomial distribution
 // Returns poly with small coefficients (noise/errors)
-function sampleCBD(PRF: PRF, seed: Uint8Array<any>, nonce: number, eta: number): Poly {
+function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly {
   const buf = PRF((eta * N) / 4, seed, nonce);
   const r: Poly = new Uint16Array(N);
   const b32 = u32(buf);
