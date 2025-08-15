@@ -1,7 +1,7 @@
 {
   "name": "@noble/post-quantum",
   "version": "0.5.0",
-  "description": "Auditable & minimal JS implementation of post-quantum public-key cryptography: FIPS 203, 204, 205",
+  "description": "Auditable & minimal JS implementation of post-quantum cryptography: FIPS 203, 204, 205",
   "files": [
     "*.js",
     "*.js.map",
@@ -10,28 +10,6 @@
     "esm",
     "src"
   ],
-  "scripts": {
-    "bench": "node test/benchmark/noble.ts",
-    "bench:install": "cd test/benchmark; npm install",
-    "build": "tsc",
-    "build:release": "npx --no @paulmillr/jsbt esbuild test/build",
-    "build:clean": "rm {.,esm}/*.{js,d.ts,d.ts.map,js.map} 2> /dev/null",
-    "lint": "prettier --check 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
-    "format": "prettier --write 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
-    "test": "node --experimental-strip-types --no-warnings test/index.ts",
-    "test:bun": "bun test/index.ts",
-    "test:deno": "deno --allow-env --allow-read test/index.ts",
-    "test:node20": "cd test; npx tsc; node compiled/test/index.js",
-    "test:big": "SLOW_TESTS=1 node test/index.js"
-  },
-  "author": "Paul Miller (https://paulmillr.com)",
-  "homepage": "https://paulmillr.com/noble/",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/paulmillr/noble-post-quantum.git"
-  },
-  "license": "MIT",
-  "sideEffects": false,
   "dependencies": {
     "@noble/curves": "2.0.0-beta.2",
     "@noble/hashes": "2.0.0-beta.4"
@@ -45,9 +23,20 @@
     "prettier": "3.6.2",
     "typescript": "5.9.2"
   },
-  "type": "module",
-  "main": "index.js",
-  "module": "index.js",
+  "scripts": {
+    "bench": "node test/benchmark/noble.ts",
+    "bench:install": "cd test/benchmark; npm install",
+    "build": "tsc",
+    "build:release": "npx --no @paulmillr/jsbt esbuild test/build",
+    "build:clean": "rm *.{js,js.map,d.ts,d.ts.map} 2> /dev/null",
+    "lint": "prettier --check 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
+    "format": "prettier --write 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
+    "test": "node --experimental-strip-types --no-warnings test/index.ts",
+    "test:bun": "bun test/index.ts",
+    "test:deno": "deno --allow-env --allow-read test/index.ts",
+    "test:node20": "cd test; npx tsc; node compiled/test/index.js",
+    "test:big": "SLOW_TESTS=1 node test/index.js"
+  },
   "engines": {
     "node": ">= 20.19.0"
   },
@@ -68,5 +57,17 @@
     "noble",
     "cryptography"
   ],
-  "funding": "https://paulmillr.com/funding/"
+  "homepage": "https://paulmillr.com/noble/",
+  "funding": "https://paulmillr.com/funding/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulmillr/noble-post-quantum.git"
+  },
+  "type": "module",
+  "main": "index.js",
+  "module": "index.js",
+  "types": "index.d.ts",
+  "sideEffects": false,
+  "author": "Paul Miller (https://paulmillr.com)",
+  "license": "MIT"
 }
