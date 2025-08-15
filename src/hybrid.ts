@@ -79,6 +79,7 @@ import { type ECDSA } from '@noble/curves/abstract/weierstrass.js';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { p256, p384 } from '@noble/curves/nist.js';
 import {
+  asciiToBytes,
   bytesToNumberBE,
   bytesToNumberLE,
   concatBytes,
@@ -87,14 +88,7 @@ import {
 import { expand, extract } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
-import {
-  abytes,
-  ahash,
-  anumber,
-  utf8ToBytes,
-  type CHash,
-  type CHashXOF,
-} from '@noble/hashes/utils.js';
+import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
   cleanBytes,
@@ -309,7 +303,7 @@ export function QSF(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, kdf: CHash
     32,
     32,
     expandSeedXof(xof),
-    (pk, ct, ss) => kdf(concatBytes(ss[0], ss[1], ct[1], pk[1], utf8ToBytes(label))),
+    (pk, ct, ss) => kdf(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
     pqc,
     curveKEM
   );
@@ -339,14 +333,14 @@ export function KitchenSink(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, ha
     32,
     expandSeedXof(xof),
     (pk, ct, ss) => {
-      const preimage = concatBytes(ss[0], ss[1], ct[0], pk[0], ct[1], pk[1], utf8ToBytes(label));
+      const preimage = concatBytes(ss[0], ss[1], ct[0], pk[0], ct[1], pk[1], asciiToBytes(label));
       const len = 32;
-      const ikm = concatBytes(utf8ToBytes('hybrid_prk'), preimage);
+      const ikm = concatBytes(asciiToBytes('hybrid_prk'), preimage);
       const prk = extract(hash, ikm);
       const info = concatBytes(
         numberToBytesBE(len, 2),
-        utf8ToBytes('shared_secret'),
-        utf8ToBytes('')
+        asciiToBytes('shared_secret'),
+        asciiToBytes('')
       );
       const res = expand(hash, prk, info, len);
       cleanBytes(prk, info, ikm, preimage);
@@ -372,7 +366,7 @@ export const XWing: KEM = combineKEMS(
   32,
   expandSeedXof(shake256),
   // Awesome label, so much escaping hell in a single line.
-  (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], utf8ToBytes('\\.//^\\'))),
+  (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes('\\.//^\\'))),
   ml_kem768,
   x25519kem
 );

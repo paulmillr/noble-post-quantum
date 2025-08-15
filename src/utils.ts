@@ -9,10 +9,9 @@ import {
   abytes as abytes_,
   concatBytes,
   randomBytes as randb,
-  utf8ToBytes,
 } from '@noble/hashes/utils.js';
 export { abytes } from '@noble/hashes/utils.js';
-export { concatBytes, utf8ToBytes };
+export { concatBytes };
 export const randomBytes: typeof randb = randb;
 
 // Compares 2 u8a-s in kinda constant time
@@ -148,7 +147,7 @@ export function getMask(bits: number): number {
   return (1 << bits) - 1; // 4 -> 0b1111
 }
 
-export const EMPTY: Uint8Array = new Uint8Array(0);
+export const EMPTY: Uint8Array = Uint8Array.of();
 
 export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array {
   abytes_(msg);
