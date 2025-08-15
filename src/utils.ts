@@ -136,7 +136,7 @@ export function vecCoder<T>(c: BytesCoderLen<T>, vecLen: number): BytesCoderLen<
   };
 }
 
-// cleanBytes(new Uint8Array(), [new Uint16Array(), new Uint32Array()])
+// cleanBytes(Uint8Array.of(), [Uint16Array.of(), Uint32Array.of()])
 export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
   for (const t of list) {
     if (Array.isArray(t)) for (const b of t) b.fill(0);
