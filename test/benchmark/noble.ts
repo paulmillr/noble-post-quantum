@@ -1,10 +1,10 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { utf8ToBytes } from '@noble/hashes/utils.js';
 import mark from 'micro-bmark';
 import { ml_dsa65 } from '../../src/ml-dsa.ts';
 import { ml_kem768 } from '../../src/ml-kem.ts';
 import * as slh from '../../src/slh-dsa.ts';
 import { randomBytes } from '../../src/utils.ts';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { utf8ToBytes } from '@noble/hashes/utils.js';
 
 function mlKemOpts(lib) {
   const { publicKey, secretKey } = lib.keygen();

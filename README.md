@@ -121,10 +121,10 @@ Old, incompatible version (Kyber) is not provided. Open an issue if you need it.
 
 ```ts
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '@noble/post-quantum/ml-dsa.js';
-import { utf8ToBytes, randomBytes } from '@noble/post-quantum/utils.js';
+import { randomBytes } from '@noble/post-quantum/utils.js';
 const seed = randomBytes(32); // seed is optional
 const keys = ml_dsa65.keygen(seed);
-const msg = utf8ToBytes('hello noble');
+const msg = new TextEncoder().encode('hello noble');
 const sig = ml_dsa65.sign(keys.secretKey, msg);
 const isValid = ml_dsa65.verify(keys.publicKey, msg, sig);
 ```
@@ -151,10 +151,9 @@ import {
   slh_dsa_shake_256f,
   slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa.js';
-import { utf8ToBytes } from '@noble/post-quantum/utils.js';
 
 const keys2 = sph.keygen();
-const msg2 = utf8ToBytes('hello noble');
+const msg2 = new TextEncoder().encode('hello noble');
 const sig2 = sph.sign(keys2.secretKey, msg2);
 const isValid2 = sph.verify(keys2.publicKey, msg2, sig2);
 ```
