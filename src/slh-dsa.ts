@@ -40,9 +40,10 @@ import {
 import {
   abytes,
   checkHash,
+  validateSigOpts,
+  validateVerOpts,
   cleanBytes,
   copyBytes,
-  EMPTY,
   equalBytes,
   getMask,
   getMessage,
@@ -51,6 +52,8 @@ import {
   splitCoder,
   vecCoder,
   type Signer,
+  type SigOpts,
+  type VerOpts,
 } from './utils.ts';
 
 /**
@@ -419,11 +422,15 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       const [_skSeed, _skPRF, pk] = secretCoder.decode(secretKey);
       return Uint8Array.from(pk);
     },
-    sign: (msg: Uint8Array, sk: Uint8Array, random: Uint8Array | false = randomBytes(N)) => {
+    sign: (msg: Uint8Array, sk: Uint8Array, opts: SigOpts = {}) => {
+      validateSigOpts(opts);
+      let { extraEntropy: random } = opts;
       const [skSeed, skPRF, pk] = secretCoder.decode(sk); // todo: fix
       const [pkSeed, _] = publicCoder.decode(pk);
       // Set opt_rand to either PK.seed or to a random n-byte string
       if (random === false) random = copyBytes(pkSeed);
+      else if (random === undefined) random = randomBytes(N);
+      else random = copyBytes(random);
       abytes(random, N);
       const context = getContext(pkSeed, skSeed);
       // Generate randomizer
@@ -555,14 +562,16 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     lengths: internal.lengths,
     keygen: internal.keygen,
     getPublicKey: internal.getPublicKey,
-    sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
-      const M = getMessage(msg, ctx);
-      const res = internal.sign(M, secretKey, random);
+    sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts = {}) => {
+      validateSigOpts(opts);
+      const M = getMessage(msg, opts.context);
+      const res = internal.sign(M, secretKey, opts);
       cleanBytes(M);
       return res;
     },
-    verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
-      return internal.verify(sig, getMessage(msg, ctx), publicKey);
+    verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts: VerOpts = {}) => {
+      validateVerOpts(opts);
+      return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
     prehash: (hash: CHash) => {
       checkHash(hash, securityLevel);
@@ -571,14 +580,16 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
         lengths: internal.lengths,
         keygen: internal.keygen,
         getPublicKey: internal.getPublicKey,
-        sign: (msg: Uint8Array, secretKey: Uint8Array, ctx = EMPTY, random?: Uint8Array) => {
-          const M = getMessagePrehash(hash, msg, ctx);
-          const res = internal.sign(M, secretKey, random);
+        sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts = {}) => {
+          validateSigOpts(opts);
+          const M = getMessagePrehash(hash, msg, opts.context);
+          const res = internal.sign(M, secretKey, opts);
           cleanBytes(M);
           return res;
         },
-        verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx = EMPTY) => {
-          return internal.verify(sig, getMessagePrehash(hash, msg, ctx), publicKey);
+        verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts: VerOpts = {}) => {
+          validateVerOpts(opts);
+          return internal.verify(sig, getMessagePrehash(hash, msg, opts.context), publicKey);
         },
       };
     },

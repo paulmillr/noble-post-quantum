@@ -55,7 +55,7 @@ describe('Basic', () => {
       const msgCopy = Uint8Array.from(msg);
       const random = randomBytes(32);
       const randomCopy = Uint8Array.from(random);
-      const sig = ml_dsa44.sign(msg, secretKey, random);
+      const sig = ml_dsa44.sign(msg, secretKey, { extraEntropy: random });
       eql(secretKey, keys.secretKey);
       eql(msg, msgCopy);
       eql(random, randomCopy);
@@ -81,9 +81,9 @@ describe('Basic', () => {
       const secretKey = Uint8Array.from(keys.secretKey);
       const msg = randomBytes(32);
       const msgCopy = Uint8Array.from(msg);
-      const random = randomBytes(32);
+      const random = randomBytes(slh_dsa_sha2_128f.lengths.signRand);
       const randomCopy = Uint8Array.from(random);
-      const sig = slh_dsa_sha2_128f.sign(msg, secretKey, random);
+      const sig = slh_dsa_sha2_128f.sign(msg, secretKey, { extraEntropy: random });
       eql(secretKey, keys.secretKey);
       eql(msg, msgCopy);
       eql(random, randomCopy);
@@ -110,6 +110,36 @@ describe('Basic', () => {
     ml_dsa65.prehash(sha3_384).sign(msg, keys65.secretKey);
     throws(() => ml_dsa87.prehash(sha3_384).sign(msg, keys87.secretKey));
     ml_dsa87.prehash(sha3_512).sign(msg, keys87.secretKey);
+  });
+  describe('sign/ver opts', () => {
+    for (const [k, v] of Object.entries({
+      ml_dsa65,
+      slh_dsa_sha2_128f,
+      ml_dsa65_sha3_384: ml_dsa65.prehash(sha3_384),
+      slh_dsa_sha2_128f_sha3_384: slh_dsa_sha2_128f.prehash(sha3_384),
+    })) {
+      should(k, () => {
+        const keys = v.keygen();
+        const msg = new Uint8Array();
+        const context = new Uint8Array([1, 2, 3]);
+        // no opts
+        const sig = v.sign(msg, keys.secretKey);
+        eql(v.verify(sig, msg, keys.publicKey), true);
+        // Context
+        const sig2 = v.sign(msg, keys.secretKey, { context });
+        eql(v.verify(sig2, msg, keys.publicKey, { context }), true);
+        // Check that context separation actually works
+        eql(v.verify(sig2, msg, keys.publicKey), false);
+        eql(v.verify(sig, msg, keys.publicKey, { context }), false);
+        // Type check
+        throws(() => v.sign(msg, keys.secretKey, new Uint8Array(v.length.signRandBytes)));
+        throws(() => v.sign(msg, keys.secretKey, context));
+        throws(() => v.sign(msg, keys.secretKey, false));
+        throws(() => v.verify(sig, msg, keys.publicKey, false));
+        throws(() => v.verify(sig, msg, keys.publicKey, context));
+        throws(() => v.sign(msg, keys.secretKey, { extraEntropy: true }));
+      });
+    }
   });
 });
 

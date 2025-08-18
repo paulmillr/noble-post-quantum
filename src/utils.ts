@@ -6,8 +6,10 @@
 import {
   type CHash,
   type TypedArray,
+  abytes,
   abytes as abytes_,
   concatBytes,
+  isBytes,
   randomBytes as randb,
 } from '@noble/hashes/utils.js';
 export { abytes } from '@noble/hashes/utils.js';
@@ -34,16 +36,36 @@ export type CryptoKeys = {
   getPublicKey: (secretKey: Uint8Array) => Uint8Array;
 };
 
+export type VerOpts = {
+  context?: Uint8Array;
+};
+export type SigOpts = VerOpts & {
+  // Compatibility with @noble/curves: false to disable, enabled by default, user can pass U8A
+  extraEntropy?: Uint8Array | false;
+};
+
+export function validateOpts(opts: object): void {
+  // We try to catch u8a, since it was previously valid argument at this position
+  if (typeof opts !== 'object' || opts === null || isBytes(opts))
+    throw new Error('opts should be object');
+}
+
+export function validateVerOpts(opts: VerOpts): void {
+  validateOpts(opts);
+  if (opts.context !== undefined) abytes(opts.context, undefined, 'opts.context');
+}
+
+export function validateSigOpts(opts: SigOpts): void {
+  validateVerOpts(opts);
+  if (opts.extraEntropy !== false && opts.extraEntropy !== undefined)
+    abytes(opts.extraEntropy, undefined, 'opts.extraEntropy');
+}
+
 /** Generic interface for signatures. Has keygen, sign and verify. */
 export type Signer = CryptoKeys & {
   lengths: { signRand?: number; signature?: number };
-  sign: (
-    msg: Uint8Array,
-    secretKey: Uint8Array,
-    ctx?: Uint8Array,
-    random?: Uint8Array
-  ) => Uint8Array;
-  verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, ctx?: Uint8Array) => boolean;
+  sign: (msg: Uint8Array, secretKey: Uint8Array, opts?: SigOpts) => Uint8Array;
+  verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts?: VerOpts) => boolean;
 };
 
 export type KEM = CryptoKeys & {

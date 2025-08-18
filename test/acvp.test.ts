@@ -165,19 +165,20 @@ describe('AVCP', () => {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const rnd = t.p.rnd ? hexx(t.p.rnd) : false;
+          const opts = { extraEntropy: rnd, externalMu: g.info.p.externalMu };
           let sig;
           if (g.info.p.signatureInterface === 'internal') {
-            if (g.info.p.externalMu) {
-              sig = mldsa.internal.sign(hexx(t.p.mu), hexx(t.p.sk), rnd, true);
-            } else sig = mldsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), rnd);
+            if (g.info.p.externalMu) sig = mldsa.internal.sign(hexx(t.p.mu), hexx(t.p.sk), opts);
+            else sig = mldsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), opts);
           } else if (g.info.p.signatureInterface === 'external') {
             const ctx = t.p.context ? hexx(t.p.context) : undefined;
+            const optsCtx = { ...opts, context: ctx };
             if (g.info.p.preHash === 'preHash') {
               const hash = HASHES[t.p.hashAlg];
               if (checkStrength(hash) < mldsa.securityLevel) continue;
-              sig = mldsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
+              sig = mldsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), optsCtx);
             } else {
-              sig = mldsa.sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
+              sig = mldsa.sign(hexx(t.p.message), hexx(t.p.sk), optsCtx);
             }
           } else throw new Error('unknown signature interface');
           eql(sig, hexx(t.er.signature));
@@ -191,7 +192,9 @@ describe('AVCP', () => {
           let valid;
           if (g.info.p.signatureInterface === 'internal') {
             if (g.info.p.externalMu) {
-              valid = mldsa.internal.verify(hexx(t.p.signature), hexx(t.p.mu), hexx(t.p.pk), true);
+              valid = mldsa.internal.verify(hexx(t.p.signature), hexx(t.p.mu), hexx(t.p.pk), {
+                externalMu: true,
+              });
             } else {
               valid = mldsa.internal.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk));
             }
@@ -202,9 +205,11 @@ describe('AVCP', () => {
               if (checkStrength(hash) < mldsa.securityLevel) continue;
               valid = mldsa
                 .prehash(hash)
-                .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
+                .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), { context: ctx });
             } else {
-              valid = mldsa.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
+              valid = mldsa.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), {
+                context: ctx,
+              });
             }
           } else throw new Error('unknown signature interface');
           eql(valid, t.er.testPassed);
@@ -256,9 +261,11 @@ describe('AVCP', () => {
                 if (checkStrength(hash) < slhdsa.securityLevel) return;
                 valid = slhdsa
                   .prehash(hash)
-                  .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
+                  .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), { context: ctx });
               } else {
-                valid = slhdsa.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), ctx);
+                valid = slhdsa.verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), {
+                  context: ctx,
+                });
               }
             } else throw new Error('unknown signature interface');
           } catch (e) {
@@ -280,15 +287,16 @@ describe('AVCP', () => {
             const rnd = t.p.additionalRandomness ? hexx(t.p.additionalRandomness) : false;
             let sig;
             if (g.info.p.signatureInterface === 'internal') {
-              sig = slhdsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), rnd);
+              sig = slhdsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), { extraEntropy: rnd });
             } else if (g.info.p.signatureInterface === 'external') {
               const hash = HASHES[t.p.hashAlg];
               const ctx = t.p.context ? hexx(t.p.context) : undefined;
+              const opts = { context: ctx, extraEntropy: rnd };
               if (g.info.p.preHash === 'preHash') {
                 if (checkStrength(hash) < slhdsa.securityLevel) return;
-                sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
+                sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), opts);
               } else {
-                sig = slhdsa.sign(hexx(t.p.message), hexx(t.p.sk), ctx, rnd);
+                sig = slhdsa.sign(hexx(t.p.message), hexx(t.p.sk), opts);
               }
             } else throw new Error('unknown signature interface');
             eql(sig, hexx(t.er.signature));
