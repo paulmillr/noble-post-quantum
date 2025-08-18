@@ -3,7 +3,7 @@ import { sha1 } from '@noble/hashes/legacy.js';
 import { sha224, sha512 } from '@noble/hashes/sha2.js';
 import { shake256 } from '@noble/hashes/sha3.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { should } from 'micro-should';
+import { should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql } from 'node:assert';
 import { randomBytes } from 'node:crypto';
 import { QSFMLKEM768P256, combineSigners, ecSigner, expandSeedXof } from '../src/hybrid.ts';

@@ -1,21 +1,18 @@
-import { describe, should } from 'micro-should';
-import { deepStrictEqual as eql, throws } from 'node:assert';
-import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
-import { ml_kem512 } from '../src/ml-kem.ts';
-import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
-import { randomBytes } from '../src/utils.ts';
-import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2.js';
 import {
+  keccak_512,
   sha3_224,
   sha3_256,
   sha3_384,
   sha3_512,
   shake128,
-  shake256,
-  keccak_512,
   shake128_32,
-  shake256_64,
 } from '@noble/hashes/sha3.js';
+import { describe, should } from '@paulmillr/jsbt/test.js';
+import { deepStrictEqual as eql, throws } from 'node:assert';
+import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
+import { ml_kem512 } from '../src/ml-kem.ts';
+import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
+import { randomBytes } from '../src/utils.ts';
 
 describe('Basic', () => {
   describe('Immutability', () => {
