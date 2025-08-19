@@ -66,6 +66,11 @@ import {
   slh_dsa_shake_256f,
   slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa.js';
+import {
+  XWing,
+  KitchenSinkMLKEM768X25519,
+  QSFMLKEM768P256, QSFMLKEM1024P384
+} from '@noble/post-quantum/hybrids.js';
 ```
 
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
