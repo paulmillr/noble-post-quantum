@@ -71,6 +71,7 @@ import {
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
 - [ML-DSA / Dilithium](#ml-dsa--dilithium-signatures)
 - [SLH-DSA / SPHINCS+](#slh-dsa--sphincs-signatures)
+- [Hybrids: XWing, KitchenSink and others](#hybrids-xwing-kitchensink-and-others)
 - [What should I use?](#what-should-i-use)
 - [Security](#security)
 - [Speed](#speed)
