@@ -47,7 +47,7 @@ export type SigOpts = VerOpts & {
 export function validateOpts(opts: object): void {
   // We try to catch u8a, since it was previously valid argument at this position
   if (typeof opts !== 'object' || opts === null || isBytes(opts))
-    throw new Error('opts should be object');
+    throw new Error('expected opts to be an object');
 }
 
 export function validateVerOpts(opts: VerOpts): void {
