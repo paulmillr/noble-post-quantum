@@ -113,7 +113,7 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
     const Fn = wCurve.Point.Fn;
     if (!Fn) throw new Error('No Point.Fn');
     keygen = (seed: Uint8Array = randomBytes(lengths.seed)) => {
-      abytes(seed, lengths.seed!);
+      abytes(seed, lengths.seed!, 'seed');
       const seedScalar = Fn.isLE ? bytesToNumberLE(seed) : bytesToNumberBE(seed);
       const secretKey = Fn.toBytes(Fn.create(seedScalar)); // Fixes modulo bias, but not zero
       return { secretKey, publicKey: curve.getPublicKey(secretKey) };
@@ -164,6 +164,7 @@ function splitLengths<K extends string, T extends { lengths: Partial<Record<K, n
   name: K
 ) {
   return splitCoder(
+    name,
     ...lst.map((i) => {
       if (typeof i.lengths[name] !== 'number') throw new Error('wrong length: ' + name);
       return i.lengths[name];

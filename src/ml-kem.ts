@@ -184,10 +184,10 @@ const genKPKE = (opts: KyberOpts) => {
   const poly1 = polyCoder(1);
   const polyV = polyCoder(dv);
   const polyU = polyCoder(du);
-  const publicCoder = splitCoder(vecCoder(polyCoder(12), K), 32);
+  const publicCoder = splitCoder('publicKey', vecCoder(polyCoder(12), K), 32);
   const secretCoder = vecCoder(polyCoder(12), K);
-  const cipherCoder = splitCoder(vecCoder(polyU, K), polyV);
-  const seedCoder = splitCoder(32, 32);
+  const cipherCoder = splitCoder('ciphertext', vecCoder(polyU, K), polyV);
+  const seedCoder = splitCoder('seed', 32, 32);
   return {
     secretCoder,
     lengths: {
@@ -196,7 +196,7 @@ const genKPKE = (opts: KyberOpts) => {
       cipherText: cipherCoder.bytesLen,
     },
     keygen: (seed: Uint8Array) => {
-      abytes(seed, 32);
+      abytes(seed, 32, 'seed');
       const seedDst = new Uint8Array(33);
       seedDst.set(seed);
       seedDst[32] = K;
@@ -266,7 +266,7 @@ function createKyber(opts: KyberOpts) {
   const KPKE = genKPKE(opts);
   const { HASH256, HASH512, KDF } = opts;
   const { secretCoder: KPKESecretCoder, lengths } = KPKE;
-  const secretCoder = splitCoder(lengths.secretKey, lengths.publicKey, 32, 32);
+  const secretCoder = splitCoder('secretKey', lengths.secretKey, lengths.publicKey, 32, 32);
   const msgLen = 32;
   const seedLen = 64;
   return {
@@ -279,7 +279,7 @@ function createKyber(opts: KyberOpts) {
       secretKey: secretCoder.bytesLen,
     },
     keygen: (seed = randomBytes(seedLen)) => {
-      abytes(seed, seedLen);
+      abytes(seed, seedLen, 'seed');
       const { publicKey, secretKey: sk } = KPKE.keygen(seed.subarray(0, 32));
       const publicKeyHash = HASH256(publicKey);
       // (dkPKE||ek||H(ek)||z)
@@ -292,8 +292,8 @@ function createKyber(opts: KyberOpts) {
       return Uint8Array.from(publicKey);
     },
     encapsulate: (publicKey: Uint8Array, msg = randomBytes(msgLen)) => {
-      abytes(publicKey, lengths.publicKey);
-      abytes(msg, msgLen);
+      abytes(publicKey, lengths.publicKey, 'publicKey');
+      abytes(msg, msgLen, 'message');
 
       // FIPS-203 includes additional verification check for modulus
       const eke = publicKey.subarray(0, 384 * opts.K);
@@ -311,8 +311,8 @@ function createKyber(opts: KyberOpts) {
       return { cipherText, sharedSecret: kr.subarray(0, 32) };
     },
     decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => {
-      abytes(secretKey, secretCoder.bytesLen); // 768*k + 96
-      abytes(cipherText, lengths.cipherText); // 32(du*k + dv)
+      abytes(secretKey, secretCoder.bytesLen, 'secretKey'); // 768*k + 96
+      abytes(cipherText, lengths.cipherText, 'cipherText'); // 32(du*k + dv)
       // test ← H(dk[384𝑘 ∶ 768𝑘 + 32])) .
       const k768 = secretCoder.bytesLen - 96;
       const start = k768 + 32;

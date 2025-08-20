@@ -8,6 +8,7 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import { abool } from '@noble/curves/utils.js';
 import { shake256 } from '@noble/hashes/sha3.js';
 import type { CHash } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.ts';
@@ -15,8 +16,6 @@ import {
   abytes,
   type BytesCoderLen,
   checkHash,
-  validateSigOpts,
-  validateVerOpts,
   cleanBytes,
   type CryptoKeys,
   equalBytes,
@@ -26,11 +25,12 @@ import {
   type Signer,
   type SigOpts,
   splitCoder,
+  validateOpts,
+  validateSigOpts,
+  validateVerOpts,
   vecCoder,
   type VerOpts,
-  validateOpts,
 } from './utils.ts';
-import { abool } from '@noble/curves/utils.js';
 
 export type DSAInternalOpts = { externalMu?: boolean };
 function validateInternalOpts(opts: DSAInternalOpts) {
@@ -267,8 +267,9 @@ function getDilithium(opts: DilithiumOpts) {
   const W1Coder = polyCoder(GAMMA2 === GAMMA2_1 ? 6 : 4);
   const W1Vec = vecCoder(W1Coder, K);
   // Main structures
-  const publicCoder = splitCoder(32, vecCoder(T1Coder, K));
+  const publicCoder = splitCoder('publicKey', 32, vecCoder(T1Coder, K));
   const secretCoder = splitCoder(
+    'secretKey',
     32,
     32,
     TR_BYTES,
@@ -276,7 +277,7 @@ function getDilithium(opts: DilithiumOpts) {
     vecCoder(ETACoder, K),
     vecCoder(T0Coder, K)
   );
-  const sigCoder = splitCoder(C_TILDE_BYTES, vecCoder(ZCoder, L), hintCoder);
+  const sigCoder = splitCoder('signature', C_TILDE_BYTES, vecCoder(ZCoder, L), hintCoder);
   const CoefFromHalfByte =
     ETA === 2
       ? (n: number) => (n < 15 ? 2 - (n % 5) : false)
@@ -350,7 +351,7 @@ function getDilithium(opts: DilithiumOpts) {
   };
 
   const signRandBytes = 32;
-  const seedCoder = splitCoder(32, 64, 32);
+  const seedCoder = splitCoder('seed', 32, 64, 32);
   // API & argument positions are exactly as in FIPS204.
   const internal: DSAInternal = {
     info: { type: 'internal-ml-dsa' },
@@ -366,7 +367,7 @@ function getDilithium(opts: DilithiumOpts) {
       const seedDst = new Uint8Array(32 + 2);
       const randSeed = seed === undefined;
       if (randSeed) seed = randomBytes(32);
-      abytes(seed!, 32);
+      abytes(seed!, 32, 'seed');
       seedDst.set(seed!);
       if (randSeed) cleanBytes(seed!);
       seedDst[32] = K;
@@ -463,7 +464,7 @@ function getDilithium(opts: DilithiumOpts) {
           : random === undefined
             ? randomBytes(signRandBytes)
             : random;
-      abytes(rnd, 32);
+      abytes(rnd, 32, 'extraEntropy');
       const rhoprime = shake256
         .create({ dkLen: CRH_BYTES })
         .update(_K)

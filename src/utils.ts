@@ -98,6 +98,7 @@ type SplitOut<T extends (number | BytesCoderLen<any>)[]> = {
   [K in keyof T]: T[K] extends number ? Uint8Array : UnCoder<T[K]>;
 };
 export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
+  label: string,
   ...lengths: T
 ): BytesCoder<SplitOut<T>> & { bytesLen: number } {
   const getLength = (c: number | BytesCoderLen<any>) => (typeof c === 'number' ? c : c.bytesLen);
@@ -110,7 +111,7 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
         const c = lengths[i];
         const l = getLength(c);
         const b: Uint8Array = typeof c === 'number' ? (bufs[i] as any) : c.encode(bufs[i]);
-        abytes_(b, l);
+        abytes_(b, l, label);
         res.set(b, pos);
         if (typeof c !== 'number') b.fill(0); // clean
         pos += l;
@@ -118,7 +119,7 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
       return res;
     },
     decode: (buf: Uint8Array) => {
-      abytes_(buf, bytesLen);
+      abytes_(buf, bytesLen, label);
       const res = [];
       for (const c of lengths) {
         const l = getLength(c);

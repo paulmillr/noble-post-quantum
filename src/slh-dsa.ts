@@ -40,8 +40,6 @@ import {
 import {
   abytes,
   checkHash,
-  validateSigOpts,
-  validateVerOpts,
   cleanBytes,
   copyBytes,
   equalBytes,
@@ -50,6 +48,8 @@ import {
   getMessagePrehash,
   randomBytes,
   splitCoder,
+  validateSigOpts,
+  validateVerOpts,
   vecCoder,
   type Signer,
   type SigOpts,
@@ -241,6 +241,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const TREE_BITS = TREE_HEIGHT * (D - 1);
   const LEAF_BITS = TREE_HEIGHT;
   const hashMsgCoder = splitCoder(
+    'hashedMessage',
     Math.ceil((A * K) / 8),
     Math.ceil(TREE_BITS / 8),
     Math.ceil(TREE_HEIGHT / 8)
@@ -386,12 +387,12 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     return context.thashN(2, buffer, addr);
   };
 
-  const seedCoder = splitCoder(N, N, N);
-  const publicCoder = splitCoder(N, N);
-  const secretCoder = splitCoder(N, N, publicCoder.bytesLen);
-  const forsCoder = vecCoder(splitCoder(N, N * A), K);
-  const wotsCoder = vecCoder(splitCoder(WOTS_LEN * N, TREE_HEIGHT * N), D);
-  const sigCoder = splitCoder(N, forsCoder, wotsCoder); // random || fors || wots
+  const seedCoder = splitCoder('seed', N, N, N);
+  const publicCoder = splitCoder('publicKey', N, N);
+  const secretCoder = splitCoder('secretKey', N, N, publicCoder.bytesLen);
+  const forsCoder = vecCoder(splitCoder('fors', N, N * A), K);
+  const wotsCoder = vecCoder(splitCoder('wots', WOTS_LEN * N, TREE_HEIGHT * N), D);
+  const sigCoder = splitCoder('signature', N, forsCoder, wotsCoder); // random || fors || wots
   const internal: Signer = {
     info: { type: 'internal-slh-dsa' },
     lengths: {
@@ -402,7 +403,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       signRand: N,
     },
     keygen(seed?: Uint8Array) {
-      if (seed !== undefined) abytes(seed, seedCoder.bytesLen);
+      if (seed !== undefined) abytes(seed, seedCoder.bytesLen, 'seed');
       seed = seed === undefined ? randomBytes(seedCoder.bytesLen) : copyBytes(seed);
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
       const [secretSeed, secretPRF, publicSeed] = seedCoder.decode(seed);
