@@ -97,7 +97,7 @@ should('Errors', () => {
         CEG('verify: wrong sig=', U8, sig, (s) => C.verify(s, msg, keys.publicKey));
         if (C.info && C.info.type && C.info.type.startsWith('hash')) {
           const ctx = BYTES10;
-          const sig = C.sign(msg, keys.secretKey, ctx);
+          const sig = C.sign(msg, keys.secretKey, { context: ctx });
           CEG('sign: wrong ctx=', U8, ctx, (s) => C.sign(msg, keys.secretKey, s));
           CEG('verify: wrong ctx=', U8, ctx, (s) => C.verify(sig, msg, keys.publicKey, s));
         }

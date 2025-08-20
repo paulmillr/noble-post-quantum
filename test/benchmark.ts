@@ -1,10 +1,10 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
-import mark from '@paulmillr/jsbt/bench.js';
-import { ml_dsa65 } from '../../src/ml-dsa.ts';
-import { ml_kem768 } from '../../src/ml-kem.ts';
-import * as slh from '../../src/slh-dsa.ts';
-import { randomBytes } from '../../src/utils.ts';
+import bench from '@paulmillr/jsbt/bench.js';
+import { ml_dsa65 } from '../src/ml-dsa.ts';
+import { ml_kem768 } from '../src/ml-kem.ts';
+import * as slh from '../src/slh-dsa.ts';
+import { randomBytes } from '../src/utils.ts';
 
 function mlKemOpts(lib) {
   const { publicKey, secretKey } = lib.keygen();
@@ -16,14 +16,14 @@ function mlDsaOpts(lib) {
   const seed = sha256(utf8ToBytes('ml-dsa-keygen-seed'));
   const msg = sha256(utf8ToBytes('ml-dsa-msg'));
   const { publicKey, secretKey } = lib.keygen(seed);
-  const signature = lib.sign(secretKey, msg);
+  const signature = lib.sign(msg, secretKey);
   return { seed, msg, publicKey, secretKey, signature };
 }
 
 function slhDsaOpts(lib) {
   const { publicKey, secretKey } = lib.keygen();
   const msg = randomBytes(32);
-  const signature = lib.sign(secretKey, msg);
+  const signature = lib.sign(msg, secretKey);
   return { msg, publicKey, secretKey, signature };
 }
 
@@ -31,9 +31,9 @@ function slhDsaOpts(lib) {
   console.log('# ML-KEM768');
   const mlkem = ml_kem768;
   const mlkemo = mlKemOpts(mlkem);
-  await mark('keygen', () => mlkem.keygen());
-  await mark('encapsulate', () => mlkem.encapsulate(mlkemo.publicKey));
-  await mark('decapsulate', () => mlkem.decapsulate(mlkemo.cipherText, mlkemo.secretKey));
+  await bench('keygen', () => mlkem.keygen());
+  await bench('encapsulate', () => mlkem.encapsulate(mlkemo.publicKey));
+  await bench('decapsulate', () => mlkem.decapsulate(mlkemo.cipherText, mlkemo.secretKey));
 
   console.log('# ML-DSA65');
   const mldsa = ml_dsa65;
@@ -46,14 +46,14 @@ function slhDsaOpts(lib) {
   // - external random
   // - key
   const rand = sha256(utf8ToBytes('noble-post-quantum'));
-  await mark('keygen', () => mldsa.keygen(randomBytes(32)));
-  await mark('sign', () => mldsa.sign(mldsao.secretKey, mldsao.msg, undefined, rand));
-  await mark('verify', () => mldsa.verify(mldsao.publicKey, mldsao.msg, mldsao.signature));
+  await bench('keygen', () => mldsa.keygen(randomBytes(32)));
+  await bench('sign', () => mldsa.sign(mldsao.msg, mldsao.secretKey, { extraEntropy: rand }));
+  await bench('verify', () => mldsa.verify(mldsao.signature, mldsao.msg, mldsao.publicKey));
 
   console.log('# SLH-DSA SHA2 192f');
   const slhdsa = slh.slh_dsa_sha2_192f;
   const slhdsao = slhDsaOpts(slhdsa);
-  await mark('keygen', () => slhdsa.keygen(randomBytes(72)));
-  await mark('sign', () => slhdsa.sign(slhdsao.secretKey, slhdsao.msg));
-  await mark('verify', () => slhdsa.verify(slhdsao.publicKey, slhdsao.msg, slhdsao.signature));
+  await bench('keygen', () => slhdsa.keygen(randomBytes(72)));
+  await bench('sign', () => slhdsa.sign(slhdsao.msg, slhdsao.secretKey));
+  await bench('verify', () => slhdsa.verify(slhdsao.signature, slhdsao.msg, slhdsao.publicKey));
 })();
