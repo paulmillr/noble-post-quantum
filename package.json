@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Auditable & minimal JS implementation of post-quantum cryptography: FIPS 203, 204, 205",
   "files": [
     "*.js",
@@ -10,8 +10,8 @@
     "src"
   ],
   "dependencies": {
-    "@noble/curves": "~2.0.0-beta.3",
-    "@noble/hashes": "~2.0.0-beta.5"
+    "@noble/curves": "~2.0.0",
+    "@noble/hashes": "~2.0.0"
   },
   "devDependencies": {
     "@paulmillr/jsbt": "0.4.4",
