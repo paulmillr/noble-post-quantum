@@ -294,7 +294,7 @@ SLH-DSA (\_shake is 8x slower):
 
 - `npm install && npm run build && npm test` will build the code and run tests.
 - `npm run lint` / `npm run format` will run linter / fix linter issues.
-- `npm run bench` will run benchmarks, which may need their deps first (`npm run bench:install`)
+- `npm run bench` will run benchmarks
 - `npm run build:release` will build single file
 
 Check out [github.com/paulmillr/guidelines](https://github.com/paulmillr/guidelines)
