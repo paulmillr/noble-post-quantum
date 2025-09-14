@@ -32,6 +32,15 @@
     "test:node20": "cd test; npx tsc; node compiled/test/index.js",
     "test:big": "SLOW_TESTS=1 node test/index.js"
   },
+  "exports": {
+    ".": "./index.js",
+    "./_crystals.js": "./_crystals.js",
+    "./hybrid.js": "./hybrid.js",
+    "./ml-dsa.js": "./ml-dsa.js",
+    "./ml-kem.js": "./ml-kem.js",
+    "./slh-dsa.js": "./slh-dsa.js",
+    "./utils.js": "./utils.js"
+  },
   "engines": {
     "node": ">= 20.19.0"
   },
