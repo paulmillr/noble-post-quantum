@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "exports": {
     ".": "./src/index.ts",
     "./_crystals.js": "./src/_crystals.ts",
