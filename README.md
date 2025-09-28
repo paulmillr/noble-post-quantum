@@ -5,7 +5,7 @@ Auditable & minimal JS implementation of post-quantum public-key cryptography.
 - 🔒 Auditable
 - 🔻 Tree-shakeable: unused code is excluded from your builds
 - 🔍 Reliable: tests ensure correctness
-- 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based kem from FIPS-203
+- 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based KEM from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
 - 🍡 Hybrid algorithms, combining classic & post-quantum
