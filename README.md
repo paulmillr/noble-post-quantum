@@ -129,8 +129,8 @@ import { randomBytes } from '@noble/post-quantum/utils.js';
 const seed = randomBytes(32); // seed is optional
 const keys = ml_dsa65.keygen(seed);
 const msg = new TextEncoder().encode('hello noble');
-const sig = ml_dsa65.sign(keys.secretKey, msg);
-const isValid = ml_dsa65.verify(keys.publicKey, msg, sig);
+const sig = ml_dsa65.sign(msg, keys.secretKey);
+const isValid = ml_dsa65.verify(sig, msg, keys.publicKey);
 ```
 
 Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). See
@@ -142,7 +142,7 @@ The internals are similar to ML-KEM, but keys and params are different.
 
 ```ts
 import {
-  slh_dsa_sha2_128f,
+  slh_dsa_sha2_128f as sph,
   slh_dsa_sha2_128s,
   slh_dsa_sha2_192f,
   slh_dsa_sha2_192s,
@@ -158,8 +158,8 @@ import {
 
 const keys2 = sph.keygen();
 const msg2 = new TextEncoder().encode('hello noble');
-const sig2 = sph.sign(keys2.secretKey, msg2);
-const isValid2 = sph.verify(keys2.publicKey, msg2, sig2);
+const sig2 = sph.sign(msg2, keys2.secretKey);
+const isValid2 = sph.verify(sig2, msg2, keys2.publicKey);
 ```
 
 Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf).
