@@ -207,6 +207,9 @@ ML-KEM and ML-DSA are lattice-based. SLH-DSA is hash-based, which means it is bu
 
 NIST recommends to use cat-3+, while australian [ASD only allows cat-5 after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
 
+It's also useful to check out [NIST SP 800-131Ar3](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-131Ar3.ipd.pdf)
+for "Transitioning the Use of Cryptographic Algorithms and Key Lengths".
+
 For [hashes](https://github.com/paulmillr/noble-hashes), use SHA512 or SHA3-512 (not SHA256); and for [ciphers](https://github.com/paulmillr/noble-ciphers) ensure AES-256 or ChaCha.
 
 ## Security
