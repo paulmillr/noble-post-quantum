@@ -69,7 +69,8 @@ import {
 import {
   XWing,
   KitchenSinkMLKEM768X25519,
-  QSFMLKEM768P256, QSFMLKEM1024P384
+  QSFMLKEM768P256, QSFMLKEM1024P384,
+  MLKEM768P256, MLKEM768X25519, MLKEM1024P384,
 } from '@noble/post-quantum/hybrids.js';
 ```
 
@@ -175,17 +176,24 @@ SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 import {
   XWing,
   KitchenSinkMLKEM768X25519,
-  QSFMLKEM768P256, QSFMLKEM1024P384
+  QSFMLKEM768P256, QSFMLKEM1024P384,
+  MLKEM768P256, MLKEM768X25519, MLKEM1024P384,
 } from '@noble/post-quantum/hybrids.js';
 ```
 
-XWing is x25519+mlkem768, just like kitchensink.
+- **XWing** / **MLKEM768X25519**: ML-KEM-768 + X25519 (CG Framework)
+- **KitchenSinkMLKEM768X25519**: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
+- **QSFMLKEM768P256**: ML-KEM-768 + P-256 (QSF construction)
+- **QSFMLKEM1024P384**: ML-KEM-1024 + P-384 (QSF construction)
+- **MLKEM768P256**: ML-KEM-768 + P-256 (CG Framework)
+- **MLKEM1024P384**: ML-KEM-1024 + P-384 (CG Framework)
 
 The following spec drafts are matched:
 
 - [irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/)
 - [connolly-cfrg-xwing-kem](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/)
 - [tls-westerbaan-xyber768d00](https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/)
+- [irtf-cfrg-concrete-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-concrete-hybrid-kems/)
 
 ### What should I use?
 
