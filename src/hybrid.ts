@@ -254,7 +254,7 @@ export function combineKEMS(
         sharedSecret: combiner(pks, cipherText, sharedSecret),
         cipherText: ctCoder.encode(cipherText),
       };
-      cleanBytes(sharedSecret, cipherText, pks);
+      cleanBytes(sharedSecret, cipherText);
       return res;
     },
     decapsulate(ct: Uint8Array, seed: Uint8Array) {

@@ -2,7 +2,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { shake256 } from '@noble/hashes/sha3.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
-import { deepStrictEqual, deepStrictEqual as eql } from 'node:assert';
+import { deepStrictEqual as eql } from 'node:assert';
 import {
   KitchenSinkMLKEM768X25519,
   QSFMLKEM1024P384,
@@ -14,6 +14,7 @@ import {
 } from '../src/hybrid.ts';
 import { ml_dsa44 } from '../src/ml-dsa.ts';
 import { jsonGZ } from './util.ts';
+import { randomBytes } from 'node:crypto';
 
 const VECTORS = {
   'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)': {
@@ -76,40 +77,65 @@ describe('Hybrids', () => {
       should('Vectors', () => {
         for (const t of tests) {
           const keys = lib.keygen(hexToBytes(t.seed));
-          deepStrictEqual(bytesToHex(keys.secretKey), t.sk);
-          deepStrictEqual(bytesToHex(keys.publicKey), t.pk);
+          eql(bytesToHex(keys.secretKey), t.sk);
+          eql(bytesToHex(keys.publicKey), t.pk);
           const { sharedSecret, cipherText } = lib.encapsulate(
             hexToBytes(t.pk),
             hexToBytes(t.randomness || t.eseed)
           );
-          deepStrictEqual(bytesToHex(sharedSecret), t.ss);
-          deepStrictEqual(bytesToHex(cipherText), t.ct);
+          eql(bytesToHex(sharedSecret), t.ss);
+          eql(bytesToHex(cipherText), t.ct);
           const ss2 = lib.decapsulate(hexToBytes(t.ct), hexToBytes(t.sk));
-          deepStrictEqual(sharedSecret, ss2);
+          eql(sharedSecret, ss2);
         }
       });
       should('random', () => {
         const { secretKey, publicKey } = lib.keygen();
-        deepStrictEqual(publicKey.length, lib.lengths.publicKey);
+        eql(publicKey.length, lib.lengths.publicKey);
         const { sharedSecret, cipherText } = lib.encapsulate(publicKey);
-        deepStrictEqual(cipherText.length, lib.lengths.cipherText);
-        deepStrictEqual(sharedSecret.length, lib.lengths.msg);
+        eql(cipherText.length, lib.lengths.cipherText);
+        eql(sharedSecret.length, lib.lengths.msg);
         const sharedSecret2 = lib.decapsulate(cipherText, secretKey);
-        deepStrictEqual(sharedSecret2, sharedSecret);
+        eql(sharedSecret2, sharedSecret);
+      });
+      should('immutability', () => {
+        const seed = randomBytes(32);
+        const seed1 = seed.slice();
+        const { secretKey, publicKey } = lib.keygen(seed);
+        eql(seed, seed1);
+        const pk1 = publicKey.slice();
+        const sk1 = secretKey.slice();
+        const { sharedSecret, cipherText } = lib.encapsulate(publicKey);
+        eql(pk1, publicKey);
+        const ct1 = cipherText.slice();
+        const sharedSecret2 = lib.decapsulate(cipherText, secretKey);
+        eql(sharedSecret2, sharedSecret);
+        eql(secretKey, sk1);
+        eql(ct1, cipherText);
       });
     });
   }
   should('combineSigners', () => {
     const combined = combineSigners(32, expandSeedXof(shake256), ecSigner(ed25519), ml_dsa44);
-    const aliceKeys = combined.keygen();
+    const aliceSeed = randomBytes(32);
+    const aliceSeed1 = aliceSeed.slice();
+    const aliceKeys = combined.keygen(aliceSeed);
+    eql(aliceSeed, aliceSeed1); // immutability
     eql(aliceKeys.secretKey.length, 32); // only seed required for key (same way as for KEMs)
     const bobKeys = combined.keygen();
     const msg = new Uint8Array([1, 2, 3, 4]);
+    const msg1 = msg.slice();
+    const aliceSk = aliceKeys.secretKey.slice();
+    const alicePk = aliceKeys.publicKey.slice();
     const aliceSig = combined.sign(msg, aliceKeys.secretKey);
+    const aliceSigCopy = aliceSig.slice();
+    eql(msg, msg1);
+    eql(aliceKeys.secretKey, aliceSk); // immutability
     eql(aliceSig.length, ed25519.lengths.signature + ml_dsa44.lengths.signature);
     const bobSig = combined.sign(msg, bobKeys.secretKey);
-
     eql(combined.verify(aliceSig, msg, aliceKeys.publicKey), true);
+    eql(aliceSig, aliceSigCopy); // immutability
+    eql(aliceKeys.publicKey, alicePk); // immutability
     eql(combined.verify(bobSig, msg, aliceKeys.publicKey), false);
     // Verifies only signature for party
     eql(combined.verify(aliceSig, msg, bobKeys.publicKey), false);
