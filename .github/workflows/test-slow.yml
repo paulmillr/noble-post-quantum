@@ -3,22 +3,22 @@ on:
   schedule:
     - cron: '0 18 * * 1,4' # 18:00 bi-weekly (mon, thu)
   workflow_dispatch:
+env:
+  MSHOULD_FAST: 1
 jobs:
   big:
     name: Test large inputs
-    runs-on: ubuntu-latest
-    env:
-      MSHOULD_FAST: 1
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@1e31de5234b9f8995739874a8ce0492dc87873e2 # v4
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
         with:
-          submodules: true
           persist-credentials: false
-      - uses: actions/setup-node@8f152de45cc393bb48ce5d89d36b731f54556e65 # v4
+          submodules: true
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6
         with:
-          node-version: 22.13.0
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
           cache: npm
+          node-version: 24
       - run: npm install
       - run: npm run build --if-present
       - run: npm run test:big
