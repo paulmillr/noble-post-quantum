@@ -7,6 +7,9 @@ import {
   KitchenSinkMLKEM768X25519,
   QSFMLKEM1024P384,
   QSFMLKEM768P256,
+  MLKEM1024P384,
+  MLKEM768P256,
+  MLKEM768X25519,
   XWing,
   combineSigners,
   ecSigner,
@@ -34,6 +37,18 @@ const VECTORS = {
     tests: jsonGZ(
       './vectors/hybrids/test-vectors-KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256).json'
     ),
+  },
+  'MLKEM1024-P384': {
+    lib: MLKEM1024P384,
+    tests: jsonGZ('./vectors/hybrids/test-vectors-MLKEM1024P384.json'),
+  },
+  'MLKEM768-P256': {
+    lib: MLKEM768P256,
+    tests: jsonGZ('./vectors/hybrids/test-vectors-MLKEM768P256.json'),
+  },
+  'MLKEM768-X25519': {
+    lib: MLKEM768X25519,
+    tests: jsonGZ('./vectors/hybrids/test-vectors-MLKEM768X25519.json'),
   },
   XWing: {
     lib: XWing,

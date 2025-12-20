@@ -371,3 +371,90 @@ export const XWing: KEM = combineKEMS(
   ml_kem768,
   x25519kem
 );
+
+export const MLKEM768X25519: KEM = XWing;
+
+function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): KEM {
+  const Fn = curve.Point.Fn;
+  if (!Fn) throw new Error('No Point.Fn');
+  const order = Fn.ORDER;
+
+  function rejectionSampling(seed: Uint8Array): { secretKey: Uint8Array; publicKey: Uint8Array } {
+    let start = 0;
+    let end = scalarLen;
+    let sk = Fn.isLE
+      ? bytesToNumberLE(seed.subarray(start, end))
+      : bytesToNumberBE(seed.subarray(start, end));
+
+    while (sk === 0n || sk >= order) {
+      start = end;
+      end = end + scalarLen;
+      if (end > seed.length) {
+        throw new Error('Rejection sampling failed');
+      }
+      sk = Fn.isLE
+        ? bytesToNumberLE(seed.subarray(start, end))
+        : bytesToNumberBE(seed.subarray(start, end));
+    }
+
+    const secretKey = Fn.toBytes(Fn.create(sk));
+    const publicKey = curve.getPublicKey(secretKey, false);
+    return { secretKey, publicKey };
+  }
+
+  return {
+    lengths: {
+      secretKey: scalarLen,
+      publicKey: elemLen,
+      seed: nseed,
+      msg: nseed,
+      cipherText: elemLen,
+    },
+    keygen(seed: Uint8Array = randomBytes(nseed)) {
+      abytes(seed, nseed, 'seed');
+      return rejectionSampling(seed);
+    },
+    getPublicKey(secretKey: Uint8Array) {
+      return curve.getPublicKey(secretKey, false);
+    },
+    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(nseed)) {
+      abytes(rand, nseed, 'rand');
+      const { secretKey: ek } = rejectionSampling(rand);
+      const sharedSecret = this.decapsulate(publicKey, ek);
+      const cipherText = curve.getPublicKey(ek, false);
+      cleanBytes(ek);
+      return { sharedSecret, cipherText };
+    },
+    decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
+      const fullSecret = curve.getSharedSecret(secretKey, cipherText);
+      return fullSecret.subarray(1);
+    },
+  };
+}
+
+function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: number): KEM {
+  const { secretKey: scalarLen, publicKeyUncompressed: elemLen } = curve.lengths;
+  if (!scalarLen || !elemLen) throw new Error('wrong curve');
+  const curveKem = nistCurveKem(curve, scalarLen, elemLen, nseed);
+  const mlkemSeedLen = 64;
+  const totalSeedLen = mlkemSeedLen + nseed;
+
+  return combineKEMS(
+    32,
+    32,
+    (seed: Uint8Array) => {
+      abytes(seed, 32);
+      const expanded = shake256(seed, { dkLen: totalSeedLen });
+      const mlkemSeed = expanded.subarray(0, mlkemSeedLen);
+      const curveSeed = expanded.subarray(mlkemSeedLen, totalSeedLen);
+      return concatBytes(mlkemSeed, curveSeed);
+    },
+    (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
+    mlkem,
+    curveKem
+  );
+}
+
+export const MLKEM768P256: KEM = concreteHybridKem('MLKEM768-P256', ml_kem768, p256, 128);
+
+export const MLKEM1024P384: KEM = concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48);
