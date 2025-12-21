@@ -67,17 +67,16 @@ import {
   slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa.js';
 import {
-  XWing,
-  KitchenSinkMLKEM768X25519,
-  QSFMLKEM768P256, QSFMLKEM1024P384,
   MLKEM768P256, MLKEM768X25519, MLKEM1024P384,
-} from '@noble/post-quantum/hybrids.js';
+  XWing, KitchenSinkMLKEM768X25519,
+  QSFMLKEM768P256, QSFMLKEM1024P384,
+} from '@noble/post-quantum/hybrid.js';
 ```
 
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
 - [ML-DSA / Dilithium](#ml-dsa--dilithium-signatures)
 - [SLH-DSA / SPHINCS+](#slh-dsa--sphincs-signatures)
-- [Hybrids: XWing, KitchenSink and others](#hybrids-xwing-kitchensink-and-others)
+- [hybrid: XWing, KitchenSink and others](#hybrid-xwing-kitchensink-and-others)
 - [What should I use?](#what-should-i-use)
 - [Security](#security)
 - [Speed](#speed)
@@ -170,23 +169,22 @@ There are many different kinds,
 but basically `sha2` / `shake` indicate internal hash, `128` / `192` / `256` indicate security level, and `s` /`f` indicate trade-off (Small / Fast).
 SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 
-### Hybrids: XWing, KitchenSink and others
+### hybrid: XWing, KitchenSink and others
 
 ```js
 import {
-  XWing,
-  KitchenSinkMLKEM768X25519,
-  QSFMLKEM768P256, QSFMLKEM1024P384,
   MLKEM768P256, MLKEM768X25519, MLKEM1024P384,
-} from '@noble/post-quantum/hybrids.js';
+  XWing, KitchenSinkMLKEM768X25519,
+  QSFMLKEM768P256, QSFMLKEM1024P384,
+} from '@noble/post-quantum/hybrid.js';
 ```
 
-- **XWing** / **MLKEM768X25519**: ML-KEM-768 + X25519 (CG Framework)
+- **MLKEM768X25519** (XWing): ML-KEM-768 + X25519 (CG Framework)
+- **MLKEM768P256**: ML-KEM-768 + P-256 (CG Framework)
+- **MLKEM1024P384**: ML-KEM-1024 + P-384 (CG Framework)
 - **KitchenSinkMLKEM768X25519**: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
 - **QSFMLKEM768P256**: ML-KEM-768 + P-256 (QSF construction)
 - **QSFMLKEM1024P384**: ML-KEM-1024 + P-384 (QSF construction)
-- **MLKEM768P256**: ML-KEM-768 + P-256 (CG Framework)
-- **MLKEM1024P384**: ML-KEM-1024 + P-384 (CG Framework)
 
 The following spec drafts are matched:
 
