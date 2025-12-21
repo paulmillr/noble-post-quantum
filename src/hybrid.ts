@@ -126,7 +126,7 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
   };
 }
 
-export const ecdhKem = (curve: CurveECDH, allowZeroKey: boolean = false): KEM => {
+export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
@@ -145,9 +145,9 @@ export const ecdhKem = (curve: CurveECDH, allowZeroKey: boolean = false): KEM =>
       return curve.lengths.publicKeyHasPrefix ? res.subarray(1) : res;
     },
   };
-};
+}
 
-export const ecSigner = (curve: CurveSign, allowZeroKey: boolean = false): Signer => {
+export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): Signer {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.sign || !curve.verify) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
@@ -157,7 +157,7 @@ export const ecSigner = (curve: CurveSign, allowZeroKey: boolean = false): Signe
     sign: (message, secretKey) => curve.sign(message, secretKey),
     verify: (signature, message, publicKey) => curve.verify(signature, message, publicKey),
   };
-};
+}
 
 function splitLengths<K extends string, T extends { lengths: Partial<Record<K, number>> }>(
   lst: T[],
@@ -362,41 +362,29 @@ export const KitchenSinkMLKEM768X25519: KEM = KitchenSink(
 );
 
 // Always X25519 and ML-KEM - 768, no point to export
-export const XWing: KEM = combineKEMS(
-  32,
-  32,
-  expandSeedXof(shake256),
-  // Awesome label, so much escaping hell in a single line.
-  (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes('\\.//^\\'))),
-  ml_kem768,
-  x25519kem
-);
+export const XWing: KEM = /* @__PURE__ */ (() =>
+  combineKEMS(
+    32,
+    32,
+    expandSeedXof(shake256),
+    // Awesome label, so much escaping hell in a single line.
+    (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes('\\.//^\\'))),
+    ml_kem768,
+    x25519kem
+  ))();
 
 export const MLKEM768X25519: KEM = XWing;
 
 function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): KEM {
   const Fn = curve.Point.Fn;
-  if (!Fn) throw new Error('No Point.Fn');
-  const order = Fn.ORDER;
-
+  if (!Fn) throw new Error('no Point.Fn');
   function rejectionSampling(seed: Uint8Array): { secretKey: Uint8Array; publicKey: Uint8Array } {
-    let start = 0;
-    let end = scalarLen;
-    let sk = Fn.isLE
-      ? bytesToNumberLE(seed.subarray(start, end))
-      : bytesToNumberBE(seed.subarray(start, end));
-
-    while (sk === 0n || sk >= order) {
-      start = end;
-      end = end + scalarLen;
-      if (end > seed.length) {
-        throw new Error('Rejection sampling failed');
-      }
-      sk = Fn.isLE
-        ? bytesToNumberLE(seed.subarray(start, end))
-        : bytesToNumberBE(seed.subarray(start, end));
+    let sk: bigint;
+    for (let start = 0, end = scalarLen; ; start = end, end += scalarLen) {
+      if (end > seed.length) throw new Error('rejection sampling failed');
+      sk = Fn.fromBytes(seed.subarray(start, end), true);
+      if (Fn.isValidNot0(sk)) break;
     }
-
     const secretKey = Fn.toBytes(Fn.create(sk));
     const publicKey = curve.getPublicKey(secretKey, false);
     return { secretKey, publicKey };
@@ -426,8 +414,8 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
       return { sharedSecret, cipherText };
     },
     decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
-      const fullSecret = curve.getSharedSecret(secretKey, cipherText);
-      return fullSecret.subarray(1);
+      const full = curve.getSharedSecret(secretKey, cipherText);
+      return full.subarray(1);
     },
   };
 }
@@ -455,6 +443,8 @@ function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: numbe
   );
 }
 
-export const MLKEM768P256: KEM = concreteHybridKem('MLKEM768-P256', ml_kem768, p256, 128);
+export const MLKEM768P256: KEM = /* @__PURE__ */ (() =>
+  concreteHybridKem('MLKEM768-P256', ml_kem768, p256, 128))();
 
-export const MLKEM1024P384: KEM = concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48);
+export const MLKEM1024P384: KEM = /* @__PURE__ */ (() =>
+  concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48))();
