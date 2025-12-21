@@ -133,7 +133,7 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
     lengths: { ...kg.lengths, msg: kg.lengths.seed, cipherText: kg.lengths.publicKey },
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
-    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.secretKey)) {
+    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.seed)) {
       const ek = this.keygen(rand).secretKey;
       const sharedSecret = this.decapsulate(publicKey, ek);
       const cipherText = curve.getPublicKey(ek);
