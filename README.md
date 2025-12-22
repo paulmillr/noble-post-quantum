@@ -67,8 +67,8 @@ import {
   slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa.js';
 import {
-  MLKEM768P256, MLKEM768X25519, MLKEM1024P384,
-  XWing, KitchenSinkMLKEM768X25519,
+  ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
+  XWing, KitchenSink_ml_kem768_x25519,
   QSFMLKEM768P256, QSFMLKEM1024P384,
 } from '@noble/post-quantum/hybrid.js';
 ```
@@ -173,16 +173,16 @@ SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 
 ```js
 import {
-  MLKEM768P256, MLKEM768X25519, MLKEM1024P384,
-  XWing, KitchenSinkMLKEM768X25519,
+  ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
+  XWing, KitchenSink_ml_kem768_x25519,
   QSFMLKEM768P256, QSFMLKEM1024P384,
 } from '@noble/post-quantum/hybrid.js';
 ```
 
-- **MLKEM768X25519** (XWing): ML-KEM-768 + X25519 (CG Framework)
-- **MLKEM768P256**: ML-KEM-768 + P-256 (CG Framework)
-- **MLKEM1024P384**: ML-KEM-1024 + P-384 (CG Framework)
-- **KitchenSinkMLKEM768X25519**: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
+- **ml_kem768_x25519** (XWing): ML-KEM-768 + X25519 (CG Framework)
+- **ml_kem768_p256**: ML-KEM-768 + P-256 (CG Framework)
+- **ml_kem1024_p384**: ML-KEM-1024 + P-384 (CG Framework)
+- **KitchenSink_ml_kem768_x25519**: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
 - **QSFMLKEM768P256**: ML-KEM-768 + P-256 (QSF construction)
 - **QSFMLKEM1024P384**: ML-KEM-1024 + P-384 (QSF construction)
 

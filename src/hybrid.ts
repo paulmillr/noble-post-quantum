@@ -310,15 +310,14 @@ export function QSF(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, kdf: CHash
   );
 }
 
-export const QSFMLKEM768P256: KEM = QSF(
+export const QSF_ml_kem768_p256: KEM = QSF(
   'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)',
   ml_kem768,
   ecdhKem(p256, true),
   shake256,
   sha3_256
 );
-
-export const QSFMLKEM1024P384: KEM = QSF(
+export const QSF_ml_kem1024_p384: KEM = QSF(
   'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)',
   ml_kem1024,
   ecdhKem(p384, true),
@@ -326,7 +325,13 @@ export const QSFMLKEM1024P384: KEM = QSF(
   sha3_256
 );
 
-export function KitchenSink(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, hash: CHash): KEM {
+export function createKitchenSink(
+  label: string,
+  pqc: KEM,
+  curveKEM: KEM,
+  xof: XOF,
+  hash: CHash
+): KEM {
   ahash(xof);
   ahash(hash);
   return combineKEMS(
@@ -353,7 +358,7 @@ export function KitchenSink(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, ha
 }
 
 const x25519kem = ecdhKem(x25519);
-export const KitchenSinkMLKEM768X25519: KEM = KitchenSink(
+export const KitchenSink_ml_kem768_x25519: KEM = createKitchenSink(
   'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)',
   ml_kem768,
   x25519kem,
@@ -362,7 +367,7 @@ export const KitchenSinkMLKEM768X25519: KEM = KitchenSink(
 );
 
 // Always X25519 and ML-KEM - 768, no point to export
-export const XWing: KEM = /* @__PURE__ */ (() =>
+export const ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
   combineKEMS(
     32,
     32,
@@ -372,8 +377,6 @@ export const XWing: KEM = /* @__PURE__ */ (() =>
     ml_kem768,
     x25519kem
   ))();
-
-export const MLKEM768X25519: KEM = XWing;
 
 function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): KEM {
   const Fn = curve.Point.Fn;
@@ -443,8 +446,17 @@ function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: numbe
   );
 }
 
-export const MLKEM768P256: KEM = /* @__PURE__ */ (() =>
+export const ml_kem768_p256: KEM = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM768-P256', ml_kem768, p256, 128))();
 
-export const MLKEM1024P384: KEM = /* @__PURE__ */ (() =>
+export const ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48))();
+
+// Legacy aliases
+export const XWing: KEM = ml_kem768_x25519;
+export const MLKEM768X25519: KEM = ml_kem768_x25519;
+export const MLKEM768P256: KEM = ml_kem768_p256;
+export const MLKEM1024P384: KEM = ml_kem1024_p384;
+export const QSFMLKEM768P256: KEM = QSF_ml_kem768_p256;
+export const QSFMLKEM1024P384: KEM = QSF_ml_kem1024_p384;
+export const KitchenSinkMLKEM768X25519: KEM = KitchenSink_ml_kem768_x25519;
