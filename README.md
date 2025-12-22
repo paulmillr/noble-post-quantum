@@ -99,7 +99,7 @@ const malloryShared = ml_kem768.decapsulate(cipherText, malloryKeys.secretKey); 
 notDeepStrictEqual(aliceShared, malloryShared); // Different key!
 ```
 
-Lattice-based key encapsulation mechanism, defined in [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf).
+Lattice-based key encapsulation mechanism, defined in [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) ([website](https://www.pq-crystals.org/kyber/resources.shtml), [repo](https://github.com/pq-crystals/kyber)).
 Can be used as follows:
 
 1. *Alice* generates secret & public keys, then sends publicKey to *Bob*
@@ -109,7 +109,6 @@ Can be used as follows:
   Now, both Alice and Bob have same sharedSecret key
   without exchanging in plainText: aliceShared == bobShared.
 
-See [website](https://www.pq-crystals.org/kyber/resources.shtml) and [repo](https://github.com/pq-crystals/kyber).
 There are some concerns with regards to security: see
 [djb blog](https://blog.cr.yp.to/20231003-countcorrectly.html) and
 [mailing list](https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/W2VOzy0wz_E).
@@ -133,9 +132,8 @@ const sig = ml_dsa65.sign(msg, keys.secretKey);
 const isValid = ml_dsa65.verify(sig, msg, keys.publicKey);
 ```
 
-Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf). See
-[website](https://www.pq-crystals.org/dilithium/index.shtml) and
-[repo](https://github.com/pq-crystals/dilithium).
+Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.204.pdf) ([website](https://www.pq-crystals.org/dilithium/index.shtml),
+[repo](https://github.com/pq-crystals/dilithium)).
 The internals are similar to ML-KEM, but keys and params are different.
 
 ### SLH-DSA / SPHINCS+ signatures
@@ -162,11 +160,12 @@ const sig2 = sph.sign(msg2, keys2.secretKey);
 const isValid2 = sph.verify(sig2, msg2, keys2.publicKey);
 ```
 
-Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf).
-See [website](https://sphincs.org) and [repo](https://github.com/sphincs/sphincsplus). We implement spec v3.1 with FIPS adjustments.
+Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.205.pdf) ([website](https://sphincs.org), [repo](https://github.com/sphincs/sphincsplus)). We implement spec v3.1 with FIPS adjustments.
 
-There are many different kinds,
-but basically `sha2` / `shake` indicate internal hash, `128` / `192` / `256` indicate security level, and `s` /`f` indicate trade-off (Small / Fast).
+- sha2 vs shake (sha3): indicates internal hash function used
+- 128 / 192 / 256: indicates security level in bits
+- s / f: indicates small vs fast trade-off
+
 SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 
 ### hybrid: XWing, KitchenSink and others
