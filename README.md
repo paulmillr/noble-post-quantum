@@ -68,8 +68,8 @@ import {
 } from '@noble/post-quantum/slh-dsa.js';
 import {
   ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
-  XWing, KitchenSink_ml_kem768_x25519,
-  QSFMLKEM768P256, QSFMLKEM1024P384,
+  KitchenSink_ml_kem768_x25519, XWing,
+  QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
 } from '@noble/post-quantum/hybrid.js';
 ```
 
@@ -174,17 +174,17 @@ SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 ```js
 import {
   ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
-  XWing, KitchenSink_ml_kem768_x25519,
-  QSFMLKEM768P256, QSFMLKEM1024P384,
+  KitchenSink_ml_kem768_x25519, XWing,
+  QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
 } from '@noble/post-quantum/hybrid.js';
 ```
 
-- **ml_kem768_x25519** (XWing): ML-KEM-768 + X25519 (CG Framework)
+- **ml_kem768_x25519** (same as XWing): ML-KEM-768 + X25519 (CG Framework)
 - **ml_kem768_p256**: ML-KEM-768 + P-256 (CG Framework)
 - **ml_kem1024_p384**: ML-KEM-1024 + P-384 (CG Framework)
 - **KitchenSink_ml_kem768_x25519**: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
-- **QSFMLKEM768P256**: ML-KEM-768 + P-256 (QSF construction)
-- **QSFMLKEM1024P384**: ML-KEM-1024 + P-384 (QSF construction)
+- **QSF_ml_kem768_p256**: ML-KEM-768 + P-256 (QSF construction)
+- **QSF_ml_kem1024_p384**: ML-KEM-1024 + P-384 (QSF construction)
 
 The following spec drafts are matched:
 
@@ -286,16 +286,18 @@ sign x 8 ops/sec @ 114ms/op
 verify x 169 ops/sec @ 5ms/op
 ```
 
-SLH-DSA (\_shake is 8x slower):
+SLH-DSA:
 
 |           | sig size | keygen | sign   | verify |
 | --------- | -------- | ------ | ------ | ------ |
 | sha2_128f | 18088    | 4ms    | 90ms   | 6ms    |
-| sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
 | sha2_192f | 35664    | 6ms    | 160ms  | 9ms    |
-| sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
 | sha2_256f | 49856    | 15ms   | 340ms  | 9ms    |
+| sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
+| sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
 | sha2_256s | 29792    | 250ms  | 3400ms | 4ms    |
+| shake_192f | 35664    | 21ms  | 553ms | 29ms    |
+| shake_192s | 16224    | 260ms  | 2635ms | 2ms    |
 
 ## Contributing & testing
 
