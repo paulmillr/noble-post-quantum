@@ -179,19 +179,21 @@ import {
 } from '@noble/post-quantum/hybrid.js';
 ```
 
-- **ml_kem768_x25519** (same as XWing): ML-KEM-768 + X25519 (CG Framework)
-- **ml_kem768_p256**: ML-KEM-768 + P-256 (CG Framework)
-- **ml_kem1024_p384**: ML-KEM-1024 + P-384 (CG Framework)
-- **KitchenSink_ml_kem768_x25519**: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
-- **QSF_ml_kem768_p256**: ML-KEM-768 + P-256 (QSF construction)
-- **QSF_ml_kem1024_p384**: ML-KEM-1024 + P-384 (QSF construction)
+Hybrid submodule combine post-quantum algorithms with elliptic curve cryptography:
+
+- `ml_kem768_x25519`: ML-KEM-768 + X25519 (CG Framework, same as XWing)
+- `ml_kem768_p256`: ML-KEM-768 + P-256 (CG Framework)
+- `ml_kem1024_p384`: ML-KEM-1024 + P-384 (CG Framework)
+- `KitchenSink_ml_kem768_x25519`: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
+- `QSF_ml_kem768_p256`: ML-KEM-768 + P-256 (QSF construction)
+- `QSF_ml_kem1024_p384`: ML-KEM-1024 + P-384 (QSF construction)
 
 The following spec drafts are matched:
 
-- [irtf-cfrg-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/)
-- [irtf-cfrg-concrete-hybrid-kems](https://datatracker.ietf.org/doc/draft-irtf-cfrg-concrete-hybrid-kems/)
-- [connolly-cfrg-xwing-kem](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/)
-- [tls-westerbaan-xyber768d00](https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/)
+- [irtf-cfrg-hybrid-kems-07](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/)
+- [irtf-cfrg-concrete-hybrid-kems-02](https://datatracker.ietf.org/doc/draft-irtf-cfrg-concrete-hybrid-kems/)
+- [connolly-cfrg-xwing-kem-09](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/)
+- [tls-westerbaan-xyber768d00-03](https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/)
 
 ### What should I use?
 
@@ -258,9 +260,7 @@ Browsers have had weaknesses in the past - and could again - but implementing a 
 
 > `npm run bench`
 
-Noble is the fastest JS implementation of post-quantum algorithms.
-WASM libraries can be faster.
-For SLH-DSA, SHAKE slows everything down 8x, and -s versions do another 20-50x slowdown.
+Noble is the fastest JS implementation of post-quantum algorithms. WASM libraries can be faster.
 
 Benchmarks on Apple M4 (**higher is better**):
 
@@ -296,8 +296,8 @@ SLH-DSA:
 | sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
 | sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
 | sha2_256s | 29792    | 250ms  | 3400ms | 4ms    |
-| shake_192f | 35664    | 21ms  | 553ms | 29ms    |
-| shake_192s | 16224    | 260ms  | 2635ms | 2ms    |
+| shake_192f | 35664   | 21ms   | 553ms  | 29ms   |
+| shake_192s | 16224   | 260ms  | 2635ms | 2ms    |
 
 ## Contributing & testing
 
