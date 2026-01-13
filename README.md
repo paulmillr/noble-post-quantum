@@ -241,9 +241,10 @@ Keep in mind that even hardware versions ML-KEM [are vulnerable](https://eprint.
   - Version ranges are locked, and changes are checked with npm-diff.
 - **Dev dependencies** are excluded from end-user installs; they're only used for development and build steps.
 
-For this package, there is 1 dependency; and a few dev dependencies:
+For this package, there are 2 dependencies; and a few dev dependencies:
 
-- [noble-hashes](https://github.com/paulmillr/noble-hashes) provides cryptographic hashing functionality
+- [noble-hashes](https://github.com/paulmillr/noble-hashes) provides cryptographic hashing functionality, used internally in every algorithm
+- [noble-curves](https://github.com/paulmillr/noble-curves) provides elliptic curve cryptography for hybrid algorithms
 - jsbt is used for benchmarking / testing / build tooling and developed by the same author
 - prettier, fast-check and typescript are used for code quality / test generation / ts compilation
 
