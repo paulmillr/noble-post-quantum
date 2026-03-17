@@ -8,6 +8,7 @@ Auditable & minimal JS implementation of post-quantum public-key cryptography.
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based KEM from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
+- 🦅 Falcon: lattice-based signatures from Falcon Round 3
 - 🍡 Hybrid algorithms, combining classic & post-quantum: Concrete, XWing, KitchenSink
 - 🪶 16KB (gzipped) for everything, including bundled hashes & curves
 
@@ -67,6 +68,9 @@ import {
   slh_dsa_shake_256s,
 } from '@noble/post-quantum/slh-dsa.js';
 import {
+  falcon512, falcon512padded, falcon1024, falcon1024padded,
+} from '@noble/post-quantum/falcon.js';
+import {
   ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
   KitchenSink_ml_kem768_x25519, XWing,
   QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
@@ -76,6 +80,7 @@ import {
 - [ML-KEM / Kyber](#ml-kem--kyber-shared-secrets)
 - [ML-DSA / Dilithium](#ml-dsa--dilithium-signatures)
 - [SLH-DSA / SPHINCS+](#slh-dsa--sphincs-signatures)
+- [Falcon](#falcon-signatures)
 - [hybrid: XWing, KitchenSink and others](#hybrid-xwing-kitchensink-and-others)
 - [What should I use?](#what-should-i-use)
 - [Security](#security)
@@ -167,6 +172,29 @@ Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.ni
 - s / f: indicates small vs fast trade-off
 
 SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
+
+### Falcon signatures
+
+```ts
+import { falcon512, falcon1024 } from '@noble/post-quantum/falcon.js';
+import { randomBytes } from '@noble/post-quantum/utils.js';
+const seed3 = randomBytes(48); // seed is optional
+const keys3 = falcon512.keygen(seed3);
+const msg3 = new TextEncoder().encode('hello noble');
+const sig3 = falcon512.sign(msg3, keys3.secretKey);
+const isValid3 = falcon512.verify(sig3, msg3, keys3.publicKey);
+```
+
+Lattice-based digital signature algorithm, submitted to NIST PQC Round 3 ([website](https://falcon-sign.info/), [Round 3 submissions](https://csrc.nist.gov/projects/post-quantum-cryptography/post-quantum-cryptography-standardization/round-3-submissions)).
+
+> [!WARNING]
+> This is Falcon Round 3, not FN-DSA. FN-DSA is not final yet.
+> FN-DSA (FIPS-206) would most likely be backwards-incompatible with Falcon.
+> The implementation passes the published Round 3 KATs.
+
+- `falcon512`, `falcon1024`: variable-length detached signatures
+- `falcon512padded`, `falcon1024padded`: fixed-length detached signatures
+- `attached.seal(...)` / `attached.open(...)`: attached-signature API for Round 3 vectors and interop
 
 ### hybrid: XWing, KitchenSink and others
 

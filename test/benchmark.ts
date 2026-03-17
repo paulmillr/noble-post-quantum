@@ -1,6 +1,8 @@
+import { deepStrictEqual } from 'node:assert';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { utf8ToBytes } from '@noble/hashes/utils.js';
+import { concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import bench from '@paulmillr/jsbt/bench.js';
+import { falcon1024, falcon512 } from '../src/falcon.ts';
 import { ml_dsa65 } from '../src/ml-dsa.ts';
 import { ml_kem768 } from '../src/ml-kem.ts';
 import * as slh from '../src/slh-dsa.ts';
@@ -25,6 +27,21 @@ function slhDsaOpts(lib) {
   const msg = randomBytes(32);
   const signature = lib.sign(msg, secretKey);
   return { msg, publicKey, secretKey, signature };
+}
+
+function falconSeed(label: string) {
+  const seed = sha256(utf8ToBytes(label));
+  return concatBytes(seed, seed.subarray(0, 16));
+}
+
+function falconOpts(lib, name: string) {
+  const seed = falconSeed(`${name}-keygen-seed`);
+  const msg = sha256(utf8ToBytes(`${name}-msg`));
+  // Falcon signing uses rejection sampling, so fixed extra entropy keeps runs comparable.
+  const rand = falconSeed(`${name}-sign-seed`);
+  const { publicKey, secretKey } = lib.keygen(seed);
+  const signature = lib.sign(msg, secretKey, { extraEntropy: rand });
+  return { msg, rand, publicKey, secretKey, signature };
 }
 
 (async () => {
@@ -56,4 +73,32 @@ function slhDsaOpts(lib) {
   await bench('keygen', () => slhdsa.keygen(randomBytes(72)));
   await bench('sign', () => slhdsa.sign(slhdsao.msg, slhdsao.secretKey));
   await bench('verify', () => slhdsa.verify(slhdsao.signature, slhdsao.msg, slhdsao.publicKey));
+
+  console.log('# Falcon512');
+  const falcon512o = falconOpts(falcon512, 'falcon512');
+  deepStrictEqual(
+    falcon512.verify(falcon512o.signature, falcon512o.msg, falcon512o.publicKey),
+    true
+  );
+  await bench('keygen', () => falcon512.keygen(randomBytes(48)));
+  await bench('sign', () =>
+    falcon512.sign(falcon512o.msg, falcon512o.secretKey, { extraEntropy: falcon512o.rand })
+  );
+  await bench('verify', () =>
+    falcon512.verify(falcon512o.signature, falcon512o.msg, falcon512o.publicKey)
+  );
+
+  console.log('# Falcon1024');
+  const falcon1024o = falconOpts(falcon1024, 'falcon1024');
+  deepStrictEqual(
+    falcon1024.verify(falcon1024o.signature, falcon1024o.msg, falcon1024o.publicKey),
+    true
+  );
+  await bench('keygen', () => falcon1024.keygen(randomBytes(48)));
+  await bench('sign', () =>
+    falcon1024.sign(falcon1024o.msg, falcon1024o.secretKey, { extraEntropy: falcon1024o.rand })
+  );
+  await bench('verify', () =>
+    falcon1024.verify(falcon1024o.signature, falcon1024o.msg, falcon1024o.publicKey)
+  );
 })();
