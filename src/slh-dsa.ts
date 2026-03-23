@@ -62,29 +62,41 @@ import {
  * * K: FORS trees numbers. A: FORS trees height
  */
 export type SphincsOpts = {
+  /** Security parameter in bytes. */
   N: number;
+  /** Winternitz parameter. */
   W: number;
+  /** Total hypertree height. */
   H: number;
+  /** Number of hypertree layers. */
   D: number;
+  /** Number of FORS trees. */
   K: number;
+  /** Height of each FORS tree. */
   A: number;
+  /** Target security level in bits. */
   securityLevel: number;
 };
 
+/** Hash customization options for SLH-DSA context creation. */
 export type SphincsHashOpts = {
+  /** Whether to use the compressed-address variant from the standard. */
   isCompressed?: boolean;
+  /** Factory that binds one parameter set to one per-key hash context generator. */
   getContext: GetContext;
 };
 
 /** Winternitz signature params. */
-export const PARAMS: Record<string, SphincsOpts> = {
-  '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6, securityLevel: 128 },
-  '128s': { W: 16, N: 16, H: 63, D: 7, K: 14, A: 12, securityLevel: 128 },
-  '192f': { W: 16, N: 24, H: 66, D: 22, K: 33, A: 8, securityLevel: 192 },
-  '192s': { W: 16, N: 24, H: 63, D: 7, K: 17, A: 14, securityLevel: 192 },
-  '256f': { W: 16, N: 32, H: 68, D: 17, K: 35, A: 9, securityLevel: 256 },
-  '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14, securityLevel: 256 },
-} as const;
+/** Built-in SLH-DSA parameter presets keyed by strength/profile. */
+export const PARAMS: Record<string, SphincsOpts> = /* @__PURE__ */ (() =>
+  ({
+    '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6, securityLevel: 128 },
+    '128s': { W: 16, N: 16, H: 63, D: 7, K: 14, A: 12, securityLevel: 128 },
+    '192f': { W: 16, N: 24, H: 66, D: 22, K: 33, A: 8, securityLevel: 192 },
+    '192s': { W: 16, N: 24, H: 63, D: 7, K: 17, A: 14, securityLevel: 192 },
+    '256f': { W: 16, N: 32, H: 68, D: 17, K: 35, A: 9, securityLevel: 256 },
+    '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14, securityLevel: 256 },
+  }) as const)();
 
 const AddressType = {
   WOTS: 0,
@@ -96,17 +108,53 @@ const AddressType = {
   FORSPRF: 6,
 } as const;
 
-/** Address, byte array of size ADDR_BYTES */
+/** Address byte array of size `ADDR_BYTES`. */
 export type ADRS = Uint8Array;
 
+/** Hash and tweakable-hash callbacks bound to one SLH-DSA keypair context. */
 export type Context = {
+  /**
+   * Derive a PRF output for one address.
+   * @param addr - Address bytes.
+   * @returns PRF output bytes.
+   */
   PRFaddr: (addr: ADRS) => Uint8Array;
+  /**
+   * Derive the randomized message hash prefix.
+   * @param skPRF - Secret PRF seed.
+   * @param random - Per-signature randomness.
+   * @param msg - Message bytes.
+   * @returns PRF output bytes.
+   */
   PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => Uint8Array;
+  /**
+   * Hash one randomized message transcript.
+   * @param R - Randomized message prefix.
+   * @param pk - Public key bytes.
+   * @param m - Message bytes.
+   * @param outLen - Output length in bytes.
+   * @returns Transcript hash bytes.
+   */
   Hmsg: (R: Uint8Array, pk: Uint8Array, m: Uint8Array, outLen: number) => Uint8Array;
+  /**
+   * Tweakable hash over one input block.
+   * @param input - Input block.
+   * @param addr - Address bytes.
+   * @returns Hash output bytes.
+   */
   thash1: (input: Uint8Array, addr: ADRS) => Uint8Array;
+  /**
+   * Tweakable hash over multiple input blocks.
+   * @param blocks - Number of input blocks.
+   * @param input - Concatenated input bytes.
+   * @param addr - Address bytes.
+   * @returns Hash output bytes.
+   */
   thashN: (blocks: number, input: Uint8Array, addr: ADRS) => Uint8Array;
+  /** Wipe any buffered hash state for the current context. */
   clean: () => void;
 };
+/** Factory that creates a context generator for one SLH-DSA parameter set. */
 export type GetContext = (
   opts: SphincsOpts
 ) => (pub_seed: Uint8Array, sk_seed?: Uint8Array) => Context;
@@ -146,6 +194,7 @@ function getMaskBig(bits: number) {
   return (1n << BigInt(bits)) - 1n; // 4 -> 0b1111
 }
 
+/** Public SLH-DSA signer with prehash customization. */
 export type SphincsSigner = Signer & {
   internal: Signer;
   securityLevel: number;
@@ -636,20 +685,26 @@ const genShake =
     };
   };
 
-const SHAKE_SIMPLE = { getContext: genShake() };
+const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ getContext: genShake() }))();
 
 /** SLH-DSA: 128-bit fast SHAKE version. */
-export const slh_dsa_shake_128f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128f'], SHAKE_SIMPLE);
+export const slh_dsa_shake_128f: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['128f'], SHAKE_SIMPLE))();
 /** SLH-DSA: 128-bit short SHAKE version. */
-export const slh_dsa_shake_128s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128s'], SHAKE_SIMPLE);
+export const slh_dsa_shake_128s: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['128s'], SHAKE_SIMPLE))();
 /** SLH-DSA: 192-bit fast SHAKE version. */
-export const slh_dsa_shake_192f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192f'], SHAKE_SIMPLE);
+export const slh_dsa_shake_192f: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['192f'], SHAKE_SIMPLE))();
 /** SLH-DSA: 192-bit short SHAKE version. */
-export const slh_dsa_shake_192s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192s'], SHAKE_SIMPLE);
+export const slh_dsa_shake_192s: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['192s'], SHAKE_SIMPLE))();
 /** SLH-DSA: 256-bit fast SHAKE version. */
-export const slh_dsa_shake_256f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256f'], SHAKE_SIMPLE);
+export const slh_dsa_shake_256f: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['256f'], SHAKE_SIMPLE))();
 /** SLH-DSA: 256-bit short SHAKE version. */
-export const slh_dsa_shake_256s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256s'], SHAKE_SIMPLE);
+export const slh_dsa_shake_256s: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['256s'], SHAKE_SIMPLE))();
 
 type ShaType = typeof sha256 | typeof sha512;
 const genSha =
@@ -742,24 +797,30 @@ const genSha =
     };
   };
 
-const SHA256_SIMPLE = {
+const SHA256_SIMPLE = /* @__PURE__ */ (() => ({
   isCompressed: true,
   getContext: genSha(sha256, sha256),
-};
-const SHA512_SIMPLE = {
+}))();
+const SHA512_SIMPLE = /* @__PURE__ */ (() => ({
   isCompressed: true,
   getContext: genSha(sha256, sha512),
-};
+}))();
 
 /** SLH-DSA: 128-bit fast SHA2 version. */
-export const slh_dsa_sha2_128f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128f'], SHA256_SIMPLE);
+export const slh_dsa_sha2_128f: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['128f'], SHA256_SIMPLE))();
 /** SLH-DSA: 128-bit small SHA2 version. */
-export const slh_dsa_sha2_128s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['128s'], SHA256_SIMPLE);
+export const slh_dsa_sha2_128s: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['128s'], SHA256_SIMPLE))();
 /** SLH-DSA: 192-bit fast SHA2 version. */
-export const slh_dsa_sha2_192f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192f'], SHA512_SIMPLE);
+export const slh_dsa_sha2_192f: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['192f'], SHA512_SIMPLE))();
 /** SLH-DSA: 192-bit small SHA2 version. */
-export const slh_dsa_sha2_192s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['192s'], SHA512_SIMPLE);
+export const slh_dsa_sha2_192s: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['192s'], SHA512_SIMPLE))();
 /** SLH-DSA: 256-bit fast SHA2 version. */
-export const slh_dsa_sha2_256f: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256f'], SHA512_SIMPLE);
+export const slh_dsa_sha2_256f: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['256f'], SHA512_SIMPLE))();
 /** SLH-DSA: 256-bit small SHA2 version. */
-export const slh_dsa_sha2_256s: SphincsSigner = /* @__PURE__ */ gen(PARAMS['256s'], SHA512_SIMPLE);
+export const slh_dsa_sha2_256s: SphincsSigner = /* @__PURE__ */ (() =>
+  gen(PARAMS['256s'], SHA512_SIMPLE))();

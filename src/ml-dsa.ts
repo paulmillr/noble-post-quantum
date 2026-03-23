@@ -32,13 +32,17 @@ import {
   type VerOpts,
 } from './utils.ts';
 
-export type DSAInternalOpts = { externalMu?: boolean };
+/** Internal ML-DSA options. */
+export type DSAInternalOpts = {
+  /** Whether the caller passes an externally precomputed `mu` value. */
+  externalMu?: boolean;
+};
 function validateInternalOpts(opts: DSAInternalOpts) {
   validateOpts(opts);
   if (opts.externalMu !== undefined) abool(opts.externalMu, 'opts.externalMu');
 }
 
-/** Signer API, containing internal methods */
+/** ML-DSA signer surface with access to the internal message formatting mode. */
 export type DSAInternal = CryptoKeys & {
   lengths: Signer['lengths'];
   sign: (msg: Uint8Array, secretKey: Uint8Array, opts?: SigOpts & DSAInternalOpts) => Uint8Array;
@@ -49,6 +53,7 @@ export type DSAInternal = CryptoKeys & {
     opts?: VerOpts & DSAInternalOpts
   ) => boolean;
 };
+/** Public ML-DSA signer surface. */
 export type DSA = Signer & { internal: DSAInternal };
 
 // Constants
@@ -66,29 +71,39 @@ const GAMMA2_2 = Math.floor((Q - 1) / 32) | 0;
 type XofGet = ReturnType<ReturnType<XOF>['get']>;
 
 /** Various lattice params. */
+/** Public ML-DSA parameter-set description. */
 export type DSAParam = {
+  /** Matrix row count. */
   K: number;
+  /** Matrix column count. */
   L: number;
+  /** Bit width used when rounding `t`. */
   D: number;
+  /** Bound used for the `y` sampling range. */
   GAMMA1: number;
+  /** Bound used during decomposition and hints. */
   GAMMA2: number;
+  /** Number of non-zero challenge coefficients. */
   TAU: number;
+  /** Centered-binomial noise parameter. */
   ETA: number;
+  /** Maximum number of hint bits in a signature. */
   OMEGA: number;
 };
 /** Internal params for different versions of ML-DSA  */
 // prettier-ignore
-export const PARAMS: Record<string, DSAParam> = {
+/** Built-in ML-DSA parameter presets keyed by mode number. */
+export const PARAMS: Record<string, DSAParam> = /* @__PURE__ */ (() => ({
   2: { K: 4, L: 4, D, GAMMA1: 2 ** 17, GAMMA2: GAMMA2_1, TAU: 39, ETA: 2, OMEGA: 80 },
   3: { K: 6, L: 5, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 49, ETA: 4, OMEGA: 55 },
   5: { K: 8, L: 7, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 60, ETA: 2, OMEGA: 75 },
-} as const;
+} as const))();
 
 // NOTE: there is a lot cases where negative numbers used (with smod instead of mod).
 type Poly = Int32Array;
 const newPoly = (n: number): Int32Array => new Int32Array(n);
 
-const { mod, smod, NTT, bitsCoder } = genCrystals({
+const crystals = /* @__PURE__ */ genCrystals({
   N,
   Q,
   F,
@@ -102,17 +117,17 @@ const id = <T>(n: T): T => n;
 type IdNum = (n: number) => number;
 
 const polyCoder = (d: number, compress: IdNum = id, verify: IdNum = id) =>
-  bitsCoder(d, {
+  crystals.bitsCoder(d, {
     encode: (i: number) => compress(verify(i)),
     decode: (i: number) => verify(compress(i)),
   });
 
 const polyAdd = (a: Poly, b: Poly) => {
-  for (let i = 0; i < a.length; i++) a[i] = mod(a[i] + b[i]);
+  for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i] + b[i]);
   return a;
 };
 const polySub = (a: Poly, b: Poly): Poly => {
-  for (let i = 0; i < a.length; i++) a[i] = mod(a[i] - b[i]);
+  for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i] - b[i]);
   return a;
 };
 
@@ -123,7 +138,7 @@ const polyShiftl = (p: Poly): Poly => {
 
 const polyChknorm = (p: Poly, B: number): boolean => {
   // Not very sure about this, but FIPS204 doesn't provide any function for that :(
-  for (let i = 0; i < N; i++) if (Math.abs(smod(p[i])) >= B) return true;
+  for (let i = 0; i < N; i++) if (Math.abs(crystals.smod(p[i])) >= B) return true;
   return false;
 };
 
@@ -133,7 +148,7 @@ const MultiplyNTTs = (a: Poly, b: Poly): Poly => {
   // which means a[i] * b[i] is 46 bit, which is safe to use in JS. (number is 53 bits).
   // Barrett reduction is slower than mod :(
   const c = newPoly(N);
-  for (let i = 0; i < a.length; i++) c[i] = mod(a[i] * b[i]);
+  for (let i = 0; i < a.length; i++) c[i] = crystals.mod(a[i] * b[i]);
   return c;
 };
 
@@ -180,8 +195,8 @@ function getDilithium(opts: DilithiumOpts) {
 
   const decompose = (r: number) => {
     // Decomposes r into (r1, r0) such that r ≡ r1(2γ2) + r0 mod q.
-    const rPlus = mod(r);
-    const r0 = smod(rPlus, 2 * GAMMA2) | 0;
+    const rPlus = crystals.mod(r);
+    const r0 = crystals.smod(rPlus, 2 * GAMMA2) | 0;
     if (rPlus - r0 === Q - 1) return { r1: 0 | 0, r0: (r0 - 1) | 0 };
     const r1 = Math.floor((rPlus - r0) / (2 * GAMMA2)) | 0;
     return { r1, r0 }; // r1 = HighBits, r0 = LowBits
@@ -212,13 +227,13 @@ function getDilithium(opts: DilithiumOpts) {
     const { r1, r0 } = decompose(r);
     // 3: if h = 1 and r0 > 0 return (r1 + 1) mod m
     // 4: if h = 1 and r0 ≤ 0 return (r1 − 1) mod m
-    if (h === 1) return r0 > 0 ? mod(r1 + 1, m) | 0 : mod(r1 - 1, m) | 0;
+    if (h === 1) return r0 > 0 ? crystals.mod(r1 + 1, m) | 0 : crystals.mod(r1 - 1, m) | 0;
     return r1 | 0;
   };
   const Power2Round = (r: number) => {
     // Decomposes r into (r1, r0) such that r ≡ r1*(2**d) + r0 mod q.
-    const rPlus = mod(r);
-    const r0 = smod(rPlus, 2 ** D) | 0;
+    const rPlus = crystals.mod(r);
+    const r0 = crystals.smod(rPlus, 2 ** D) | 0;
     return { r1: Math.floor((rPlus - r0) / 2 ** D) | 0, r0 };
   };
 
@@ -263,7 +278,7 @@ function getDilithium(opts: DilithiumOpts) {
   const T0Coder = polyCoder(13, (i: number) => (1 << (D - 1)) - i);
   const T1Coder = polyCoder(10);
   // Requires smod. Need to fix!
-  const ZCoder = polyCoder(GAMMA1 === 1 << 17 ? 18 : 20, (i: number) => smod(GAMMA1 - i));
+  const ZCoder = polyCoder(GAMMA1 === 1 << 17 ? 18 : 20, (i: number) => crystals.smod(GAMMA1 - i));
   const W1Coder = polyCoder(GAMMA2 === GAMMA2_1 ? 6 : 4);
   const W1Vec = vecCoder(W1Coder, K);
   // Main structures
@@ -381,7 +396,7 @@ function getDilithium(opts: DilithiumOpts) {
       const s2 = [];
       for (let i = L; i < L + K; i++)
         s2.push(RejBoundedPoly(xofPrime.get(i & 0xff, (i >> 8) & 0xff)));
-      const s1Hat = s1.map((i) => NTT.encode(i.slice()));
+      const s1Hat = s1.map((i) => crystals.NTT.encode(i.slice()));
       const t0 = [];
       const t1 = [];
       const xof = XOF128(rho);
@@ -393,7 +408,7 @@ function getDilithium(opts: DilithiumOpts) {
           const aij = RejNTTPoly(xof.get(j, i)); // super slow!
           polyAdd(t, MultiplyNTTs(aij, s1Hat[j]));
         }
-        NTT.decode(t);
+        crystals.NTT.decode(t);
         const { r0, r1 } = polyPowerRound(polyAdd(t, s2[i])); // (t1, t0) ← Power2Round(t, d)
         t0.push(r0);
         t1.push(r1);
@@ -412,7 +427,7 @@ function getDilithium(opts: DilithiumOpts) {
     getPublicKey: (secretKey: Uint8Array) => {
       const [rho, _K, _tr, s1, s2, _t0] = secretCoder.decode(secretKey); // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
       const xof = XOF128(rho);
-      const s1Hat = s1.map((p) => NTT.encode(p.slice()));
+      const s1Hat = s1.map((p) => crystals.NTT.encode(p.slice()));
       const t1: Poly[] = [];
       const tmp = newPoly(N);
       for (let i = 0; i < K; i++) {
@@ -421,7 +436,7 @@ function getDilithium(opts: DilithiumOpts) {
           const aij = RejNTTPoly(xof.get(j, i)); // A_ij in NTT
           polyAdd(tmp, MultiplyNTTs(aij, s1Hat[j])); // += A_ij * s1_j
         }
-        NTT.decode(tmp); // NTT⁻¹
+        crystals.NTT.decode(tmp); // NTT⁻¹
         polyAdd(tmp, s2[i]); // t_i = A·s1 + s2
         const { r1 } = polyPowerRound(tmp); // r1 = t1, r0 ≈ t0
         t1.push(r1);
@@ -447,10 +462,10 @@ function getDilithium(opts: DilithiumOpts) {
         A.push(pv);
       }
       xof.clean();
-      for (let i = 0; i < L; i++) NTT.encode(s1[i]); // sˆ1 ← NTT(s1)
+      for (let i = 0; i < L; i++) crystals.NTT.encode(s1[i]); // sˆ1 ← NTT(s1)
       for (let i = 0; i < K; i++) {
-        NTT.encode(s2[i]); // sˆ2 ← NTT(s2)
-        NTT.encode(t0[i]); // tˆ0 ← NTT(t0)
+        crystals.NTT.encode(s2[i]); // sˆ2 ← NTT(s2)
+        crystals.NTT.encode(t0[i]); // tˆ0 ← NTT(t0)
       }
       // This part is per msg
       const mu = externalMu
@@ -480,13 +495,13 @@ function getDilithium(opts: DilithiumOpts) {
         // y ← ExpandMask(ρ , κ)
         for (let i = 0; i < L; i++, kappa++)
           y.push(ZCoder.decode(x256.get(kappa & 0xff, kappa >> 8)()));
-        const z = y.map((i) => NTT.encode(i.slice()));
+        const z = y.map((i) => crystals.NTT.encode(i.slice()));
         const w = [];
         for (let i = 0; i < K; i++) {
           // w ← NTT−1(A ◦ NTT(y))
           const wi = newPoly(N);
           for (let j = 0; j < L; j++) polyAdd(wi, MultiplyNTTs(A[i][j], z[j]));
-          NTT.decode(wi);
+          crystals.NTT.decode(wi);
           w.push(wi);
         }
         const w1 = w.map((j) => j.map(HighBits)); // w1 ← HighBits(w)
@@ -497,21 +512,21 @@ function getDilithium(opts: DilithiumOpts) {
           .update(W1Vec.encode(w1))
           .digest();
         // Verifer’s challenge
-        const cHat = NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1); cˆ ← NTT(c)
+        const cHat = crystals.NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1); cˆ ← NTT(c)
         // ⟨⟨cs1⟩⟩ ← NTT−1(cˆ◦ sˆ1)
         const cs1 = s1.map((i) => MultiplyNTTs(i, cHat));
         for (let i = 0; i < L; i++) {
-          polyAdd(NTT.decode(cs1[i]), y[i]); // z ← y + ⟨⟨cs1⟩⟩
+          polyAdd(crystals.NTT.decode(cs1[i]), y[i]); // z ← y + ⟨⟨cs1⟩⟩
           if (polyChknorm(cs1[i], GAMMA1 - BETA)) continue main_loop; // ||z||∞ ≥ γ1 − β
         }
         // cs1 is now z (▷ Signer’s response)
         let cnt = 0;
         const h = [];
         for (let i = 0; i < K; i++) {
-          const cs2 = NTT.decode(MultiplyNTTs(s2[i], cHat)); // ⟨⟨cs2⟩⟩ ← NTT−1(cˆ◦ sˆ2)
+          const cs2 = crystals.NTT.decode(MultiplyNTTs(s2[i], cHat)); // ⟨⟨cs2⟩⟩ ← NTT−1(cˆ◦ sˆ2)
           const r0 = polySub(w[i], cs2).map(LowBits); // r0 ← LowBits(w − ⟨⟨cs2⟩⟩)
           if (polyChknorm(r0, GAMMA2 - BETA)) continue main_loop; // ||r0||∞ ≥ γ2 − β
-          const ct0 = NTT.decode(MultiplyNTTs(t0[i], cHat)); // ⟨⟨ct0⟩⟩ ← NTT−1(cˆ◦ tˆ0)
+          const ct0 = crystals.NTT.decode(MultiplyNTTs(t0[i], cHat)); // ⟨⟨ct0⟩⟩ ← NTT−1(cˆ◦ tˆ0)
           if (polyChknorm(ct0, GAMMA2)) continue main_loop;
           polyAdd(r0, ct0);
           // ▷ Signer’s hint
@@ -549,20 +564,20 @@ function getDilithium(opts: DilithiumOpts) {
         ? msg
         : shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 7: µ ← H(tr||M, 512)
       // Compute verifer’s challenge from c˜
-      const c = NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1)
+      const c = crystals.NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1)
       const zNtt = z.map((i) => i.slice()); // zNtt = NTT(z)
-      for (let i = 0; i < L; i++) NTT.encode(zNtt[i]);
+      for (let i = 0; i < L; i++) crystals.NTT.encode(zNtt[i]);
       const wTick1 = [];
       const xof = XOF128(rho);
       for (let i = 0; i < K; i++) {
-        const ct12d = MultiplyNTTs(NTT.encode(polyShiftl(t1[i])), c); //c * t1 * (2**d)
+        const ct12d = MultiplyNTTs(crystals.NTT.encode(polyShiftl(t1[i])), c); //c * t1 * (2**d)
         const Az = newPoly(N); // // A * z
         for (let j = 0; j < L; j++) {
           const aij = RejNTTPoly(xof.get(j, i)); // A[i][j] inplace
           polyAdd(Az, MultiplyNTTs(aij, zNtt[j]));
         }
         // wApprox = A*z - c*t1 * (2**d)
-        const wApprox = NTT.decode(polySub(Az, ct12d));
+        const wApprox = crystals.NTT.decode(polySub(Az, ct12d));
         // Reconstruction of signer’s commitment
         wTick1.push(polyUseHint(wApprox, h[i])); // w ′ ← UseHint(h, w'approx )
       }
@@ -626,34 +641,37 @@ function getDilithium(opts: DilithiumOpts) {
 }
 
 /** ML-DSA-44 for 128-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_dsa44: DSA = /* @__PURE__ */ getDilithium({
-  ...PARAMS[2],
-  CRH_BYTES: 64,
-  TR_BYTES: 64,
-  C_TILDE_BYTES: 32,
-  XOF128,
-  XOF256,
-  securityLevel: 128,
-});
+export const ml_dsa44: DSA = /* @__PURE__ */ (() =>
+  getDilithium({
+    ...PARAMS[2],
+    CRH_BYTES: 64,
+    TR_BYTES: 64,
+    C_TILDE_BYTES: 32,
+    XOF128,
+    XOF256,
+    securityLevel: 128,
+  }))();
 
 /** ML-DSA-65 for 192-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_dsa65: DSA = /* @__PURE__ */ getDilithium({
-  ...PARAMS[3],
-  CRH_BYTES: 64,
-  TR_BYTES: 64,
-  C_TILDE_BYTES: 48,
-  XOF128,
-  XOF256,
-  securityLevel: 192,
-});
+export const ml_dsa65: DSA = /* @__PURE__ */ (() =>
+  getDilithium({
+    ...PARAMS[3],
+    CRH_BYTES: 64,
+    TR_BYTES: 64,
+    C_TILDE_BYTES: 48,
+    XOF128,
+    XOF256,
+    securityLevel: 192,
+  }))();
 
 /** ML-DSA-87 for 256-bit security level. OK after 2030, as per ASD. */
-export const ml_dsa87: DSA = /* @__PURE__ */ getDilithium({
-  ...PARAMS[5],
-  CRH_BYTES: 64,
-  TR_BYTES: 64,
-  C_TILDE_BYTES: 64,
-  XOF128,
-  XOF256,
-  securityLevel: 256,
-});
+export const ml_dsa87: DSA = /* @__PURE__ */ (() =>
+  getDilithium({
+    ...PARAMS[5],
+    CRH_BYTES: 64,
+    TR_BYTES: 64,
+    C_TILDE_BYTES: 64,
+    XOF128,
+    XOF256,
+    securityLevel: 256,
+  }))();

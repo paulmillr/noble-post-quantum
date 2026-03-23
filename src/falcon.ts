@@ -735,12 +735,30 @@ type FalconOpts = {
 };
 
 type FalconSigOpts = SigOpts & { random?: typeof randomBytes };
+/** Falcon attached-signature API. */
 export type FalconAttached = CryptoKeys & {
+  /** Key and randomness lengths for the attached-signature API. */
   lengths: CryptoKeys['lengths'] & { signRand?: number };
+  /**
+   * Signs a message and appends it to the returned attached signature.
+   * @param msg Message bytes to sign.
+   * @param secretKey Falcon secret key bytes.
+   * @param opts Optional Falcon signing options.
+   * @returns Attached signature containing both the message and signature.
+   */
   seal(msg: Uint8Array, secretKey: Uint8Array, opts?: FalconSigOpts): Uint8Array;
+  /**
+   * Verifies an attached signature and returns the embedded message.
+   * @param sig Attached Falcon signature bytes.
+   * @param publicKey Falcon public key bytes.
+   * @param opts Optional verification options.
+   * @returns Embedded message bytes when the signature is valid.
+   */
   open(sig: Uint8Array, publicKey: Uint8Array, opts?: VerOpts): Uint8Array;
 };
+/** Falcon detached-signature API with an attached-signature helper. */
 export type Falcon = Signer & {
+  /** Attached-signature helper for the same Falcon parameter set. */
   attached: FalconAttached;
 };
 
@@ -1819,10 +1837,36 @@ const falcon512opts = {
   paddedLen: 625,
   detachedLen: 690,
 };
-const falcon512gen = genFalcon({ ...falcon512opts, maxS2Len: 709 });
-const falcon512paddedgen = genFalcon({ ...falcon512opts, padded: true, maxS2Len: 625 });
-export const falcon512: Falcon = falcon512gen;
-export const falcon512padded: Falcon = falcon512paddedgen;
+/**
+ * Falcon-512 detached-signature API.
+ * @example
+ * Generate a Falcon-512 keypair and verify one detached signature.
+ * ```ts
+ * const { secretKey, publicKey } = falcon512.keygen();
+ * const msg = new Uint8Array([1, 2, 3]);
+ * const sig = falcon512.sign(msg, secretKey);
+ * falcon512.verify(sig, msg, publicKey);
+ * ```
+ */
+export const falcon512: Falcon = /* @__PURE__ */ (() =>
+  genFalcon({ ...falcon512opts, maxS2Len: 709 }))();
+/**
+ * Falcon-512 padded detached-signature API.
+ * @example
+ * Generate a Falcon-512 padded keypair and verify one detached signature.
+ * ```ts
+ * const { secretKey, publicKey } = falcon512padded.keygen();
+ * const msg = new Uint8Array([1, 2, 3]);
+ * const sig = falcon512padded.sign(msg, secretKey);
+ * falcon512padded.verify(sig, msg, publicKey);
+ * ```
+ */
+export const falcon512padded: Falcon = /* @__PURE__ */ (() =>
+  genFalcon({
+    ...falcon512opts,
+    padded: true,
+    maxS2Len: 625,
+  }))();
 
 const falcon1024opts = {
   N: 1024,
@@ -1832,23 +1876,48 @@ const falcon1024opts = {
   paddedLen: 1239,
   detachedLen: 1280,
 };
-const falcon1024gen = genFalcon({ ...falcon1024opts, maxS2Len: 1419 });
-const falcon1024paddedgen = genFalcon({
-  ...falcon1024opts,
-  padded: true,
-  maxS2Len: 1239,
-});
-export const falcon1024: Falcon = falcon1024gen;
-export const falcon1024padded: Falcon = falcon1024paddedgen;
+/**
+ * Falcon-1024 detached-signature API.
+ * @example
+ * Generate a Falcon-1024 keypair and verify one detached signature.
+ * ```ts
+ * const { secretKey, publicKey } = falcon1024.keygen();
+ * const msg = new Uint8Array([1, 2, 3]);
+ * const sig = falcon1024.sign(msg, secretKey);
+ * falcon1024.verify(sig, msg, publicKey);
+ * ```
+ */
+export const falcon1024: Falcon = /* @__PURE__ */ (() =>
+  genFalcon({
+    ...falcon1024opts,
+    maxS2Len: 1419,
+  }))();
+/**
+ * Falcon-1024 padded detached-signature API.
+ * @example
+ * Generate a Falcon-1024 padded keypair and verify one detached signature.
+ * ```ts
+ * const { secretKey, publicKey } = falcon1024padded.keygen();
+ * const msg = new Uint8Array([1, 2, 3]);
+ * const sig = falcon1024padded.sign(msg, secretKey);
+ * falcon1024padded.verify(sig, msg, publicKey);
+ * ```
+ */
+export const falcon1024padded: Falcon = /* @__PURE__ */ (() =>
+  genFalcon({
+    ...falcon1024opts,
+    padded: true,
+    maxS2Len: 1239,
+  }))();
 
 // NOTE: for tests only, don't use
-export const __tests: any = {
+export const __tests: any = /* @__PURE__ */ (() => ({
   COMPLEX_ROOTS,
   Float,
   getFloatPoly,
   cleanCPoly,
-  falcon512: (falcon512gen as any).__test,
-  falcon512padded: (falcon512paddedgen as any).__test,
-  falcon1024: (falcon1024gen as any).__test,
-  falcon1024padded: (falcon1024paddedgen as any).__test,
-};
+  falcon512: (falcon512 as any).__test,
+  falcon512padded: (falcon512padded as any).__test,
+  falcon1024: (falcon1024 as any).__test,
+  falcon1024padded: (falcon1024padded as any).__test,
+}))();

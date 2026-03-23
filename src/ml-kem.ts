@@ -41,7 +41,8 @@ const N = 256; // Kyber (not FIPS-203) supports different lengths, but all std m
 const Q = 3329; // 13*(2**8)+1, modulo prime
 const F = 3303; // 3303 ≡ 128**(−1) mod q (FIPS-203)
 const ROOT_OF_UNITY = 17; // ζ = 17 ∈ Zq is a primitive 256-th root of unity modulo Q. ζ**128 ≡−1
-const { mod, nttZetas, NTT, bitsCoder } = genCrystals({
+// treeshake: keep genCrystals behind the object so PARAMS-only bundles can drop it entirely.
+const crystals = /* @__PURE__ */ genCrystals({
   N,
   Q,
   F,
@@ -52,23 +53,33 @@ const { mod, nttZetas, NTT, bitsCoder } = genCrystals({
 });
 
 /** FIPS 203: 7. Parameter Sets */
+/** Public ML-KEM parameter-set description. */
 export type KEMParam = {
+  /** Polynomial size. */
   N: number;
+  /** Module rank. */
   K: number;
+  /** Prime modulus. */
   Q: number;
+  /** CBD parameter used for secret-key noise. */
   ETA1: number;
+  /** CBD parameter used for error noise. */
   ETA2: number;
+  /** Compression width for the `u` vector. */
   du: number;
+  /** Compression width for the `v` polynomial. */
   dv: number;
+  /** Required strength of the randomness source in bits. */
   RBGstrength: number;
 };
 /** Internal params of ML-KEM versions */
 // prettier-ignore
-export const PARAMS: Record<string, KEMParam> = {
+/** Built-in ML-KEM parameter presets keyed by security level. */
+export const PARAMS: Record<string, KEMParam> = /* @__PURE__ */ (() => ({
   512: { N, Q, K: 2, ETA1: 3, ETA2: 2, du: 10, dv: 4, RBGstrength: 128 },
   768: { N, Q, K: 3, ETA1: 2, ETA2: 2, du: 10, dv: 4, RBGstrength: 192 },
   1024:{ N, Q, K: 4, ETA1: 2, ETA2: 2, du: 11, dv: 5, RBGstrength: 256 },
-} as const;
+} as const))();
 
 // FIPS-203: compress/decompress
 const compress = (d: number): Coder<number, number> => {
@@ -89,22 +100,22 @@ const compress = (d: number): Coder<number, number> => {
 // NOTE: we merge encoding and compress because it is faster, also both require same d param
 // Converts between bytes and d-bits compressed representation. Kinda like convertRadix2 from @scure/base
 // decode(encode(t)) == t, but there is loss of information on encode(decode(t))
-const polyCoder = (d: number) => bitsCoder(d, compress(d));
+const polyCoder = (d: number) => crystals.bitsCoder(d, compress(d));
 
 // Poly is mod Q, so 12 bits
 type Poly = Uint16Array<any>;
 
 function polyAdd(a: Poly, b: Poly) {
-  for (let i = 0; i < N; i++) a[i] = mod(a[i] + b[i]); // a += b
+  for (let i = 0; i < N; i++) a[i] = crystals.mod(a[i] + b[i]); // a += b
 }
 function polySub(a: Poly, b: Poly) {
-  for (let i = 0; i < N; i++) a[i] = mod(a[i] - b[i]); // a -= b
+  for (let i = 0; i < N; i++) a[i] = crystals.mod(a[i] - b[i]); // a -= b
 }
 
 // FIPS-203: Computes the product of two degree-one polynomials with respect to a quadratic modulus
 function BaseCaseMultiply(a0: number, a1: number, b0: number, b1: number, zeta: number) {
-  const c0 = mod(a1 * b1 * zeta + a0 * b0);
-  const c1 = mod(a0 * b1 + a1 * b0);
+  const c0 = crystals.mod(a1 * b1 * zeta + a0 * b0);
+  const c1 = crystals.mod(a0 * b1 + a1 * b0);
   return { c0, c1 };
 }
 
@@ -112,7 +123,7 @@ function BaseCaseMultiply(a0: number, a1: number, b0: number, b1: number, zeta: 
 // NOTE: since multiply defined only for NTT representation, we need to convert to NTT, multiply and convert back
 function MultiplyNTTs(f: Poly, g: Poly): Poly {
   for (let i = 0; i < N / 2; i++) {
-    let z = nttZetas[64 + (i >> 1)];
+    let z = crystals.nttZetas[64 + (i >> 1)];
     if (i & 1) z = -z;
     const { c0, c1 } = BaseCaseMultiply(f[2 * i + 0], f[2 * i + 1], g[2 * i + 0], g[2 * i + 1], z);
     f[2 * i + 0] = c0;
@@ -167,7 +178,7 @@ function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly
         t0 = bb;
         bb = 0;
       } else if (len === 2 * eta) {
-        r[p++] = mod(t0 - bb);
+        r[p++] = crystals.mod(t0 - bb);
         bb = 0;
         len = 0;
       }
@@ -205,10 +216,10 @@ const genKPKE = (opts: KyberOpts) => {
       const [rho, sigma] = seedCoder.decode(seedHash);
       const sHat: Poly[] = [];
       const tHat: Poly[] = [];
-      for (let i = 0; i < K; i++) sHat.push(NTT.encode(sampleCBD(PRF, sigma, i, ETA1)));
+      for (let i = 0; i < K; i++) sHat.push(crystals.NTT.encode(sampleCBD(PRF, sigma, i, ETA1)));
       const x = XOF(rho);
       for (let i = 0; i < K; i++) {
-        const e = NTT.encode(sampleCBD(PRF, sigma, K + i, ETA1));
+        const e = crystals.NTT.encode(sampleCBD(PRF, sigma, K + i, ETA1));
         for (let j = 0; j < K; j++) {
           const aji = SampleNTT(x.get(j, i)); // A[j][i], inplace
           polyAdd(e, MultiplyNTTs(aji, sHat[j]));
@@ -226,7 +237,7 @@ const genKPKE = (opts: KyberOpts) => {
     encrypt: (publicKey: Uint8Array, msg: Uint8Array, seed: Uint8Array) => {
       const [tHat, rho] = publicCoder.decode(publicKey);
       const rHat = [];
-      for (let i = 0; i < K; i++) rHat.push(NTT.encode(sampleCBD(PRF, seed, i, ETA1)));
+      for (let i = 0; i < K; i++) rHat.push(crystals.NTT.encode(sampleCBD(PRF, seed, i, ETA1)));
       const x = XOF(rho);
       const tmp2 = new Uint16Array(N);
       const u = [];
@@ -237,14 +248,14 @@ const genKPKE = (opts: KyberOpts) => {
           const aij = SampleNTT(x.get(i, j)); // A[i][j], inplace
           polyAdd(tmp, MultiplyNTTs(aij, rHat[j])); // t += aij * rHat[j]
         }
-        polyAdd(e1, NTT.decode(tmp)); // e1 += tmp
+        polyAdd(e1, crystals.NTT.decode(tmp)); // e1 += tmp
         u.push(e1);
         polyAdd(tmp2, MultiplyNTTs(tHat[i], rHat[i])); // t2 += tHat[i] * rHat[i]
         cleanBytes(tmp);
       }
       x.clean();
       const e2 = sampleCBD(PRF, seed, 2 * K, ETA2);
-      polyAdd(e2, NTT.decode(tmp2)); // e2 += tmp2
+      polyAdd(e2, crystals.NTT.decode(tmp2)); // e2 += tmp2
       const v = poly1.decode(msg); // encode plaintext m into polynomial v
       polyAdd(v, e2); // v += e2
       cleanBytes(tHat, rHat, tmp2, e2);
@@ -254,8 +265,8 @@ const genKPKE = (opts: KyberOpts) => {
       const [u, v] = cipherCoder.decode(cipherText);
       const sk = secretCoder.decode(privateKey); // s  ← ByteDecode_12(dkPKE)
       const tmp = new Uint16Array(N);
-      for (let i = 0; i < K; i++) polyAdd(tmp, MultiplyNTTs(sk[i], NTT.encode(u[i]))); // tmp += sk[i] * u[i]
-      polySub(v, NTT.decode(tmp)); // v += tmp
+      for (let i = 0; i < K; i++) polyAdd(tmp, MultiplyNTTs(sk[i], crystals.NTT.encode(u[i]))); // tmp += sk[i] * u[i]
+      polySub(v, crystals.NTT.decode(tmp)); // v += tmp
       cleanBytes(tmp, sk, u);
       return poly1.encode(v);
     },
@@ -341,28 +352,22 @@ function shakePRF(dkLen: number, key: Uint8Array, nonce: number) {
     .digest();
 }
 
-const opts = {
+const opts = /* @__PURE__ */ (() => ({
   HASH256: sha3_256,
   HASH512: sha3_512,
   KDF: shake256,
   XOF: XOF128,
   PRF: shakePRF,
-};
+}))();
+const mk = (params: KEMParam) =>
+  createKyber({
+    ...opts,
+    ...params,
+  });
 
 /** ML-KEM-512 for 128-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_kem512: KEM = /* @__PURE__ */ createKyber({
-  ...opts,
-  ...PARAMS[512],
-});
-
+export const ml_kem512: KEM = /* @__PURE__ */ (() => mk(PARAMS[512]))();
 /** ML-KEM-768, for 192-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_kem768: KEM = /* @__PURE__ */ createKyber({
-  ...opts,
-  ...PARAMS[768],
-});
-
+export const ml_kem768: KEM = /* @__PURE__ */ (() => mk(PARAMS[768]))();
 /** ML-KEM-1024 for 256-bit security level. OK after 2030, as per ASD. */
-export const ml_kem1024: KEM = /* @__PURE__ */ createKyber({
-  ...opts,
-  ...PARAMS[1024],
-});
+export const ml_kem1024: KEM = /* @__PURE__ */ (() => mk(PARAMS[1024]))();

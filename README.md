@@ -93,6 +93,7 @@ import {
 ```ts
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem.js';
 import { randomBytes } from '@noble/post-quantum/utils.js';
+import { notDeepStrictEqual } from 'node:assert';
 const seed = randomBytes(64); // seed is optional
 const aliceKeys = ml_kem768.keygen(seed);
 const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(aliceKeys.publicKey);

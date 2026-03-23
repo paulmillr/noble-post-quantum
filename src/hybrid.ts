@@ -126,6 +126,21 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
   };
 }
 
+/**
+ * Wraps an ECDH-capable curve as a KEM.
+ * @param curve - Curve with `getSharedSecret`.
+ * @param allowZeroKey - Whether zero-valued secret scalars are allowed during keygen.
+ * @returns KEM wrapper over the curve.
+ * @throws If the curve does not expose `getSharedSecret`. {@link Error}
+ * @example
+ * Wrap an ECDH-capable curve as a generic KEM.
+ * ```ts
+ * import { x25519 } from '@noble/curves/ed25519.js';
+ * import { ecdhKem } from '@noble/post-quantum/hybrid.js';
+ * const kem = ecdhKem(x25519);
+ * const publicKeyLen = kem.lengths.publicKey;
+ * ```
+ */
 export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
@@ -147,6 +162,21 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
   };
 }
 
+/**
+ * Wraps a curve signer as a generic `Signer`.
+ * @param curve - Curve with `sign` and `verify`.
+ * @param allowZeroKey - Whether zero-valued secret scalars are allowed during keygen.
+ * @returns Signer wrapper over the curve.
+ * @throws If the curve does not expose `sign` and `verify`. {@link Error}
+ * @example
+ * Wrap a curve signer as a generic signer.
+ * ```ts
+ * import { ed25519 } from '@noble/curves/ed25519.js';
+ * import { ecSigner } from '@noble/post-quantum/hybrid.js';
+ * const signer = ecSigner(ed25519);
+ * const sigLen = signer.lengths.signature;
+ * ```
+ */
 export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): Signer {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.sign || !curve.verify) throw new Error('wrong curve'); // ed25519 doesn't have one!
@@ -172,14 +202,29 @@ function splitLengths<K extends string, T extends { lengths: Partial<Record<K, n
   );
 }
 
+/** Seed-expansion callback used by the hybrid combiners. */
 export type ExpandSeed = (seed: Uint8Array, len: number) => Uint8Array;
 type XOF = CHashXOF<any, { dkLen: number }>;
 
 // It is XOF for most cases, but can be more complex!
+/**
+ * Adapts an XOF into an `ExpandSeed` callback.
+ * @param xof - Extendable-output hash function.
+ * @returns Seed expander using `dkLen`.
+ * @example
+ * Adapt an XOF into a seed expander.
+ * ```ts
+ * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { expandSeedXof } from '@noble/post-quantum/hybrid.js';
+ * const expandSeed = expandSeedXof(shake256);
+ * const seed = expandSeed(new Uint8Array([1]), 4);
+ * ```
+ */
 export function expandSeedXof(xof: XOF): ExpandSeed {
   return (seed: Uint8Array, seedLen: number) => xof(seed, { dkLen: seedLen });
 }
 
+/** Combines public keys, ciphertexts, and shared secrets into one shared secret. */
 export type Combiner = (
   publicKeys: Uint8Array[],
   cipherTexts: Uint8Array[],
@@ -222,6 +267,31 @@ function combineKeys(
 }
 
 // This generic function that combines multiple KEMs into single one
+/**
+ * Combines multiple KEMs into one composite KEM.
+ * @param realSeedLen - Input seed length expected by `expandSeed`.
+ * @param realMsgLen - Shared-secret length returned by `combiner`.
+ * @param expandSeed - Seed expander used to derive per-KEM seeds.
+ * @param combiner - Combines the per-KEM outputs into one shared secret.
+ * @param kems - KEM implementations to combine.
+ * @returns Composite KEM.
+ * @example
+ * Combine multiple KEMs into one composite KEM.
+ * ```ts
+ * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { combineKEMS, expandSeedXof } from '@noble/post-quantum/hybrid.js';
+ * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
+ * const hybrid = combineKEMS(
+ *   32,
+ *   32,
+ *   expandSeedXof(shake256),
+ *   (_pk, _ct, sharedSecrets) => sharedSecrets[0],
+ *   ml_kem768,
+ *   ml_kem768
+ * );
+ * const { publicKey } = hybrid.keygen();
+ * ```
+ */
 export function combineKEMS(
   realSeedLen: number | undefined, // how much bytes expandSeed expects
   realMsgLen: number | undefined, // how much bytes combiner returns
@@ -267,6 +337,22 @@ export function combineKEMS(
 }
 // There is no specs for this, but can be useful
 // realSeedLen: how much bytes expandSeed expects.
+/**
+ * Combines multiple signers into one composite signer.
+ * @param realSeedLen - Input seed length expected by `expandSeed`.
+ * @param expandSeed - Seed expander used to derive per-signer seeds.
+ * @param signers - Signers to combine.
+ * @returns Composite signer.
+ * @example
+ * Combine multiple signers into one composite signer.
+ * ```ts
+ * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { combineSigners, expandSeedXof } from '@noble/post-quantum/hybrid.js';
+ * import { ml_dsa44 } from '@noble/post-quantum/ml-dsa.js';
+ * const hybrid = combineSigners(32, expandSeedXof(shake256), ml_dsa44, ml_dsa44);
+ * const { publicKey } = hybrid.keygen();
+ * ```
+ */
 export function combineSigners(
   realSeedLen: number | undefined,
   expandSeed: ExpandSeed,
@@ -297,6 +383,25 @@ export function combineSigners(
   };
 }
 
+/**
+ * Builds a QSF hybrid KEM preset from a PQ KEM and an elliptic-curve KEM.
+ * @param label - Domain-separation label.
+ * @param pqc - Post-quantum KEM.
+ * @param curveKEM - Classical curve KEM.
+ * @param xof - XOF used for seed expansion.
+ * @param kdf - Hash used for the final combiner.
+ * @returns Hybrid KEM.
+ * @example
+ * Build a QSF hybrid KEM preset from a PQ KEM and an elliptic-curve KEM.
+ * ```ts
+ * import { p256 } from '@noble/curves/nist.js';
+ * import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
+ * import { QSF, ecdhKem } from '@noble/post-quantum/hybrid.js';
+ * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
+ * const kem = QSF('example', ml_kem768, ecdhKem(p256, true), shake256, sha3_256);
+ * const publicKeyLen = kem.lengths.publicKey;
+ * ```
+ */
 export function QSF(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, kdf: CHash): KEM {
   ahash(xof);
   ahash(kdf);
@@ -310,21 +415,45 @@ export function QSF(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, kdf: CHash
   );
 }
 
-export const QSF_ml_kem768_p256: KEM = QSF(
-  'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)',
-  ml_kem768,
-  ecdhKem(p256, true),
-  shake256,
-  sha3_256
-);
-export const QSF_ml_kem1024_p384: KEM = QSF(
-  'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)',
-  ml_kem1024,
-  ecdhKem(p384, true),
-  shake256,
-  sha3_256
-);
+/** QSF preset combining ML-KEM-768 with P-256. */
+export const QSF_ml_kem768_p256: KEM = /* @__PURE__ */ (() =>
+  QSF(
+    'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)',
+    ml_kem768,
+    ecdhKem(p256, true),
+    shake256,
+    sha3_256
+  ))();
+/** QSF preset combining ML-KEM-1024 with P-384. */
+export const QSF_ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
+  QSF(
+    'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)',
+    ml_kem1024,
+    ecdhKem(p384, true),
+    shake256,
+    sha3_256
+  ))();
 
+/**
+ * Builds the "KitchenSink" hybrid KEM combiner.
+ * @param label - Domain-separation label.
+ * @param pqc - Post-quantum KEM.
+ * @param curveKEM - Classical curve KEM.
+ * @param xof - XOF used for seed expansion.
+ * @param hash - Hash used for HKDF extraction and expansion.
+ * @returns Hybrid KEM.
+ * @example
+ * Build the "KitchenSink" hybrid KEM combiner.
+ * ```ts
+ * import { sha256 } from '@noble/hashes/sha2.js';
+ * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { createKitchenSink, ecdhKem } from '@noble/post-quantum/hybrid.js';
+ * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
+ * import { x25519 } from '@noble/curves/ed25519.js';
+ * const kem = createKitchenSink('example', ml_kem768, ecdhKem(x25519), shake256, sha256);
+ * const publicKeyLen = kem.lengths.publicKey;
+ * ```
+ */
 export function createKitchenSink(
   label: string,
   pqc: KEM,
@@ -357,16 +486,19 @@ export function createKitchenSink(
   );
 }
 
-const x25519kem = ecdhKem(x25519);
-export const KitchenSink_ml_kem768_x25519: KEM = createKitchenSink(
-  'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)',
-  ml_kem768,
-  x25519kem,
-  shake256,
-  sha256
-);
+const x25519kem = /* @__PURE__ */ ecdhKem(x25519);
+/** KitchenSink preset combining ML-KEM-768 with X25519. */
+export const KitchenSink_ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
+  createKitchenSink(
+    'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)',
+    ml_kem768,
+    x25519kem,
+    shake256,
+    sha256
+  ))();
 
 // Always X25519 and ML-KEM - 768, no point to export
+/** X25519 + ML-KEM-768 hybrid preset. */
 export const ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
   combineKEMS(
     32,
@@ -446,17 +578,27 @@ function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: numbe
   );
 }
 
+/** P-256 + ML-KEM-768 hybrid preset. */
 export const ml_kem768_p256: KEM = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM768-P256', ml_kem768, p256, 128))();
 
+/** P-384 + ML-KEM-1024 hybrid preset. */
 export const ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48))();
 
 // Legacy aliases
-export const XWing: KEM = ml_kem768_x25519;
-export const MLKEM768X25519: KEM = ml_kem768_x25519;
-export const MLKEM768P256: KEM = ml_kem768_p256;
-export const MLKEM1024P384: KEM = ml_kem1024_p384;
-export const QSFMLKEM768P256: KEM = QSF_ml_kem768_p256;
-export const QSFMLKEM1024P384: KEM = QSF_ml_kem1024_p384;
-export const KitchenSinkMLKEM768X25519: KEM = KitchenSink_ml_kem768_x25519;
+/** Legacy alias for `ml_kem768_x25519`. */
+export const XWing: KEM = /* @__PURE__ */ (() => ml_kem768_x25519)();
+/** Legacy alias for `ml_kem768_x25519`. */
+export const MLKEM768X25519: KEM = /* @__PURE__ */ (() => ml_kem768_x25519)();
+/** Legacy alias for `ml_kem768_p256`. */
+export const MLKEM768P256: KEM = /* @__PURE__ */ (() => ml_kem768_p256)();
+/** Legacy alias for `ml_kem1024_p384`. */
+export const MLKEM1024P384: KEM = /* @__PURE__ */ (() => ml_kem1024_p384)();
+/** Legacy alias for `QSF_ml_kem768_p256`. */
+export const QSFMLKEM768P256: KEM = /* @__PURE__ */ (() => QSF_ml_kem768_p256)();
+/** Legacy alias for `QSF_ml_kem1024_p384`. */
+export const QSFMLKEM1024P384: KEM = /* @__PURE__ */ (() => QSF_ml_kem1024_p384)();
+/** Legacy alias for `KitchenSink_ml_kem768_x25519`. */
+export const KitchenSinkMLKEM768X25519: KEM = /* @__PURE__ */ (() =>
+  KitchenSink_ml_kem768_x25519)();

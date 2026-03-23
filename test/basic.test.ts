@@ -12,9 +12,33 @@ import { deepStrictEqual as eql, throws } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem512 } from '../src/ml-kem.ts';
 import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
-import { randomBytes } from '../src/utils.ts';
+import {
+  getMessage,
+  getMessagePrehash,
+  randomBytes,
+  validateOpts,
+  validateSigOpts,
+  validateVerOpts,
+  vecCoder,
+} from '../src/utils.ts';
 
 describe('Basic', () => {
+  should('utils validator constructors', () => {
+    throws(() => validateOpts(new Uint8Array([1]) as any), TypeError);
+    throws(() => validateVerOpts(new Uint8Array([1]) as any), TypeError);
+    throws(() => validateSigOpts(new Uint8Array([1]) as any), TypeError);
+    const c = vecCoder(
+      {
+        bytesLen: 1,
+        encode: (n: number) => Uint8Array.of(n),
+        decode: (b: Uint8Array) => b[0] || 0,
+      },
+      2
+    );
+    throws(() => c.encode([1]), RangeError);
+    throws(() => getMessage(new Uint8Array([1]), new Uint8Array(256)), RangeError);
+    throws(() => getMessagePrehash(sha3_256, new Uint8Array([1]), new Uint8Array(256)), RangeError);
+  });
   describe('Immutability', () => {
     should('ML-KEM', () => {
       // keygen
