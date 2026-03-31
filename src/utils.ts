@@ -9,11 +9,15 @@ import {
   abytes,
   abytes as abytes_,
   concatBytes,
-  isBytes,
+  isLE,
   randomBytes as randb,
 } from '@noble/hashes/utils.js';
 /**
  * Asserts that a value is a byte array and optionally checks its length.
+ * Returns the original reference unchanged on success, and currently also accepts Node `Buffer`
+ * values through the upstream validator.
+ * This helper throws on malformed input, so APIs that must return `false` need to guard lengths
+ * before decoding or before calling it.
  * @example
  * Validate that a value is a byte array with the expected length.
  * ```ts
@@ -24,6 +28,8 @@ const abytesDoc: typeof abytes = abytes;
 export { abytesDoc as abytes };
 /**
  * Concatenates byte arrays into a new `Uint8Array`.
+ * Zero arguments return an empty `Uint8Array`.
+ * Invalid segments throw before allocation because each argument is validated first.
  * @example
  * Concatenate two byte arrays into one result.
  * ```ts
@@ -34,6 +40,9 @@ const concatBytesDoc: typeof concatBytes = concatBytes;
 export { concatBytesDoc as concatBytes };
 /**
  * Returns cryptographically secure random bytes.
+ * Requires `globalThis.crypto.getRandomValues` and throws if that API is unavailable.
+ * `bytesLength` is validated by the upstream helper as a non-negative integer before allocation,
+ * so negative and fractional values both throw instead of truncating through JS `ToIndex`.
  * @example
  * Generate a fresh random seed.
  * ```ts
@@ -42,9 +51,9 @@ export { concatBytesDoc as concatBytes };
  */
 export const randomBytes: typeof randb = randb;
 
-// Compares 2 u8a-s in kinda constant time
 /**
  * Compares two byte arrays in a length-constant way for equal lengths.
+ * Unequal lengths return `false` immediately, and there is no runtime type validation.
  * @param a - First byte array.
  * @param b - Second byte array.
  * @returns Whether both arrays contain the same bytes.
@@ -61,9 +70,10 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-// copy bytes to new u8a (aligned). Because Buffer.slice is broken.
 /**
  * Copies bytes into a fresh `Uint8Array`.
+ * Returns a detached plain `Uint8Array`, and currently accepts broader array-like / iterable
+ * inputs because it delegates directly to `Uint8Array.from(...)`.
  * @param bytes - Source bytes.
  * @returns Copy of the input bytes.
  * @example
@@ -75,6 +85,35 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
 export function copyBytes(bytes: Uint8Array): Uint8Array {
   return Uint8Array.from(bytes);
 }
+
+/**
+ * Byte-swaps each 64-bit lane in place.
+ * Falcon's exact binary64 tables are stored as little-endian byte payloads, so BE runtimes need
+ * this boundary helper before aliasing them as host `Float64Array` lanes.
+ * @param arr - Byte buffer whose length is a multiple of 8.
+ * @returns The same buffer after in-place 64-bit lane byte swaps.
+ */
+export function byteSwap64<T extends ArrayBufferView>(arr: T): T {
+  const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+  for (let i = 0; i < bytes.length; i += 8) {
+    const a0 = bytes[i + 0];
+    const a1 = bytes[i + 1];
+    const a2 = bytes[i + 2];
+    const a3 = bytes[i + 3];
+    bytes[i + 0] = bytes[i + 7];
+    bytes[i + 1] = bytes[i + 6];
+    bytes[i + 2] = bytes[i + 5];
+    bytes[i + 3] = bytes[i + 4];
+    bytes[i + 4] = a3;
+    bytes[i + 5] = a2;
+    bytes[i + 6] = a1;
+    bytes[i + 7] = a0;
+  }
+  return arr;
+}
+export const baswap64If: <T extends ArrayBufferView>(arr: T) => T = isLE
+  ? (arr) => arr
+  : byteSwap64;
 
 /** Shared key-generation surface for signers and KEMs. */
 export type CryptoKeys = {
@@ -109,7 +148,7 @@ export type SigOpts = VerOpts & {
 };
 
 /**
- * Validates that an options bag is an object and not a byte array.
+ * Validates that an options bag is a plain object.
  * @param opts - Options object to validate.
  * @throws On wrong argument types. {@link TypeError}
  * @example
@@ -119,13 +158,15 @@ export type SigOpts = VerOpts & {
  * ```
  */
 export function validateOpts(opts: object): void {
-  // We try to catch u8a, since it was previously valid argument at this position
-  if (typeof opts !== 'object' || opts === null || isBytes(opts))
-    throw new TypeError('expected opts to be an object');
+  // Arrays silently passed here before, but these call sites expect named option-bag fields.
+  if (Object.prototype.toString.call(opts) !== '[object Object]')
+    throw new TypeError('expected valid options object');
 }
 
 /**
  * Validates common verification options.
+ * `context` itself is validated with `abytes(...)`, and individual algorithms may narrow support
+ * further after this shared plain-object gate.
  * @param opts - Verification options. See {@link VerOpts}.
  * @throws On wrong argument types. {@link TypeError}
  * @example
@@ -141,6 +182,8 @@ export function validateVerOpts(opts: VerOpts): void {
 
 /**
  * Validates common signing options.
+ * `extraEntropy` is validated with `abytes(...)`; exact lengths and extra algorithm-specific
+ * restrictions are enforced later by callers.
  * @param opts - Signing options. See {@link SigOpts}.
  * @throws On wrong argument types. {@link TypeError}
  * @example
@@ -173,7 +216,10 @@ export type Signer = CryptoKeys & {
    * @param msg - Signed message bytes.
    * @param publicKey - Public key bytes.
    * @param opts - Optional verification options.
-   * @returns `true` when the signature is valid.
+   * @returns `true` when the signature is valid, `false` when all inputs are well-formed but the
+   * signature check does not pass. Some implementations also treat malformed signature encodings as
+   * a verification failure and return `false`.
+   * @throws On malformed API arguments or unsupported verification options.
    */
   verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts?: VerOpts) => boolean;
 };
@@ -246,6 +292,10 @@ type SplitOut<T extends (number | BytesCoderLen<any>)[]> = {
 };
 /**
  * Builds a fixed-layout coder from byte lengths and nested coders.
+ * Raw-length fields decode as zero-copy `subarray(...)` views, and nested coders may preserve that
+ * aliasing too. Nested coder `encode(...)` results are treated as owned scratch: `splitCoder`
+ * copies them into the output and then zeroizes them with `fill(0)`. If a nested encoder forwards
+ * caller-owned bytes, it must do so only after detaching them into a disposable copy.
  * @param label - Label used in validation errors.
  * @param lengths - Field lengths or nested coders.
  * @returns Composite fixed-length coder.
@@ -292,6 +342,11 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
 // nano-packed.array (fixed size)
 /**
  * Builds a fixed-length vector coder from another fixed-length coder.
+ * Element decoding receives `subarray(...)` views, so aliasing depends on the element coder.
+ * Element coder `encode(...)` results are treated as owned scratch: `vecCoder` copies them into
+ * the output and then zeroizes them with `fill(0)`. If an element encoder forwards caller-owned
+ * bytes, it must do so only after detaching them into a disposable copy. `vecCoder` also trusts
+ * the `BytesCoderLen` contract: each encoded element must already be exactly `c.bytesLen` bytes.
  * @param c - Element coder.
  * @param vecLen - Number of elements in the vector.
  * @returns Fixed-length vector coder.
@@ -330,10 +385,10 @@ export function vecCoder<T>(c: BytesCoderLen<T>, vecLen: number): BytesCoderLen<
   };
 }
 
-// cleanBytes(Uint8Array.of(), [Uint16Array.of(), Uint32Array.of()])
 /**
- * Overwrites typed arrays with zeroes.
- * @param list - Typed arrays or lists of typed arrays to clear.
+ * Overwrites supported typed-array inputs with zeroes in place.
+ * Accepts direct typed arrays and one-level arrays of them.
+ * @param list - Typed arrays or one-level lists of typed arrays to clear.
  * @example
  * Overwrite typed arrays with zeroes.
  * ```ts
@@ -349,7 +404,7 @@ export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
 }
 
 /**
- * Creates a mask with the lowest `bits` bits set.
+ * Creates a 32-bit mask with the lowest `bits` bits set.
  * @param bits - Number of low bits to keep.
  * @returns Bit mask with `bits` ones.
  * @example
@@ -359,14 +414,18 @@ export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
  * ```
  */
 export function getMask(bits: number): number {
-  return (1 << bits) - 1; // 4 -> 0b1111
+  if (!Number.isSafeInteger(bits) || bits < 0 || bits > 32)
+    throw new RangeError(`expected bits in [0..32], got ${bits}`);
+  // JS shifts are modulo 32, so bit 32 needs an explicit full-width mask.
+  return bits === 32 ? 0xffffffff : ~(-1 << bits) >>> 0;
 }
 
 /** Shared empty byte array used as the default context. */
 export const EMPTY: Uint8Array = /* @__PURE__ */ Uint8Array.of();
 
 /**
- * Builds the domain-separated message prefix for direct signing.
+ * Builds the domain-separated message payload for the pure sign/verify paths.
+ * Context length `255` is valid; only `ctx.length > 255` is rejected.
  * @param msg - Message bytes.
  * @param ctx - Optional context bytes.
  * @returns Domain-separated message payload.
@@ -380,15 +439,22 @@ export const EMPTY: Uint8Array = /* @__PURE__ */ Uint8Array.of();
 export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array {
   abytes_(msg);
   abytes_(ctx);
-  if (ctx.length > 255) throw new RangeError('context should be less than 255 bytes');
+  if (ctx.length > 255) throw new RangeError('context should be 255 bytes or less');
   return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
 }
 
+// DER tag+length plus the shared NIST hash OID arc 2.16.840.1.101.3.4.2.* used by the
+// FIPS 204 / FIPS 205 pre-hash wrappers; the final byte selects SHA-256, SHA-512, SHAKE128,
+// SHAKE256, or another approved hash/XOF under that subtree.
 // 06 09 60 86 48 01 65 03 04 02
 const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x65, 3, 4, 2]);
 
 /**
  * Validates that a hash exposes a NIST hash OID and enough collision resistance.
+ * Current accepted surface is broader than the FIPS algorithm tables: any hash/XOF under the NIST
+ * `2.16.840.1.101.3.4.2.*` subtree is accepted if its effective `outputLen` is strong enough.
+ * XOF callers must pass a callable whose `outputLen` matches the digest length they actually intend
+ * to sign; bare `shake128` / `shake256` defaults are too short for the stronger prehash modes.
  * @param hash - Hash function to validate.
  * @param requiredStrength - Minimum required collision-resistance strength in bits.
  * @throws If the hash metadata or collision resistance is insufficient. {@link Error}
@@ -403,6 +469,9 @@ const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x6
 export function checkHash(hash: CHash, requiredStrength: number = 0): void {
   if (!hash.oid || !equalBytes(hash.oid.subarray(0, 10), oidNistP))
     throw new Error('hash.oid is invalid: expected NIST hash');
+  // FIPS 204 / FIPS 205 require both collision and second-preimage strength; for approved NIST
+  // hashes/XOFs under this OID subtree, the collision bound from the configured digest length is
+  // the tighter runtime check, so enforce that lower bound here.
   const collisionResistance = (hash.outputLen * 8) / 2;
   if (requiredStrength > collisionResistance) {
     throw new Error(
@@ -415,7 +484,10 @@ export function checkHash(hash: CHash, requiredStrength: number = 0): void {
 }
 
 /**
- * Builds the domain-separated prehash message payload for signature schemes with external hashing.
+ * Builds the domain-separated prehash payload for the prehash sign/verify paths.
+ * Callers are expected to vet `hash.oid` first, e.g. via `checkHash(...)`; calling this helper
+ * directly with a hash object that lacks `oid` currently throws later inside `concatBytes(...)`.
+ * Context length `255` is valid; only `ctx.length > 255` is rejected.
  * @param hash - Prehash function.
  * @param msg - Message bytes.
  * @param ctx - Optional context bytes.
@@ -436,7 +508,7 @@ export function getMessagePrehash(
 ): Uint8Array {
   abytes_(msg);
   abytes_(ctx);
-  if (ctx.length > 255) throw new RangeError('context should be less than 255 bytes');
+  if (ctx.length > 255) throw new RangeError('context should be 255 bytes or less');
   const hashed = hash(msg);
   return concatBytes(new Uint8Array([1, ctx.length]), ctx, hash.oid!, hashed);
 }

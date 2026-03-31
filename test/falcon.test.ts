@@ -7,10 +7,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as falcon from '../src/falcon.ts';
-import { falconExactRootsRound3 } from './vectors/falcon/round3/exact-roots.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const falconRound3FprH = readFileSync(join(__dirname, 'vectors/falcon/round3/fpr.h'), 'utf8');
+const falconRound3FprC = readFileSync(join(__dirname, 'vectors/falcon/round3/fpr.c'), 'utf8');
 const { Float } = falcon.__tests;
 const falconTest = new Map([
   [falcon.falcon512, falcon.__tests.falcon512],
@@ -55,10 +56,34 @@ function parseKAT(path) {
   return res;
 }
 
-function floatToOrderedInt(x) {
+const match = (src, re) => {
+  const m = src.match(re);
+  if (!m) throw new Error(`missing pattern: ${re}`);
+  return m[1];
+};
+const round3Fpr = {
+  one(name) {
+    return BigInt(
+      match(falconRound3FprH, new RegExp(`(?:static\\s+)?const fpr ${name} = (\\d+)(?:U)?;`))
+    );
+  },
+  list(name, src = falconRound3FprH) {
+    return [
+      ...match(
+        src,
+        new RegExp(`(?:static\\s+)?const fpr ${name}\\[] = \\{(.*?)\\};`, 's')
+      ).matchAll(/(\d+)(?:U)?/g),
+    ].map((m) => BigInt(m[1]));
+  },
+};
+
+function floatBits(x) {
   const view = new DataView(new ArrayBuffer(8));
   view.setFloat64(0, x, false);
-  const bits = view.getBigUint64(0, false);
+  return view.getBigUint64(0, false);
+}
+function floatToOrderedInt(x) {
+  const bits = floatBits(x);
   return bits >> 63n === 0n ? bits : ~bits + 1n; // signed ordering
 }
 const absBigInt = (x) => (x < 0n ? -x : x);
@@ -108,11 +133,10 @@ const floatPatch = {
 describe('Falcon', () => {
   describe('Roots', () => {
     should('Exact', () => {
-      // Exact roots in u64 representation from Falcon round 3 code
-      const gmFloats = falconExactRootsRound3.map((i) =>
-        Float.decode(i.toString(16).padStart(16, '0'))
+      deepStrictEqual(
+        Array.from(falcon.__tests.COMPLEX_ROOTS, floatBits),
+        round3Fpr.list('fpr_gm_tab', falconRound3FprC)
       );
-      deepStrictEqual(falcon.__tests.COMPLEX_ROOTS, new Float64Array(gmFloats));
     });
     should('Generated', () => {
       // COMPLEX ROOT GENERATION FOR FALCON
@@ -154,6 +178,11 @@ describe('Falcon', () => {
       deepStrictEqual(floatPatch.apply(GM, patch, patchBytes), falcon.__tests.COMPLEX_ROOTS);
       // console.log('Patch hex length', patch.length * 2);
     });
+  });
+  should('Exact constants', () => {
+    deepStrictEqual(falcon.__tests.INV_SIGMA.map(floatBits), round3Fpr.list('fpr_inv_sigma'));
+    deepStrictEqual(falcon.__tests.SIGMA_MIN.map(floatBits), round3Fpr.list('fpr_sigma_min'));
+    deepStrictEqual(floatBits(falcon.__tests.BNORM_MAX), round3Fpr.one('fpr_bnorm_max'));
   });
   should('FFT', () => {
     // Strict equality check for fft
@@ -276,6 +305,72 @@ describe('Falcon', () => {
         false
       );
     }
+  });
+  should('attached/validation', () => {
+    const msg = hexToBytes('68656c6c6f00');
+    const rnd = (len) => new Uint8Array(len).fill(7);
+    // Unpadded attached signatures reject appended bytes even if the outer length prefix is
+    // adjusted, and padded attached signatures accept only all-zero compressed-signature padding.
+    const cases = [
+      [falcon.falcon512, falcon.falcon512padded, new Uint8Array(48).fill(1)],
+      [falcon.falcon1024, falcon.falcon1024padded, new Uint8Array(48).fill(2)],
+    ];
+    for (const [detached, padded, seed] of cases) {
+      const { publicKey, secretKey } = detached.keygen(seed);
+      const seal = detached.attached.seal(msg, secretKey, { random: rnd });
+      deepStrictEqual(detached.attached.open(seal, publicKey), msg);
+      for (const extra of [0x00, 0x01]) {
+        const len = (seal[0] << 8) | seal[1];
+        const bad = new Uint8Array(seal.length + 1);
+        bad.set(seal);
+        bad[seal.length] = extra;
+        bad[0] = ((len + 1) >> 8) & 0xff;
+        bad[1] = (len + 1) & 0xff;
+        throws(() => detached.attached.open(bad, publicKey));
+      }
+      const sig = detached.sign(msg, secretKey, { random: rnd });
+      const pseal = padded.attached.seal(msg, secretKey, { random: rnd });
+      deepStrictEqual(padded.attached.open(pseal, publicKey), msg);
+      const pbad = new Uint8Array(pseal);
+      pbad[sig.length] = 1;
+      throws(() => padded.attached.open(pbad, publicKey));
+    }
+  });
+  should('padded/detached-lengths', () => {
+    const msg = Uint8Array.from([1, 2, 3, 4]);
+    const random = (len = 0) => new Uint8Array(len).fill(7);
+    const { secretKey: sk512 } = falcon.falcon512padded.keygen(new Uint8Array(48).fill(1));
+    const { secretKey: sk1024 } = falcon.falcon1024padded.keygen(new Uint8Array(48).fill(2));
+    deepStrictEqual(
+      {
+        lengths: {
+          falcon512padded: falcon.falcon512padded.lengths.signature,
+          falcon1024padded: falcon.falcon1024padded.lengths.signature,
+        },
+        sign: {
+          falcon512padded: falcon.falcon512padded.sign(msg, sk512, { random }).length,
+          falcon1024padded: falcon.falcon1024padded.sign(msg, sk1024, { random }).length,
+        },
+      },
+      {
+        lengths: { falcon512padded: 666, falcon1024padded: 1280 },
+        sign: { falcon512padded: 666, falcon1024padded: 1280 },
+      }
+    );
+  });
+  should('detached/maxS2Len', () => {
+    // These payload-only budgets must stay aligned with the vendored PQClean detached limits:
+    // total detached bytes minus the detached header byte and 40-byte nonce.
+    deepStrictEqual(
+      {
+        falcon512: falcon.__tests.falcon512.maxS2Len,
+        falcon1024: falcon.__tests.falcon1024.maxS2Len,
+      },
+      {
+        falcon512: 711,
+        falcon1024: 1421,
+      }
+    );
   });
   should('padded/validation', () => {
     const msg = hexToBytes('68656c6c6f00');

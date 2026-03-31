@@ -50,7 +50,8 @@
  *
  *    - GPG:
  *      • Concatenate keys.
- *      • Combiner: SHA3-256(kemShare || ecdhShare || ciphertext || pubKey || algId || domSep || len(domSep))
+ *      • Combiner:
+ *        SHA3-256(kemShare || ecdhShare || ciphertext || pubKey || algId || domSep || len(domSep))
  *
  *    - TLS:
  *      • Transcript-based derivation (HKDF).
@@ -92,8 +93,11 @@ import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@noble/hashes
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
   cleanBytes,
+  copyBytes,
   randomBytes,
   splitCoder,
+  validateSigOpts,
+  validateVerOpts,
   type CryptoKeys,
   type KEM,
   type Signer,
@@ -108,14 +112,25 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
   const lengths = curve.lengths;
   let keygen = curve.keygen;
   if (allowZeroKey) {
+    // Only the ECDSA/Weierstrass branch uses raw scalar-byte secret keys here. Edwards seeds are
+    // hashed/pruned and Montgomery keys are clamped byte strings, so forcing Point.Fn semantics on
+    // those curves would change key construction instead of just relaxing scalar range handling.
+    if (!('getSharedSecret' in curve && 'sign' in curve && 'verify' in curve))
+      throw new Error('allowZeroKey requires a Weierstrass curve');
+    // This legacy flag is really "skip the +1 shift" for vector matching, not "accept scalar 0".
+    // It swaps seeded Weierstrass keygen from reduction into [1, ORDER) to direct reduction into
+    // [0, ORDER), which preserves exact reduced bytes but still leaves scalar 0 invalid.
     // This is ugly, but we need to return exact results here.
-    const wCurve = curve as typeof p256;
+    const wCurve = curve as ECDSA;
     const Fn = wCurve.Point.Fn;
-    if (!Fn) throw new Error('No Point.Fn');
+    // Unlike noble-curves' seeded Weierstrass keygen, this path removes the post-reduction +1.
+    // That is enough to match exact reduced-vector bytes, but an all-zero seed still reduces to
+    // scalar 0 here and getPublicKey(secretKey) throws instead of "allowing zero".
     keygen = (seed: Uint8Array = randomBytes(lengths.seed)) => {
       abytes(seed, lengths.seed!, 'seed');
       const seedScalar = Fn.isLE ? bytesToNumberLE(seed) : bytesToNumberBE(seed);
-      const secretKey = Fn.toBytes(Fn.create(seedScalar)); // Fixes modulo bias, but not zero
+      // Reduce directly into [0, ORDER); scalar 0 still stays invalid.
+      const secretKey = Fn.toBytes(Fn.create(seedScalar));
       return { secretKey, publicKey: curve.getPublicKey(secretKey) };
     };
   }
@@ -128,8 +143,16 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
 
 /**
  * Wraps an ECDH-capable curve as a KEM.
+ * Shared secrets stay in the wrapped curve's raw ECDH byte format with no built-in KDF.
+ * On SEC 1 / Weierstrass curves, that means the compressed shared-point body without the
+ * 1-byte `0x02` / `0x03` prefix.
+ * The X25519 path also leaves RFC 7748's optional all-zero shared-secret check to callers.
  * @param curve - Curve with `getSharedSecret`.
- * @param allowZeroKey - Whether zero-valued secret scalars are allowed during keygen.
+ * @param allowZeroKey - Legacy vector-matching toggle for Weierstrass keygen.
+ * On Weierstrass curves this removes the usual post-reduction `+1` shift, changing seeded scalar
+ * reduction from `[1, ORDER)` to direct reduction into `[0, ORDER)`. It does not make scalar zero
+ * valid: an all-zero seed still derives scalar `0` and throws in `curve.getPublicKey(...)`.
+ * Only supported on Weierstrass/ECDSA curves.
  * @returns KEM wrapper over the curve.
  * @throws If the curve does not expose `getSharedSecret`. {@link Error}
  * @example
@@ -149,11 +172,21 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
     encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.seed)) {
-      const ek = this.keygen(rand).secretKey;
-      const sharedSecret = this.decapsulate(publicKey, ek);
-      const cipherText = curve.getPublicKey(ek);
-      cleanBytes(ek);
-      return { sharedSecret, cipherText };
+      // Some curve.keygen(seed) paths reuse the provided seed buffer as secretKey; detach caller
+      // randomness first so cleanBytes() only wipes wrapper-owned material.
+      const seed = copyBytes(rand);
+      let ek: Uint8Array | undefined = undefined;
+      try {
+        ek = this.keygen(seed).secretKey;
+        const sharedSecret = this.decapsulate(publicKey, ek);
+        const cipherText = curve.getPublicKey(ek);
+        return { sharedSecret, cipherText };
+      } finally {
+        // Invalid peer public keys can make decapsulation throw; wipe both the detached seed and
+        // derived ephemeral secret key even when encapsulation aborts before returning.
+        cleanBytes(seed);
+        if (ek) cleanBytes(ek);
+      }
     },
     decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
       const res = curve.getSharedSecret(secretKey, cipherText);
@@ -164,8 +197,14 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
 
 /**
  * Wraps a curve signer as a generic `Signer`.
+ * Signatures stay in the wrapped curve's native byte encoding.
+ * This wrapper does not normalize or document which per-curve signing options are meaningful.
  * @param curve - Curve with `sign` and `verify`.
- * @param allowZeroKey - Whether zero-valued secret scalars are allowed during keygen.
+ * @param allowZeroKey - Legacy vector-matching toggle for Weierstrass keygen.
+ * On Weierstrass curves this removes the usual post-reduction `+1` shift, changing seeded scalar
+ * reduction from `[1, ORDER)` to direct reduction into `[0, ORDER)`. It does not make scalar zero
+ * valid: an all-zero seed still derives scalar `0` and throws in `curve.getPublicKey(...)`.
+ * Only supported on Weierstrass/ECDSA curves.
  * @returns Signer wrapper over the curve.
  * @throws If the curve does not expose `sign` and `verify`. {@link Error}
  * @example
@@ -184,8 +223,29 @@ export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): Signe
     lengths: { ...kg.lengths, signature: curve.lengths.signature, signRand: 0 },
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
-    sign: (message, secretKey) => curve.sign(message, secretKey),
-    verify: (signature, message, publicKey) => curve.verify(signature, message, publicKey),
+    sign: (message, secretKey, opts = {}) => {
+      validateSigOpts(opts);
+      // This generic wrapper intentionally keeps the Signer contract to message + key only.
+      // Backend-specific knobs like ECDSA extraEntropy or Ed25519ctx context cannot be forwarded
+      // uniformly through combineSigners(), so callers that need them must use the curve directly.
+      if (opts.extraEntropy !== undefined)
+        throw new Error(
+          'ecSigner does not support extraEntropy; use the underlying curve directly'
+        );
+      if (opts.context !== undefined)
+        throw new Error('ecSigner does not support context; use the underlying curve directly');
+      return curve.sign(message, secretKey);
+    },
+    /** Verify one wrapped curve signature.
+     * Returns the wrapped curve's `verify()` result for well-formed inputs. Throws on unsupported
+     * generic opts and lets wrapped-curve malformed-input errors escape unchanged.
+     */
+    verify: (signature, message, publicKey, opts = {}) => {
+      validateVerOpts(opts);
+      if (opts.context !== undefined)
+        throw new Error('ecSigner does not support context; use the underlying curve directly');
+      return curve.verify(signature, message, publicKey);
+    },
   };
 }
 
@@ -193,6 +253,7 @@ function splitLengths<K extends string, T extends { lengths: Partial<Record<K, n
   lst: T[],
   name: K
 ) {
+  // Preserve caller order exactly; raw numeric fields still decode as splitCoder() subarray views.
   return splitCoder(
     name,
     ...lst.map((i) => {
@@ -209,6 +270,7 @@ type XOF = CHashXOF<any, { dkLen: number }>;
 // It is XOF for most cases, but can be more complex!
 /**
  * Adapts an XOF into an `ExpandSeed` callback.
+ * The returned callback interprets its second argument as an output byte length passed as `dkLen`.
  * @param xof - Extendable-output hash function.
  * @returns Seed expander using `dkLen`.
  * @example
@@ -221,6 +283,8 @@ type XOF = CHashXOF<any, { dkLen: number }>;
  * ```
  */
 export function expandSeedXof(xof: XOF): ExpandSeed {
+  // Forward the caller seed directly: XOFs are expected to treat inputs as read-only, and this
+  // adapter only translates the requested byte length into the hash API's `dkLen` option.
   return (seed: Uint8Array, seedLen: number) => xof(seed, { dkLen: seedLen });
 }
 
@@ -243,23 +307,54 @@ function combineKeys(
   anumber(realSeedLen);
   function expandDecapsulationKey(seed: Uint8Array) {
     abytes(seed, realSeedLen!);
-    const expanded = seedCoder.decode(expandSeed(seed, seedCoder.bytesLen));
-    const keys = ck.map((i, j) => i.keygen(expanded[j]));
-    const secretKey = keys.map((i) => i.secretKey);
-    const publicKey = keys.map((i) => i.publicKey);
-    return { secretKey, publicKey };
+    const expandedRaw = expandSeed(seed, seedCoder.bytesLen);
+    // Identity/subarray expanders can hand back caller-owned seed storage. Detach those outputs so
+    // later cleanup can wipe the expanded schedule without mutating the caller's root seed bytes.
+    const expandedSeed = expandedRaw.buffer === seed.buffer ? copyBytes(expandedRaw) : expandedRaw;
+    const expanded: Uint8Array[] = [];
+    const keySecret: Uint8Array[] = [];
+    const secretKey: Uint8Array[] = [];
+    const publicKey: Uint8Array[] = [];
+    let ok = false;
+    try {
+      // seedCoder.decode() returns zero-copy slices into expandedSeed and can throw before child
+      // keygen() runs, so keep the raw expanded buffer separate and copy each child seed before any
+      // later cleanup wipes the shared backing bytes.
+      for (const part of seedCoder.decode(expandedSeed)) expanded.push(copyBytes(part));
+      for (let i = 0; i < ck.length; i++) {
+        const keys = ck[i].keygen(expanded[i]);
+        keySecret.push(keys.secretKey);
+        secretKey.push(copyBytes(keys.secretKey));
+        publicKey.push(keys.publicKey);
+      }
+      ok = true;
+      return { secretKey, publicKey };
+    } finally {
+      // Child keygen() can throw after deriving only a prefix of the composite key schedule. Keep
+      // the exported copies on success, but wipe all temporary and partially built secret material
+      // on either path so failures do not strand derived child seeds in memory.
+      cleanBytes(expandedSeed, expanded, keySecret);
+      if (!ok) cleanBytes(secretKey);
+    }
   }
   return {
     info: { lengths: { seed: realSeedLen, publicKey: pkCoder.bytesLen, secretKey: realSeedLen } },
     getPublicKey(secretKey: Uint8Array) {
+      // Composite secret keys are root seeds, so public-key derivation reruns key expansion from
+      // that seed instead of decoding a packed child-secret-key structure.
       return this.keygen(secretKey).publicKey;
     },
     keygen(seed: Uint8Array = randomBytes(realSeedLen)) {
       const { publicKey: pk, secretKey } = expandDecapsulationKey(seed);
-      const publicKey = pkCoder.encode(pk);
-      cleanBytes(pk);
-      cleanBytes(secretKey);
-      return { secretKey: seed, publicKey };
+      try {
+        const publicKey = pkCoder.encode(pk);
+        return { secretKey: seed, publicKey };
+      } finally {
+        cleanBytes(pk);
+        // The exported secretKey is the caller/root seed itself; child secret keys are internal
+        // expansion outputs that are cleaned whether encoding succeeds or throws.
+        cleanBytes(secretKey);
+      }
     },
     expandDecapsulationKey,
     realSeedLen,
@@ -317,21 +412,39 @@ export function combineKEMS(
     encapsulate(pk: Uint8Array, randomness: Uint8Array = randomBytes(msgCoder.bytesLen)) {
       const pks = pkCoder.decode(pk);
       const rand = msgCoder.decode(randomness);
-      const enc = kems.map((i, j) => i.encapsulate(pks[j], rand[j]));
-      const sharedSecret = enc.map((i) => i.sharedSecret);
-      const cipherText = enc.map((i) => i.cipherText);
-      const res = {
-        sharedSecret: combiner(pks, cipherText, sharedSecret),
-        cipherText: ctCoder.encode(cipherText),
-      };
-      cleanBytes(sharedSecret, cipherText);
-      return res;
+      const sharedSecret: Uint8Array[] = [];
+      const cipherText: Uint8Array[] = [];
+      try {
+        for (let i = 0; i < kems.length; i++) {
+          const enc = kems[i].encapsulate(pks[i], rand[i]);
+          sharedSecret.push(enc.sharedSecret);
+          cipherText.push(enc.cipherText);
+        }
+        return {
+          // Detach the combiner result before cleanup: a caller-provided combiner may alias one of
+          // the child sharedSecret buffers, and those child buffers are zeroized immediately below.
+          sharedSecret: copyBytes(combiner(pks, cipherText, sharedSecret)),
+          cipherText: ctCoder.encode(cipherText),
+        };
+      } finally {
+        // Child encapsulation or combiner failures can happen after some components already
+        // returned secret material; zeroize whatever was produced before propagating the error.
+        cleanBytes(sharedSecret, cipherText);
+      }
     },
     decapsulate(ct: Uint8Array, seed: Uint8Array) {
       const cts = ctCoder.decode(ct);
       const { publicKey, secretKey } = keys.expandDecapsulationKey(seed);
       const sharedSecret = kems.map((i, j) => i.decapsulate(cts[j], secretKey[j]));
-      return combiner(publicKey, cts, sharedSecret);
+      try {
+        // Detach the decapsulation result before cleanup: the combiner may hand back one of the
+        // child shared-secret buffers, and those temporary buffers are zeroized below.
+        return copyBytes(combiner(publicKey, cts, sharedSecret));
+      } finally {
+        // Decapsulation only needs the expanded child secret keys and child shared secrets for this
+        // call; keep the caller/root seed intact, but wipe all derived material even on errors.
+        cleanBytes(secretKey, sharedSecret);
+      }
     },
   };
 }
@@ -365,14 +478,39 @@ export function combineSigners(
     lengths: { ...keys.info.lengths, signature: sigCoder.bytesLen, signRand: 0 },
     getPublicKey: keys.getPublicKey,
     keygen: keys.keygen,
-    sign(message, seed) {
+    sign(message, seed, opts = {}) {
+      validateSigOpts(opts);
+      // This generic wrapper intentionally keeps the composite signer contract to message + root
+      // seed only. Per-signer opts like context or extraEntropy cannot be preserved uniformly
+      // across mixed backends, so callers that need them must use the underlying signer directly.
+      if (opts.extraEntropy !== undefined)
+        throw new Error(
+          'combineSigners does not support extraEntropy; use the underlying signer directly'
+        );
+      if (opts.context !== undefined)
+        throw new Error(
+          'combineSigners does not support context; use the underlying signer directly'
+        );
       const { secretKey } = keys.expandDecapsulationKey(seed);
-      // NOTE: we probably can make different hashes for different algorithms
-      // same way as we do for kem, but not sure if this a good idea.
-      const sigs = signers.map((i, j) => i.sign(message, secretKey[j]));
-      return sigCoder.encode(sigs);
+      try {
+        const sigs = signers.map((i, j) => i.sign(message, secretKey[j]));
+        return sigCoder.encode(sigs);
+      } finally {
+        // Composite secret keys are root seeds; the per-signer child secret keys are temporary
+        // expansion outputs and must not stay live after the combined signature is produced.
+        cleanBytes(secretKey);
+      }
     },
-    verify: (signature, message, publicKey) => {
+    /** Verify one combined signature.
+     * Returns `false` when the aggregate signature/publicKey decode succeeds but any child verify
+     * check fails. Throws on unsupported generic opts or malformed aggregate encodings.
+     */
+    verify: (signature, message, publicKey, opts = {}) => {
+      validateVerOpts(opts);
+      if (opts.context !== undefined)
+        throw new Error(
+          'combineSigners does not support context; use the underlying signer directly'
+        );
       const pks = pkCoder.decode(publicKey);
       const sigs = sigCoder.decode(signature);
       for (let i = 0; i < signers.length; i++) {
@@ -385,6 +523,11 @@ export function combineSigners(
 
 /**
  * Builds a QSF hybrid KEM preset from a PQ KEM and an elliptic-curve KEM.
+ * The combined shared-secret length follows `kdf.outputLen`; the built-in presets use 32-byte
+ * SHA3-256 output, while custom `kdf` choices inherit their own digest size.
+ * Its combiner hashes `ss0 || ss1 || ct1 || pk1 || label`, not the full
+ * `(c1, c2, ek1, ek2)` example input shape from SP 800-227 equation (15).
+ * Labels are encoded with `asciiToBytes()`, so non-ASCII labels are rejected.
  * @param label - Domain-separation label.
  * @param pqc - Post-quantum KEM.
  * @param curveKEM - Classical curve KEM.
@@ -407,7 +550,7 @@ export function QSF(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, kdf: CHash
   ahash(kdf);
   return combineKEMS(
     32,
-    32,
+    kdf.outputLen,
     expandSeedXof(xof),
     (pk, ct, ss) => kdf(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
     pqc,
@@ -436,6 +579,12 @@ export const QSF_ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
 
 /**
  * Builds the "KitchenSink" hybrid KEM combiner.
+ * The current builder always derives a fixed 32-byte output,
+ * regardless of the hash's native output size.
+ * Its HKDF extract step uses implicit zero salt with IKM
+ * `hybrid_prk || ss0 || ss1 || ct0 || pk0 || ct1 || pk1 || label`.
+ * Its HKDF expand step fixes `info` to `len || 'shared_secret' || ''`.
+ * Labels are encoded with `asciiToBytes()`, so non-ASCII labels are rejected.
  * @param label - Domain-separation label.
  * @param pqc - Post-quantum KEM.
  * @param curveKEM - Classical curve KEM.
@@ -486,8 +635,12 @@ export function createKitchenSink(
   );
 }
 
+// Internal alias only: this stays exactly `ecdhKem(x25519)`
+// and inherits that wrapper's mutation/oracle behavior.
 const x25519kem = /* @__PURE__ */ ecdhKem(x25519);
-/** KitchenSink preset combining ML-KEM-768 with X25519. */
+/** KitchenSink preset combining ML-KEM-768 with X25519.
+ * Caller randomness splits into 32 ML-KEM coins plus a 32-byte X25519 ephemeral-secret seed.
+ */
 export const KitchenSink_ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
   createKitchenSink(
     'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)',
@@ -498,7 +651,10 @@ export const KitchenSink_ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
   ))();
 
 // Always X25519 and ML-KEM - 768, no point to export
-/** X25519 + ML-KEM-768 hybrid preset. */
+/** X25519 + ML-KEM-768 hybrid preset.
+ * Uses the hard-coded domain-separation label `\\.//^\\` and hashes only `ct1 || pk1`
+ * from the X25519 side in addition to the two component shared secrets.
+ */
 export const ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
   combineKEMS(
     32,
@@ -510,9 +666,19 @@ export const ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
     x25519kem
   ))();
 
+/**
+ * Internal SEC 1-style KEM wrapper for NIST curves.
+ * `nseed` is only the rejection-sampling byte budget for deriving one nonzero scalar:
+ * current presets use `128` bytes for P-256 and `48` bytes for P-384.
+ * `decapsulate()` returns the uncompressed shared point body `x || y` without the `0x04`
+ * prefix, not the SEC 1 `x_P`-only primitive output, because current hybrid combiners hash
+ * both coordinates.
+ */
 function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): KEM {
   const Fn = curve.Point.Fn;
   if (!Fn) throw new Error('no Point.Fn');
+  // Scan scalar-sized windows until one decodes to a nonzero scalar in `[1, n-1]`; if every
+  // window is zero or out of range, fail instead of silently reducing modulo `n`.
   function rejectionSampling(seed: Uint8Array): { secretKey: Uint8Array; publicKey: Uint8Array } {
     let sk: bigint;
     for (let start = 0, end = scalarLen; ; start = end, end += scalarLen) {
@@ -542,11 +708,17 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
     },
     encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(nseed)) {
       abytes(rand, nseed, 'rand');
-      const { secretKey: ek } = rejectionSampling(rand);
-      const sharedSecret = this.decapsulate(publicKey, ek);
-      const cipherText = curve.getPublicKey(ek, false);
-      cleanBytes(ek);
-      return { sharedSecret, cipherText };
+      let ek: Uint8Array | undefined = undefined;
+      try {
+        ek = rejectionSampling(rand).secretKey;
+        const sharedSecret = this.decapsulate(publicKey, ek);
+        const cipherText = curve.getPublicKey(ek, false);
+        return { sharedSecret, cipherText };
+      } finally {
+        // Rejection-sampled NIST-curve ephemeral secret keys are temporary encapsulation state and
+        // must be wiped even if peer-key validation or shared-secret derivation throws.
+        if (ek) cleanBytes(ek);
+      }
     },
     decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
       const full = curve.getSharedSecret(secretKey, cipherText);
@@ -555,6 +727,14 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
   };
 }
 
+/**
+ * Internal ML-KEM + NIST-curve combiner.
+ * `nseed` controls only the curve-side rejection-sampling budget; it is expanded from the
+ * 32-byte root seed and is not itself part of the exported secret-key length.
+ * The domain-separation `label` is used only in the final `sha3_256` combiner, not in
+ * `shake256(seed, { dkLen: 64 + nseed })`,
+ * and the combiner hashes `ss0 || ss1 || ct1 || pk1 || label`.
+ */
 function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: number): KEM {
   const { secretKey: scalarLen, publicKeyUncompressed: elemLen } = curve.lengths;
   if (!scalarLen || !elemLen) throw new Error('wrong curve');

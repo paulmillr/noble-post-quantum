@@ -87,7 +87,14 @@ export type SphincsHashOpts = {
 };
 
 /** Winternitz signature params. */
-/** Built-in SLH-DSA parameter presets keyed by strength/profile. */
+/**
+ * Built-in SLH-DSA Table 2 subset keyed by strength/profile.
+ * SHA2 and SHAKE pairs share the same numeric rows here, so the hash family is chosen separately.
+ * `securityLevel` stores 128/192/256-bit strengths for `checkHash(...)`,
+ * not Table 2's category labels 1/3/5.
+ * Other Table 2 columns such as `m`, public-key bytes, and signature bytes
+ * stay derived at the export layer.
+ */
 export const PARAMS: Record<string, SphincsOpts> = /* @__PURE__ */ (() =>
   ({
     '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6, securityLevel: 128 },
@@ -98,6 +105,9 @@ export const PARAMS: Record<string, SphincsOpts> = /* @__PURE__ */ (() =>
     '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14, securityLevel: 256 },
   }) as const)();
 
+// FIPS 205 `ADRS.setTypeAndClear(...)` selectors. Local names shorten the spec labels
+// (`WOTS_HASH` -> `WOTS`, `TREE` -> `HASHTREE`, `FORS_ROOTS` -> `FORSPK`), and `setAddr({ type })`
+// below only writes the type word; callers still need to preserve or overwrite the trailing words.
 const AddressType = {
   WOTS: 0,
   WOTSPK: 1,
@@ -164,16 +174,19 @@ function hexToNumber(hex: string): bigint {
   return BigInt(hex === '' ? '0' : '0x' + hex); // Big Endian
 }
 
-// BE: Big Endian, LE: Little Endian
+// BE: Big Endian, LE: Little Endian. This is the local FIPS 205 `toInt(...)` equivalent.
 function bytesToNumberBE(bytes: Uint8Array): bigint {
   return hexToNumber(bytesToHex(bytes));
 }
 
+// Local in-range FIPS 205 `toByte(x, n)` equivalent; callers must keep `n < 256^len`.
 function numberToBytesBE(n: number | bigint, len: number): Uint8Array {
   return hexToBytes(n.toString(16).padStart(len * 2, '0'));
 }
 
-// Same as bitsCoder.decode, but maybe spec will change and unify with base2bBE.
+// Local FIPS 205 Algorithm 4 `base_2^b(...)` implementation. Bits are consumed in big-endian
+// order within each input byte, and callers must provide at least `ceil(outLen * b / 8)` bytes;
+// short inputs are not rejected and would zero-extend implicitly.
 const base2b = (outLen: number, b: number) => {
   const mask = getMask(b);
   return (bytes: Uint8Array) => {
@@ -201,6 +214,11 @@ export type SphincsSigner = Signer & {
   prehash: (hash: CHash) => Signer;
 };
 
+/** One parameter/hash instantiation of the public SLH-DSA API.
+ * `keygen(seed)` is a deterministic 3N-byte library hook around the internal keygen flow,
+ * and `getPublicKey(secretKey)` only extracts the embedded public key
+ * instead of recomputing `PK.root`.
+ */
 function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const { N, W, H, D, K, A, securityLevel: securityLevel } = opts;
   const getContext = hashOpts.getContext(opts);
@@ -232,6 +250,11 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     OFFSET_HASH_ADDR += 10;
   }
 
+  // Mutates and returns `addr` in place. For the built-in parameter sets, the layer / chain /
+  // hash / height / keypair values fit in the low byte(s), and the tree value fits in 64 bits,
+  // so the untouched leading bytes in the wider FIPS 205 ADRS / ADRS_c fields stay zero.
+  // `height` / `chain` and `index` / `hash` share the same spec words, so callers must use the
+  // address-type-specific combinations instead of mixing both meanings in one call.
   const setAddr = (
     opts: {
       type?: (typeof AddressType)[keyof typeof AddressType];
@@ -276,7 +299,8 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     const W1 = base2b(WOTS_LEN1, WOTS_LOGW)(msg);
     let csum = 0;
     for (let i = 0; i < W1.length; i++) csum += W - 1 - W1[i]; // ▷ Compute checksum
-    csum <<= (8 - ((WOTS_LEN2 * WOTS_LOGW) % 8)) % 8; // csum ← csum ≪ ((8 − ((len2 · lg(w)) mod 8)) mod 8
+    // csum ← csum ≪ ((8 − ((len2 · lg(w)) mod 8)) mod 8
+    csum <<= (8 - ((WOTS_LEN2 * WOTS_LOGW) % 8)) % 8;
     // Checksum to base(LOG_W)
     const W2 = chainCoder(numberToBytesBE(csum, Math.ceil((WOTS_LEN2 * WOTS_LOGW) / 8)));
     // W1 || W2 (concatBytes cannot concat TypedArrays)
@@ -295,14 +319,20 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     Math.ceil(TREE_BITS / 8),
     Math.ceil(TREE_HEIGHT / 8)
   );
+  // `pkSeed` is the full public key byte string `PK.seed || PK.root`; after splitting `Hmsg`,
+  // mask away any spare high bits so `idx_tree` / `idx_leaf` match the spec's final mod-2^k steps.
   const hashMessage = (R: Uint8Array, pkSeed: Uint8Array, msg: Uint8Array, context: Context) => {
-    const digest = context.Hmsg(R, pkSeed, msg, hashMsgCoder.bytesLen); // digest ← Hmsg(R, PK.seed, PK.root, M)
+    // digest ← Hmsg(R, PK.seed, PK.root, M)
+    const digest = context.Hmsg(R, pkSeed, msg, hashMsgCoder.bytesLen);
     const [md, tmpIdxTree, tmpIdxLeaf] = hashMsgCoder.decode(digest);
     const tree = bytesToNumberBE(tmpIdxTree) & getMaskBig(TREE_BITS);
     const leafIdx = Number(bytesToNumberBE(tmpIdxLeaf)) & getMask(LEAF_BITS);
     return { tree, leafIdx, md };
   };
 
+  // Iterative `xmss_node` / `xmss_sign` core: mutate `treeAddr` in place, collapse completed
+  // sibling pairs on `stack`, and record the sibling whenever the current subtree is the auth-path
+  // neighbor of the target leaf at that height.
   const treehash = <T>(
     height: number,
     fn: (leafIdx: number, addrOffset: number, context: Context, info: T) => Uint8Array
@@ -346,6 +376,8 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   };
   const wotsTreehash = treehash(TREE_HEIGHT, (leafIdx, addrOffset, context, info: LeafInfo) => {
     const wotsPk = new Uint8Array(WOTS_LEN * N);
+    // `keygen()` passes `leafIdx = ~0 >>> 0`, so no real XMSS leaf matches and this suppresses
+    // WOTS signature capture while still hashing every chain to its public-key endpoint.
     const wotsKmask = addrOffset === leafIdx ? 0 : ~0 >>> 0;
     setAddr({ keypair: addrOffset }, info.leafAddr);
     setAddr({ keypair: addrOffset }, info.pkAddr);
@@ -372,6 +404,8 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     return context.thash1(prf, forsLeafAddr);
   });
 
+  // Fuse `xmss_sign` with the subtree-root computation needed by `ht_sign`, so one tree walk
+  // yields both the WOTS/auth-path signature and the root that the next hypertree layer signs.
   const merkleSign = (
     context: Context,
     wotsAddr: ADRS,
@@ -409,6 +443,10 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     const buffer = new Uint8Array(2 * N);
     const b0 = buffer.subarray(0, N);
     const b1 = buffer.subarray(N, 2 * N);
+    // Algorithm 11 hashes `node || AUTH[k]` for even nodes and `AUTH[k] || node` for odd ones,
+    // so reuse one `2N` buffer and just swap which half receives the sibling at each level.
+    // `idxOffset` carries the subtree base for the shared FORS path, so `leafIdx + idxOffset`
+    // tracks the same tree-global index updates that Algorithms 11 and 17 apply to ADRS.
     // First iter
     if ((leafIdx & 1) !== 0) {
       b1.set(leaf.subarray(0, N));
@@ -646,10 +684,14 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   };
 }
 
+// FIPS 205 §11.1 SHAKE instantiation: this path hashes the full uncompressed address bytes,
+// unlike the compressed 22-byte SHA2 path in §11.2.
 const genShake =
   (): GetContext => (opts: SphincsOpts) => (pubSeed: Uint8Array, skSeed?: Uint8Array) => {
     const { N } = opts;
     const stats = { prf: 0, thash: 0, hmsg: 0, gen_message_random: 0 };
+    // §11.1 prefixes PRF/F/H/T_l with `PK.seed`, so cache that absorbed prefix once and clone it
+    // for each address-bound call instead of reabsorbing the same seed every time.
     const h0 = shake256.create({}).update(pubSeed);
     const h0tmp = h0.clone();
     const thash = (blocks: number, input: Uint8Array, addr: ADRS) => {
@@ -687,26 +729,53 @@ const genShake =
 
 const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ getContext: genShake() }))();
 
-/** SLH-DSA: 128-bit fast SHAKE version. */
+/**
+ * SLH-DSA-SHAKE-128f: Table 2 row `n=16, h=66, d=22, h'=3, a=6, k=33, lg w=4, m=34`;
+ * lengths `publicKey=32`, `secretKey=64`, `signature=17088`, `seed=48`, `signRand=16`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_shake_128f: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['128f'], SHAKE_SIMPLE))();
-/** SLH-DSA: 128-bit short SHAKE version. */
+/**
+ * SLH-DSA-SHAKE-128s: Table 2 row `n=16, h=63, d=7, h'=9, a=12, k=14, lg w=4, m=30`;
+ * lengths `publicKey=32`, `secretKey=64`, `signature=7856`, `seed=48`, `signRand=16`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_shake_128s: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['128s'], SHAKE_SIMPLE))();
-/** SLH-DSA: 192-bit fast SHAKE version. */
+/**
+ * SLH-DSA-SHAKE-192f: Table 2 row `n=24, h=66, d=22, h'=3, a=8, k=33, lg w=4, m=42`;
+ * lengths `publicKey=48`, `secretKey=96`, `signature=35664`, `seed=72`, `signRand=24`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_shake_192f: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['192f'], SHAKE_SIMPLE))();
-/** SLH-DSA: 192-bit short SHAKE version. */
+/**
+ * SLH-DSA-SHAKE-192s: Table 2 row `n=24, h=63, d=7, h'=9, a=14, k=17, lg w=4, m=39`;
+ * lengths `publicKey=48`, `secretKey=96`, `signature=16224`, `seed=72`, `signRand=24`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_shake_192s: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['192s'], SHAKE_SIMPLE))();
-/** SLH-DSA: 256-bit fast SHAKE version. */
+/**
+ * SLH-DSA-SHAKE-256f: Table 2 row `n=32, h=68, d=17, h'=4, a=9, k=35, lg w=4, m=49`;
+ * lengths `publicKey=64`, `secretKey=128`, `signature=49856`, `seed=96`, `signRand=32`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_shake_256f: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['256f'], SHAKE_SIMPLE))();
-/** SLH-DSA: 256-bit short SHAKE version. */
+/**
+ * SLH-DSA-SHAKE-256s: Table 2 row `n=32, h=64, d=8, h'=8, a=14, k=22, lg w=4, m=47`;
+ * lengths `publicKey=64`, `secretKey=128`, `signature=29792`, `seed=96`, `signRand=32`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_shake_256s: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['256s'], SHAKE_SIMPLE))();
 
 type ShaType = typeof sha256 | typeof sha512;
+// FIPS 205 §11.2 SHA2 instantiation. The `h0` / `h1` split is intentional:
+// category-1 keeps everything on SHA-256, while category-3/5 keep `PRFaddr` / `thash1`
+// on SHA-256 but switch `PRFmsg`, `Hmsg`, and multi-block `thashN` to SHA-512.
 const genSha =
   (h0: ShaType, h1: ShaType): GetContext =>
   (opts) =>
@@ -722,6 +791,8 @@ const genSha =
 
     const counterB = new Uint8Array(4);
     const counterV = createView(counterB);
+    // §11.2 prefixes SHA2 PRF/F/H/T_l with `PK.seed || toByte(0, blockLen-N)`, so cache the
+    // zero-padded seed block once for the SHA-256 lane and once for the SHA-512 lane.
     const h0ps = h0
       .create()
       .update(pub_seed)
@@ -735,6 +806,9 @@ const genSha =
     const h1tmp = h1ps.clone();
 
     // https://www.rfc-editor.org/rfc/rfc8017.html#appendix-B.2.1
+    // This local helper is intentionally stricter than generic MGF1 reuse: current SLH-DSA callers
+    // only request tiny `m`-byte outputs, but the guard below rejects `length > 2^32` instead of
+    // RFC 8017's broader `maskLen > 2^32 * hLen` bound.
     function mgf1(seed: Uint8Array, length: number, hash: ShaType) {
       stats.mgf1++;
       const out = new Uint8Array(Math.ceil(length / hash.outputLen) * hash.outputLen);
@@ -806,21 +880,45 @@ const SHA512_SIMPLE = /* @__PURE__ */ (() => ({
   getContext: genSha(sha256, sha512),
 }))();
 
-/** SLH-DSA: 128-bit fast SHA2 version. */
+/**
+ * SLH-DSA-SHA2-128f: Table 2 row `n=16, h=66, d=22, h'=3, a=6, k=33, lg w=4, m=34`;
+ * lengths `publicKey=32`, `secretKey=64`, `signature=17088`, `seed=48`, `signRand=16`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_sha2_128f: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['128f'], SHA256_SIMPLE))();
-/** SLH-DSA: 128-bit small SHA2 version. */
+/**
+ * SLH-DSA-SHA2-128s: Table 2 row `n=16, h=63, d=7, h'=9, a=12, k=14, lg w=4, m=30`;
+ * lengths `publicKey=32`, `secretKey=64`, `signature=7856`, `seed=48`, `signRand=16`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_sha2_128s: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['128s'], SHA256_SIMPLE))();
-/** SLH-DSA: 192-bit fast SHA2 version. */
+/**
+ * SLH-DSA-SHA2-192f: Table 2 row `n=24, h=66, d=22, h'=3, a=8, k=33, lg w=4, m=42`;
+ * lengths `publicKey=48`, `secretKey=96`, `signature=35664`, `seed=72`, `signRand=24`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_sha2_192f: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['192f'], SHA512_SIMPLE))();
-/** SLH-DSA: 192-bit small SHA2 version. */
+/**
+ * SLH-DSA-SHA2-192s: Table 2 row `n=24, h=63, d=7, h'=9, a=14, k=17, lg w=4, m=39`;
+ * lengths `publicKey=48`, `secretKey=96`, `signature=16224`, `seed=72`, `signRand=24`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_sha2_192s: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['192s'], SHA512_SIMPLE))();
-/** SLH-DSA: 256-bit fast SHA2 version. */
+/**
+ * SLH-DSA-SHA2-256f: Table 2 row `n=32, h=68, d=17, h'=4, a=9, k=35, lg w=4, m=49`;
+ * lengths `publicKey=64`, `secretKey=128`, `signature=49856`, `seed=96`, `signRand=32`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_sha2_256f: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['256f'], SHA512_SIMPLE))();
-/** SLH-DSA: 256-bit small SHA2 version. */
+/**
+ * SLH-DSA-SHA2-256s: Table 2 row `n=32, h=64, d=8, h'=8, a=14, k=22, lg w=4, m=47`;
+ * lengths `publicKey=64`, `secretKey=128`, `signature=29792`, `seed=96`, `signRand=32`.
+ * Also exposes `.prehash(...)`.
+ */
 export const slh_dsa_sha2_256s: SphincsSigner = /* @__PURE__ */ (() =>
   gen(PARAMS['256s'], SHA512_SIMPLE))();

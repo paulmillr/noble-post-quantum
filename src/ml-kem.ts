@@ -21,7 +21,7 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3.js';
-import { type CHash, u32 } from '@noble/hashes/utils.js';
+import { type CHash, swap32IfBE, u32 } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128 } from './_crystals.ts';
 import {
   abytes,
@@ -29,6 +29,7 @@ import {
   type Coder,
   copyBytes,
   equalBytes,
+  getMask,
   type KEM,
   randomBytes,
   splitCoder,
@@ -42,6 +43,8 @@ const Q = 3329; // 13*(2**8)+1, modulo prime
 const F = 3303; // 3303 ≡ 128**(−1) mod q (FIPS-203)
 const ROOT_OF_UNITY = 17; // ζ = 17 ∈ Zq is a primitive 256-th root of unity modulo Q. ζ**128 ≡−1
 // treeshake: keep genCrystals behind the object so PARAMS-only bundles can drop it entirely.
+// Shared CRYSTALS helper in the ML-KEM branch: Kyber mode, 7-bit bit-reversal,
+// and Uint16Array polys because current coefficients stay reduced modulo q.
 const crystals = /* @__PURE__ */ genCrystals({
   N,
   Q,
@@ -74,7 +77,11 @@ export type KEMParam = {
 };
 /** Internal params of ML-KEM versions */
 // prettier-ignore
-/** Built-in ML-KEM parameter presets keyed by security level. */
+/** Built-in ML-KEM parameter presets keyed by the public export names
+ * `ml_kem512` / `ml_kem768` / `ml_kem1024`.
+ * `RBGstrength` is Table 2's required randomness-source strength in bits,
+ * not a generic security label.
+ */
 export const PARAMS: Record<string, KEMParam> = /* @__PURE__ */ (() => ({
   512: { N, Q, K: 2, ETA1: 3, ETA2: 2, du: 10, dv: 4, RBGstrength: 128 },
   768: { N, Q, K: 3, ETA1: 2, ETA2: 2, du: 10, dv: 4, RBGstrength: 192 },
@@ -83,44 +90,63 @@ export const PARAMS: Record<string, KEMParam> = /* @__PURE__ */ (() => ({
 
 // FIPS-203: compress/decompress
 const compress = (d: number): Coder<number, number> => {
-  // Special case, no need to compress, pass as is, but strip high bytes on compression
-  if (d >= 12) return { encode: (i: number) => i, decode: (i: number) => i };
-  // NOTE: we don't use float arithmetic (forbidden by FIPS-203 and high chance of bugs).
+  // d=12 is the ByteEncode12/ByteDecode12 path, not lossy compression.
+  // ByteDecode12 interprets each 12-bit word modulo q; without that reduction the public-key
+  // modulus check in encapsulate() becomes a no-op for malformed coefficients like 4095.
+  if (d >= 12) return { encode: (i: number) => i, decode: (i: number) => (i >= Q ? i - Q : i) };
   // Comments map to python implementation in RFC (draft-cfrg-schwabe-kyber)
   // const round = (i: number) => Math.floor(i + 0.5) | 0;
   const a = 2 ** (d - 1);
   return {
-    // const compress = (i: number) => round((2 ** d / Q) * i) % 2 ** d;
+    // This only matches standalone Compress_d after bitsCoder masks the result into Z_(2^d).
     encode: (i: number) => ((i << d) + Q / 2) / Q,
     // const decompress = (i: number) => round((Q / 2 ** d) * i);
     decode: (i: number) => (i * Q + a) >>> d,
   };
 };
 
+// Raw ByteEncode_d / ByteDecode_d from FIPS 203 operate on d-bit words directly.
+// That differs from `polyCoder(d)` for d<12, where noble folds packing together with the lossy
+// ciphertext compression step used by u/v. Tests that exercise the spec's raw packing surface need
+// this exact non-lossy variant instead.
+const byteCoder = (d: number) =>
+  crystals.bitsCoder(
+    d,
+    d === 12
+      ? { encode: (i: number) => i, decode: (i: number) => (i >= Q ? i - Q : i) }
+      : { encode: (i: number) => i, decode: (i: number) => i }
+  );
+
 // NOTE: we merge encoding and compress because it is faster, also both require same d param
-// Converts between bytes and d-bits compressed representation. Kinda like convertRadix2 from @scure/base
+// d=12 is the ByteEncode12/ByteDecode12 path rather than compression, and caller-side
+// public-key modulus checks route through this helper's decode/encode roundtrip.
+// Converts between bytes and d-bits compressed representation.
+// Kinda like convertRadix2 from @scure/base.
 // decode(encode(t)) == t, but there is loss of information on encode(decode(t))
-const polyCoder = (d: number) => crystals.bitsCoder(d, compress(d));
+const polyCoder = (d: number) => (d === 12 ? byteCoder(12) : crystals.bitsCoder(d, compress(d)));
 
 // Poly is mod Q, so 12 bits
 type Poly = Uint16Array<any>;
 
 function polyAdd(a: Poly, b: Poly) {
+  // Mutates `a` in place; callers must pass two N=256 polynomials.
   for (let i = 0; i < N; i++) a[i] = crystals.mod(a[i] + b[i]); // a += b
 }
 function polySub(a: Poly, b: Poly) {
+  // Mutates `a` in place; callers must pass two N=256 polynomials.
   for (let i = 0; i < N; i++) a[i] = crystals.mod(a[i] - b[i]); // a -= b
 }
 
 // FIPS-203: Computes the product of two degree-one polynomials with respect to a quadratic modulus
 function BaseCaseMultiply(a0: number, a1: number, b0: number, b1: number, zeta: number) {
+  // `zeta` here is Algorithm 11's γ = ζ^(2BitRev_7(i)+1).
   const c0 = crystals.mod(a1 * b1 * zeta + a0 * b0);
   const c1 = crystals.mod(a0 * b1 + a1 * b0);
   return { c0, c1 };
 }
 
-// FIPS-203: Computes the product (in the ring Tq) of two NTT representations. NOTE: works inplace for f
-// NOTE: since multiply defined only for NTT representation, we need to convert to NTT, multiply and convert back
+// FIPS-203: Computes the product (in the ring Tq) of two NTT representations.
+// Works in place on `f`; `g` is read-only and both inputs must already be in NTT form.
 function MultiplyNTTs(f: Poly, g: Poly): Poly {
   for (let i = 0; i < N / 2; i++) {
     let z = crystals.nttZetas[64 + (i >> 1)];
@@ -147,6 +173,8 @@ type KyberOpts = KEMParam & {
 
 // Return poly in NTT representation
 function SampleNTT(xof: XofGet) {
+  // The reader must already bind the Algorithm 7 seed||j||i bytes
+  // and return block lengths divisible by 3.
   const r: Poly = new Uint16Array(N);
   for (let j = 0; j < N; ) {
     const b = xof();
@@ -162,11 +190,14 @@ function SampleNTT(xof: XofGet) {
 }
 
 // Sampling from the centered binomial distribution
-// Returns poly with small coefficients (noise/errors)
-function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly {
-  const buf = PRF((eta * N) / 4, seed, nonce);
+// Returns poly with small coefficients (noise/errors) stored modulo q in ordinary coefficient form.
+// Current callers only use Table 2 eta values {2,3} and PRF outputs of exactly 64*eta bytes.
+const sampleCBDBytes = (buf: Uint8Array, eta: number): Poly => {
   const r: Poly = new Uint16Array(N);
+  // CBD consumes the PRF bitstream in little-endian byte order; normalize the word view on BE,
+  // then swap it back so callers still observe `buf` as read-only.
   const b32 = u32(buf);
+  swap32IfBE(b32);
   let len = 0;
   for (let i = 0, p = 0, bb = 0, t0 = 0; i < b32.length; i++) {
     let b = b32[i];
@@ -184,12 +215,19 @@ function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly
       }
     }
   }
+  swap32IfBE(b32);
   if (len) throw new Error(`sampleCBD: leftover bits: ${len}`);
   return r;
+};
+
+function sampleCBD(PRF: PRF, seed: Uint8Array, nonce: number, eta: number): Poly {
+  return sampleCBDBytes(PRF((eta * N) / 4, seed, nonce), eta);
 }
 
 // K-PKE
-// As per FIPS-203, it doesn't perform any input validation and can't be used in standalone fashion.
+// Internal ML-KEM subroutine only: exact 32-byte `seed` / `msg` inputs
+// come from Algorithms 13-15, and the helper mutates decoded temporary
+// polynomials in place while leaving caller byte arrays unchanged.
 const genKPKE = (opts: KyberOpts) => {
   const { K, PRF, XOF, HASH512, ETA1, ETA2, du, dv } = opts;
   const poly1 = polyCoder(1);
@@ -210,6 +248,9 @@ const genKPKE = (opts: KyberOpts) => {
       abytes(seed, 32, 'seed');
       const seedDst = new Uint8Array(33);
       seedDst.set(seed);
+      // FIPS 203 Algorithm 13 appends the parameter-set byte `k`
+      // before `G(d || k)`, so expanding the same 32-byte seed
+      // under a different ML-KEM parameter set yields unrelated keys.
       seedDst[32] = K;
       const seedHash = HASH512(seedDst);
 
@@ -221,7 +262,7 @@ const genKPKE = (opts: KyberOpts) => {
       for (let i = 0; i < K; i++) {
         const e = crystals.NTT.encode(sampleCBD(PRF, sigma, K + i, ETA1));
         for (let j = 0; j < K; j++) {
-          const aji = SampleNTT(x.get(j, i)); // A[j][i], inplace
+          const aji = SampleNTT(x.get(j, i)); // A[i][j], inplace
           polyAdd(e, MultiplyNTTs(aji, sHat[j]));
         }
         tHat.push(e); // t ← A ◦ s + e
@@ -245,7 +286,7 @@ const genKPKE = (opts: KyberOpts) => {
         const e1 = sampleCBD(PRF, seed, K + i, ETA2);
         const tmp = new Uint16Array(N);
         for (let j = 0; j < K; j++) {
-          const aij = SampleNTT(x.get(i, j)); // A[i][j], inplace
+          const aij = SampleNTT(x.get(i, j)); // A[j][i], inplace transpose access
           polyAdd(tmp, MultiplyNTTs(aij, rHat[j])); // t += aij * rHat[j]
         }
         polyAdd(e1, crystals.NTT.decode(tmp)); // e1 += tmp
@@ -265,14 +306,24 @@ const genKPKE = (opts: KyberOpts) => {
       const [u, v] = cipherCoder.decode(cipherText);
       const sk = secretCoder.decode(privateKey); // s  ← ByteDecode_12(dkPKE)
       const tmp = new Uint16Array(N);
-      for (let i = 0; i < K; i++) polyAdd(tmp, MultiplyNTTs(sk[i], crystals.NTT.encode(u[i]))); // tmp += sk[i] * u[i]
-      polySub(v, crystals.NTT.decode(tmp)); // v += tmp
+      // tmp += sk[i] * u[i]
+      for (let i = 0; i < K; i++) polyAdd(tmp, MultiplyNTTs(sk[i], crystals.NTT.encode(u[i])));
+      polySub(v, crystals.NTT.decode(tmp)); // w = v' - tmp
       cleanBytes(tmp, sk, u);
       return poly1.encode(v);
     },
   };
 };
 
+/**
+ * Public ML-KEM wrapper over the internal K-PKE subroutine.
+ * `keygen(seed)` and `encapsulate(publicKey, msg)` are deterministic/test-oriented hooks that map
+ * more directly to Algorithms 16-17 than to the pure no-input / random-internal Algorithms 19-20.
+ * decapsulate() tries to follow the Algorithms 18/21 implicit-reject structure as closely as
+ * practical here by re-encrypting, comparing ciphertexts, returning `Khat` on match or `Kbar` on
+ * mismatch, and zeroizing the non-returned shared-secret candidate; JS/JIT still provides no
+ * constant-time guarantees for that path.
+ */
 function createKyber(opts: KyberOpts) {
   const KPKE = genKPKE(opts);
   const { HASH256, HASH512, KDF } = opts;
@@ -308,7 +359,8 @@ function createKyber(opts: KyberOpts) {
 
       // FIPS-203 includes additional verification check for modulus
       const eke = publicKey.subarray(0, 384 * opts.K);
-      const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(copyBytes(eke))); // Copy because of inplace encoding
+      // Copy because of inplace encoding
+      const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(copyBytes(eke)));
       // (Modulus check.) Perform the computation ek ← ByteEncode12(ByteDecode12(eke)).
       // If ek = ̸ eke, the input is invalid. (See Section 4.2.1.)
       if (!equalBytes(ek, eke)) {
@@ -316,7 +368,8 @@ function createKyber(opts: KyberOpts) {
         throw new Error('ML-KEM.encapsulate: wrong publicKey modulus');
       }
       cleanBytes(ek);
-      const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest(); // derive randomness
+      // derive randomness
+      const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest();
       const cipherText = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
       cleanBytes(kr.subarray(32));
       return { cipherText, sharedSecret: kr.subarray(0, 32) };
@@ -333,10 +386,13 @@ function createKyber(opts: KyberOpts) {
         throw new Error('invalid secretKey: hash check failed');
       const [sk, publicKey, publicKeyHash, z] = secretCoder.decode(secretKey);
       const msg = KPKE.decrypt(cipherText, sk);
-      const kr = HASH512.create().update(msg).update(publicKeyHash).digest(); // derive randomness, Khat, rHat = G(mHat || h)
+      // derive randomness, Khat, rHat = G(mHat || h)
+      const kr = HASH512.create().update(msg).update(publicKeyHash).digest();
       const Khat = kr.subarray(0, 32);
-      const cipherText2 = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64)); // re-encrypt using the derived randomness
-      const isValid = equalBytes(cipherText, cipherText2); // if ciphertexts do not match, “implicitly reject”
+      // re-encrypt using the derived randomness
+      const cipherText2 = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
+      // if ciphertexts do not match, “implicitly reject”
+      const isValid = equalBytes(cipherText, cipherText2);
       const Kbar = KDF.create({ dkLen: 32 }).update(z).update(cipherText).digest();
       cleanBytes(msg, cipherText2, !isValid ? Khat : Kbar);
       return isValid ? Khat : Kbar;
@@ -344,6 +400,8 @@ function createKyber(opts: KyberOpts) {
   };
 }
 
+// FIPS 203's PRF_eta binding: current callers use only 32-byte keys, one-byte nonces,
+// and dkLen values {128, 192}; out-of-range nonce numbers still wrap modulo 256 here.
 function shakePRF(dkLen: number, key: Uint8Array, nonce: number) {
   return shake256
     .create({ dkLen })
@@ -352,6 +410,8 @@ function shakePRF(dkLen: number, key: Uint8Array, nonce: number) {
     .digest();
 }
 
+// Fixed ML-KEM hash/XOF bindings. `KDF` here is the spec's fixed 32-byte `J` call,
+// and swapping any field changes the scheme rather than tuning an internal dependency.
 const opts = /* @__PURE__ */ (() => ({
   HASH256: sha3_256,
   HASH512: sha3_512,
@@ -359,15 +419,64 @@ const opts = /* @__PURE__ */ (() => ({
   XOF: XOF128,
   PRF: shakePRF,
 }))();
+// Parameter-set instantiation step for the spec's "ML-KEM-x" names; current correctness relies
+// on the internal PARAMS rows rather than local validation of arbitrary KEMParam objects.
 const mk = (params: KEMParam) =>
   createKyber({
     ...opts,
     ...params,
   });
 
-/** ML-KEM-512 for 128-bit security level. Not recommended after 2030, as per ASD. */
+/**
+ * ML-KEM-512: Table 2 row `k=2, η1=3, η2=2, du=10, dv=4`; Table 3 sizes `800/1632/768/32`.
+ * The ASD lifecycle note here is external policy guidance, not a FIPS 203 requirement.
+ */
 export const ml_kem512: KEM = /* @__PURE__ */ (() => mk(PARAMS[512]))();
-/** ML-KEM-768, for 192-bit security level. Not recommended after 2030, as per ASD. */
+/**
+ * ML-KEM-768: Table 2 row `k=3, η1=2, η2=2, du=10, dv=4`; Table 3 sizes `1184/2400/1088/32`.
+ * The ASD lifecycle note here is external policy guidance, not a FIPS 203 requirement.
+ */
 export const ml_kem768: KEM = /* @__PURE__ */ (() => mk(PARAMS[768]))();
-/** ML-KEM-1024 for 256-bit security level. OK after 2030, as per ASD. */
+/**
+ * ML-KEM-1024: Table 2 row `k=4, η1=2, η2=2, du=11, dv=5`; Table 3 sizes `1568/3168/1568/32`.
+ * The ASD lifecycle note here is external policy guidance, not a FIPS 203 requirement.
+ */
 export const ml_kem1024: KEM = /* @__PURE__ */ (() => mk(PARAMS[1024]))();
+
+// NOTE: for tests only, don't use. This keeps the exact internal ML-KEM math surfaces available
+// without re-implementing them in separate test code.
+export const __tests: any = /* @__PURE__ */ (() => ({
+  Compress_d: (x: number, d: number) => {
+    if (d < 1 || d > 11) throw new Error(`Compress_d: expected d in [1..11], got ${d}`);
+    return compress(d).encode(x) & getMask(d);
+  },
+  Decompress_d: (y: number, d: number) => {
+    if (d < 1 || d > 11) throw new Error(`Decompress_d: expected d in [1..11], got ${d}`);
+    return compress(d).decode(y);
+  },
+  ByteEncode_d: (F: Uint16Array, d: number) => {
+    if (d < 1 || d > 12) throw new Error(`ByteEncode_d: expected d in [1..12], got ${d}`);
+    return byteCoder(d).encode(F);
+  },
+  ByteDecode_d: (B: Uint8Array, d: number) => {
+    if (d < 1 || d > 12) throw new Error(`ByteDecode_d: expected d in [1..12], got ${d}`);
+    return byteCoder(d).decode(B);
+  },
+  NTT: (f: Uint16Array) => crystals.NTT.encode(Uint16Array.from(f)),
+  NTT_inv: (fHat: Uint16Array) => crystals.NTT.decode(Uint16Array.from(fHat)),
+  MultiplyNTTs: (fHat: Uint16Array, gHat: Uint16Array) =>
+    MultiplyNTTs(Uint16Array.from(fHat), Uint16Array.from(gHat)),
+  SamplePolyCBD: (B: Uint8Array, eta: number) => {
+    abytes(B, 64 * eta, 'B');
+    return sampleCBDBytes(B, eta);
+  },
+  SampleNTT: (B: Uint8Array) => {
+    abytes(B, 34, 'B');
+    const xof = XOF128(B.subarray(0, 32));
+    try {
+      return SampleNTT(xof.get(B[32], B[33]));
+    } finally {
+      xof.clean();
+    }
+  },
+}))();

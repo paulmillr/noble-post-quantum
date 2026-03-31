@@ -20,6 +20,10 @@ export type XOF = (
   stats: () => { calls: number; xofs: number };
   /**
    * Select one `(x, y)` coordinate pair and get a block reader for it.
+   * Only one coordinate stream is live at a time: a later `get(...)` call rebinds the shared
+   * SHAKE state and invalidates older readers.
+   * Each squeeze aliases one mutable internal output buffer, so callers must copy blocks they
+   * want to retain before the next read.
    * @param x - First matrix coordinate.
    * @param y - Second matrix coordinate.
    * @returns Lazy block reader for that coordinate pair.
@@ -42,7 +46,9 @@ export type CrystalOpts<T extends TypedArray> = {
   N: number;
   /** Prime modulus used for all coefficient arithmetic. */
   Q: number;
-  /** Inverse transform normalization factor (`256**-1 mod q` for Dilithium, `128**-1 mod q` for Kyber). */
+  /** Inverse transform normalization factor:
+   * `256**-1 mod q` for Dilithium, `128**-1 mod q` for Kyber.
+   */
   F: number;
   /** Principal root of unity for the transform domain. */
   ROOT_OF_UNITY: number;
@@ -81,23 +87,30 @@ export const genCrystals = <T extends TypedArray>(
   smod: (a: number, modulo?: number) => number;
   nttZetas: T;
   NTT: {
+    /** Forward transform in place. Mutates and returns `r`. */
     encode: (r: T) => T;
+    /** Inverse transform in place. Mutates and returns `r`. */
     decode: (r: T) => T;
   };
   bitsCoder: (d: number, c: Coder<number, number>) => BytesCoderLen<T>;
 } => {
   // isKyber: true means Kyber, false means Dilithium
   const { newPoly, N, Q, F, ROOT_OF_UNITY, brvBits, isKyber } = opts;
+  // Normalize JS `%` into the canonical Z_m representative `[0, modulo-1]` expected by
+  // FIPS 203 §2.3 / FIPS 204 §2.3 before downstream mod-q arithmetic.
   const mod = (a: number, modulo = Q): number => {
     const result = a % modulo | 0;
     return (result >= 0 ? result | 0 : (modulo + result) | 0) | 0;
   };
-  // -(Q-1)/2 < a <= (Q-1)/2
+  // FIPS 204 §7.4 uses the centered `mod ±` representative for low bits, keeping the
+  // positive midpoint when `modulo` is even.
+  // Center to `[-floor((modulo-1)/2), floor(modulo/2)]`.
   const smod = (a: number, modulo = Q): number => {
     const r = mod(a, modulo) | 0;
     return (r > modulo >> 1 ? (r - modulo) | 0 : r) | 0;
   };
-  // Generate zettas (different from roots of unity, negacyclic uses phi, where acyclic uses omega)
+  // Kyber uses the FIPS 203 Appendix A `BitRev_7` table here via the first 128 entries, while
+  // Dilithium uses the FIPS 204 §7.5 / Appendix B `BitRev_8` zetas table over all 256 entries.
   function getZettas() {
     const out = newPoly(N);
     for (let i = 0; i < N; i++) {
@@ -138,12 +151,15 @@ export const genCrystals = <T extends TypedArray>(
     },
     decode: (r: T): T => {
       dit(r as any);
+      // The inverse-NTT normalization factor is family-specific: FIPS 203 Algorithm 10 line 14
+      // uses `128^-1 mod q` for Kyber, while FIPS 204 Algorithm 42 lines 21-23 use `256^-1 mod q`.
       // kyber uses 128 here, because brv && stuff
       for (let i = 0; i < r.length; i++) r[i] = mod(F * r[i]);
       return r;
     },
   };
-  // Encode polynominal as bits
+  // Pack one little-endian `d`-bit word per coefficient, matching FIPS 203 ByteEncode /
+  // ByteDecode and the FIPS 204 BitsToBytes-based polynomial packing helpers.
   const bitsCoder = (d: number, c: Coder<number, number>): BytesCoderLen<T> => {
     const mask = getMask(d);
     const bytesLen = d * (N / 8);
@@ -192,6 +208,8 @@ const createXofShake =
     return {
       stats: () => ({ calls, xofs }),
       get: (x: number, y: number) => {
+        // Rebind to `seed || x || y` so callers can implement the spec's per-coordinate
+        // SHAKE inputs like `rho || j || i` and `rho || IntegerToBytes(counter, 2)`.
         _seed[seedLen + 0] = x;
         _seed[seedLen + 1] = y;
         h.destroy();
@@ -211,6 +229,8 @@ const createXofShake =
 
 /**
  * SHAKE128-based extendable-output reader factory used by ML-KEM.
+ * `get(x, y)` selects one coordinate pair at a time; calling it again invalidates previously
+ * returned readers, and each squeeze reuses one mutable internal output buffer.
  * @param seed - Seed bytes for the reader.
  * @param blockLen - Optional output block length.
  * @returns Stateful XOF reader.
@@ -226,6 +246,8 @@ const createXofShake =
 export const XOF128: XOF = /* @__PURE__ */ createXofShake(shake128);
 /**
  * SHAKE256-based extendable-output reader factory used by ML-DSA.
+ * `get(x, y)` appends raw one-byte coordinates to the seed, invalidates previously returned
+ * readers, and reuses one mutable internal output buffer for each squeeze.
  * @param seed - Seed bytes for the reader.
  * @param blockLen - Optional output block length.
  * @returns Stateful XOF reader.

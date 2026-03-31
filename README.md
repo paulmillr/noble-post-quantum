@@ -252,6 +252,8 @@ For [hashes](https://github.com/paulmillr/noble-hashes), use SHA512 or SHA3-512 
 
 The library has not been independently audited yet.
 
+v0.6.0 (Mar 2026) has been undergone through a self-audit. All files were in scope.
+
 If you see anything unusual: investigate and report.
 
 ### Constant-timeness

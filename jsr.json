@@ -4,6 +4,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./_crystals.js": "./src/_crystals.ts",
+    "./falcon.js": "./src/falcon.ts",
     "./hybrid.js": "./src/hybrid.ts",
     "./ml-dsa.js": "./src/ml-dsa.ts",
     "./ml-kem.js": "./src/ml-kem.ts",
@@ -11,6 +12,7 @@
     "./utils.js": "./src/utils.ts"
   },
   "imports": {
+    "@noble/ciphers": "jsr:@noble/ciphers@~2.0.0",
     "@noble/curves": "jsr:@noble/curves@~2.0.0",
     "@noble/hashes": "jsr:@noble/hashes@~2.0.0"
   },

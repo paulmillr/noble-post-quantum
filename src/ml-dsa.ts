@@ -34,7 +34,11 @@ import {
 
 /** Internal ML-DSA options. */
 export type DSAInternalOpts = {
-  /** Whether the caller passes an externally precomputed `mu` value. */
+  /**
+   * Whether `internal.sign` / `internal.verify` receive a caller-supplied 64-byte `mu`
+   * instead of the usual FIPS 204 formatted message `M'` / prehash-formatted message.
+   * validateInternalOpts() only checks this flag; callers still must supply the right input length.
+   */
   externalMu?: boolean;
 };
 function validateInternalOpts(opts: DSAInternalOpts) {
@@ -57,13 +61,18 @@ export type DSAInternal = CryptoKeys & {
 export type DSA = Signer & { internal: DSAInternal };
 
 // Constants
+// FIPS 204 fixes ML-DSA over R = Z[X]/(X^256 + 1), so every polynomial has 256 coefficients.
 const N = 256;
 // 2**23 − 2**13 + 1, 23 bits: multiply will be 46. We have enough precision in JS to avoid bigints
 const Q = 8380417;
+// FIPS 204 §2.5 / Table 1 fixes zeta = 1753 as the 512th root of unity used by ML-DSA's NTT.
 const ROOT_OF_UNITY = 1753;
 // f = 256**−1 mod q, pow(256, -1, q) = 8347681 (python3)
 const F = 8347681;
+// FIPS 204 Table 1 / §7.4 fixes d = 13 dropped low bits for Power2Round on t.
 const D = 13;
+// FIPS 204 Table 1 fixes gamma2 to (q-1)/88 for ML-DSA-44 and (q-1)/32 for ML-DSA-65/87;
+// §7.4 then uses alpha = 2*gamma2 for Decompose / MakeHint / UseHint.
 // Dilithium is kinda parametrized over GAMMA2, but everything will break with any other value.
 const GAMMA2_1 = Math.floor((Q - 1) / 88) | 0;
 const GAMMA2_2 = Math.floor((Q - 1) / 32) | 0;
@@ -92,7 +101,11 @@ export type DSAParam = {
 };
 /** Internal params for different versions of ML-DSA  */
 // prettier-ignore
-/** Built-in ML-DSA parameter presets keyed by mode number. */
+/** Built-in ML-DSA parameter presets keyed by security categories `2/3/5`
+ * for `ml_dsa44` / `ml_dsa65` / `ml_dsa87`.
+ * This is only the Table 1 subset used directly here: `BETA = TAU * ETA` is derived later,
+ * while `C_TILDE_BYTES`, `TR_BYTES`, `CRH_BYTES`, and `securityLevel` live in the preset wrappers.
+ */
 export const PARAMS: Record<string, DSAParam> = /* @__PURE__ */ (() => ({
   2: { K: 4, L: 4, D, GAMMA1: 2 ** 17, GAMMA2: GAMMA2_1, TAU: 39, ETA: 2, OMEGA: 80 },
   3: { K: 6, L: 5, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 49, ETA: 4, OMEGA: 55 },
@@ -103,6 +116,8 @@ export const PARAMS: Record<string, DSAParam> = /* @__PURE__ */ (() => ({
 type Poly = Int32Array;
 const newPoly = (n: number): Int32Array => new Int32Array(n);
 
+// Shared CRYSTALS helper in the ML-DSA branch: non-Kyber mode, 8-bit bit-reversal,
+// and Int32Array polys because ordinary-form coefficients can be negative / centered.
 const crystals = /* @__PURE__ */ genCrystals({
   N,
   Q,
@@ -116,32 +131,39 @@ const crystals = /* @__PURE__ */ genCrystals({
 const id = <T>(n: T): T => n;
 type IdNum = (n: number) => number;
 
+// compress()/verify() must be compatible in both directions:
+// wrap the shared d-bit packer with the FIPS 204 SimpleBitPack / BitPack coefficient maps.
+// malformed-input rejection only happens through the optional verify hook.
 const polyCoder = (d: number, compress: IdNum = id, verify: IdNum = id) =>
   crystals.bitsCoder(d, {
     encode: (i: number) => compress(verify(i)),
     decode: (i: number) => verify(compress(i)),
   });
 
+// Mutates `a` in place; callers must pass same-length polynomials.
 const polyAdd = (a: Poly, b: Poly) => {
   for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i] + b[i]);
   return a;
 };
+// Mutates `a` in place; callers must pass same-length polynomials.
 const polySub = (a: Poly, b: Poly): Poly => {
   for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i] - b[i]);
   return a;
 };
 
+// Mutates `p` in place and assumes it is a decoded `t1`-range polynomial.
 const polyShiftl = (p: Poly): Poly => {
   for (let i = 0; i < N; i++) p[i] <<= D;
   return p;
 };
 
 const polyChknorm = (p: Poly, B: number): boolean => {
-  // Not very sure about this, but FIPS204 doesn't provide any function for that :(
+  // FIPS 204 Algorithms 7 and 8 express the same centered-norm check with explicit inequalities.
   for (let i = 0; i < N; i++) if (Math.abs(crystals.smod(p[i])) >= B) return true;
   return false;
 };
 
+// Both inputs must already be in NTT / `T_q` form.
 const MultiplyNTTs = (a: Poly, b: Poly): Poly => {
   // NOTE: we don't use montgomery reduction in code, since it requires 64 bit ints,
   // which is not available in JS. mod(a[i] * b[i]) is ok, since Q is 23 bit,
@@ -154,13 +176,14 @@ const MultiplyNTTs = (a: Poly, b: Poly): Poly => {
 
 // Return poly in NTT representation
 function RejNTTPoly(xof: XofGet) {
-  // Samples a polynomial ∈ Tq.
+  // Samples a polynomial ∈ Tq. xof() must return byte lengths divisible by 3.
   const r = newPoly(N);
   // NOTE: we can represent 3xu24 as 4xu32, but it doesn't improve perf :(
   for (let j = 0; j < N; ) {
     const b = xof();
     if (b.length % 3) throw new Error('RejNTTPoly: unaligned block');
     for (let i = 0; j < N && i <= b.length - 3; i += 3) {
+      // FIPS 204 Algorithm 14 clears the top bit of b2 before forming the 23-bit candidate.
       const t = (b[i + 0] | (b[i + 1] << 8) | (b[i + 2] << 16)) & 0x7fffff; // 3 bytes
       if (t < Q) r[j++] = t;
     }
@@ -184,6 +207,8 @@ type DilithiumOpts = {
   securityLevel: number;
 };
 
+// Instantiate one ML-DSA parameter set from the Table 1 lattice constants plus the
+// Table 2 byte lengths / hash-width choices used by the public wrappers below.
 function getDilithium(opts: DilithiumOpts) {
   const { K, L, GAMMA1, GAMMA2, TAU, ETA, OMEGA } = opts;
   const { CRH_BYTES, TR_BYTES, C_TILDE_BYTES, XOF128, XOF256, securityLevel } = opts;
@@ -197,6 +222,7 @@ function getDilithium(opts: DilithiumOpts) {
     // Decomposes r into (r1, r0) such that r ≡ r1(2γ2) + r0 mod q.
     const rPlus = crystals.mod(r);
     const r0 = crystals.smod(rPlus, 2 * GAMMA2) | 0;
+    // FIPS 204 Algorithm 36 folds the top bucket `q-1` back to `(r1, r0) = (0, r0-1)`.
     if (rPlus - r0 === Q - 1) return { r1: 0 | 0, r0: (r0 - 1) | 0 };
     const r1 = Math.floor((rPlus - r0) / (2 * GAMMA2)) | 0;
     return { r1, r0 }; // r1 = HighBits, r0 = LowBits
@@ -206,6 +232,10 @@ function getDilithium(opts: DilithiumOpts) {
   const LowBits = (r: number) => decompose(r).r0;
   const MakeHint = (z: number, r: number) => {
     // Compute hint bit indicating whether adding z to r alters the high bits of r.
+    // FIPS 204 §6.2 also permits the Section 5.1 alternative from [6], which uses the
+    // transformed low-bits/high-bits state at this call site instead of Algorithm 39 literally.
+    // This optimized predicate only applies to those transformed Section 5.1 inputs; it is
+    // not a drop-in replacement for Algorithm 39 on arbitrary `(z, r)` pairs.
 
     // From dilithium code
     const res0 = z <= GAMMA2 || z > Q - GAMMA2 || (z === Q - GAMMA2 && r === 0) ? 0 : 1;
@@ -216,8 +246,9 @@ function getDilithium(opts: DilithiumOpts) {
     // But they return different results! However, decompose is same.
     // So, either there is a bug in Dilithium ref implementation or in FIPS204.
     // For now, lets use dilithium one, so test vectors can be passed.
-    // See
-    // https://github.com/GiacomoPope/dilithium-py?tab=readme-ov-file#optimising-decomposition-and-making-hints
+    // The round-3 Dilithium / ML-DSA code uses the same low-bits / high-bits convention after
+    // `r0 += ct0`.
+    // See dilithium-py README section "Optimising decomposition and making hints".
     return res0;
   };
 
@@ -298,7 +329,9 @@ function getDilithium(opts: DilithiumOpts) {
       ? (n: number) => (n < 15 ? 2 - (n % 5) : false)
       : (n: number) => (n < 9 ? 4 - n : false);
 
-  // Return poly in NTT representation
+  // Return poly in ordinary representation.
+  // This helper returns ordinary-form `[-ETA, ETA]` coefficients for ExpandS; callers apply
+  // `NTT.encode()` later when needed.
   function RejBoundedPoly(xof: XofGet) {
     // Samples an element a ∈ Rq with coeffcients in [−η, η] computed via rejection sampling from ρ.
     const r: Poly = newPoly(N);
@@ -321,6 +354,8 @@ function getDilithium(opts: DilithiumOpts) {
     const s = shake256.create({}).update(seed);
     const buf = new Uint8Array(shake256.blockLen);
     s.xofInto(buf);
+    // FIPS 204 Algorithm 29 uses the first 8 squeezed bytes as the 64 sign bits `h`,
+    // then rejection-samples coefficient positions from the remaining XOF stream.
     const masks = buf.slice(0, 8);
     for (let i = N - TAU, pos = 8, maskPos = 0, maskBit = 0; i < N; i++) {
       let b = i + 1;
@@ -351,6 +386,8 @@ function getDilithium(opts: DilithiumOpts) {
     return { r0: res0, r1: res1 };
   };
   const polyUseHint = (u: Poly, h: Poly): Poly => {
+    // In-place on `u`: verification only needs the recovered high bits, so reuse the
+    // temporary `wApprox` buffer instead of allocating another polynomial.
     for (let i = 0; i < N; i++) u[i] = UseHint(h[i], u[i]);
     return u;
   };
@@ -415,17 +452,21 @@ function getDilithium(opts: DilithiumOpts) {
       }
       const publicKey = publicCoder.encode([rho, t1]); // pk ← pkEncode(ρ, t1)
       const tr = shake256(publicKey, { dkLen: TR_BYTES }); // tr ← H(BytesToBits(pk), 512)
-      const secretKey = secretCoder.encode([rho, K_, tr, s1, s2, t0]); // sk ← skEncode(ρ, K,tr, s1, s2, t0)
+      // sk ← skEncode(ρ, K,tr, s1, s2, t0)
+      const secretKey = secretCoder.encode([rho, K_, tr, s1, s2, t0]);
       xof.clean();
       xofPrime.clean();
       // STATS
-      // Kyber512:  { calls: 4, xofs: 12 }, Kyber768: { calls: 9, xofs: 27 }, Kyber1024: { calls: 16, xofs: 48 }
-      // DSA44:    { calls: 24, xofs: 24 }, DSA65:    { calls: 41, xofs: 41 }, DSA87:    { calls: 71, xofs: 71 }
+      // Kyber512: { calls: 4, xofs: 12 }, Kyber768: { calls: 9, xofs: 27 },
+      // Kyber1024: { calls: 16, xofs: 48 }
+      // DSA44: { calls: 24, xofs: 24 }, DSA65: { calls: 41, xofs: 41 },
+      // DSA87: { calls: 71, xofs: 71 }
       cleanBytes(rho, rhoPrime, K_, s1, s2, s1Hat, t, t0, t1, tr, seedDst);
       return { publicKey, secretKey };
     },
     getPublicKey: (secretKey: Uint8Array) => {
-      const [rho, _K, _tr, s1, s2, _t0] = secretCoder.decode(secretKey); // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
+      // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
+      const [rho, _K, _tr, s1, s2, _t0] = secretCoder.decode(secretKey);
       const xof = XOF128(rho);
       const s1Hat = s1.map((p) => crystals.NTT.encode(p.slice()));
       const t1: Poly[] = [];
@@ -452,7 +493,8 @@ function getDilithium(opts: DilithiumOpts) {
       let { extraEntropy: random, externalMu = false } = opts;
       // This part can be pre-cached per secretKey, but there is only minor performance improvement,
       // since we re-use a lot of variables to computation.
-      const [rho, _K, tr, s1, s2, t0] = secretCoder.decode(secretKey); // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
+      // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
+      const [rho, _K, tr, s1, s2, t0] = secretCoder.decode(secretKey);
       // Cache matrix to avoid re-compute later
       const A: Poly[][] = []; // A ← ExpandA(ρ)
       const xof = XOF128(rho);
@@ -470,7 +512,9 @@ function getDilithium(opts: DilithiumOpts) {
       // This part is per msg
       const mu = externalMu
         ? msg
-        : shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 6: µ ← H(tr||M, 512) ▷ Compute message representative µ
+        : // 6: µ ← H(tr||M, 512)
+          //    ▷ Compute message representative µ
+          shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest();
 
       // Compute private random seed
       const rnd =
@@ -512,7 +556,8 @@ function getDilithium(opts: DilithiumOpts) {
           .update(W1Vec.encode(w1))
           .digest();
         // Verifer’s challenge
-        const cHat = crystals.NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1); cˆ ← NTT(c)
+        // c ← SampleInBall(c˜1); cˆ ← NTT(c)
+        const cHat = crystals.NTT.encode(SampleInBall(cTilde));
         // ⟨⟨cs1⟩⟩ ← NTT−1(cˆ◦ sˆ1)
         const cs1 = s1.map((i) => MultiplyNTTs(i, cHat));
         for (let i = 0; i < L; i++) {
@@ -538,7 +583,11 @@ function getDilithium(opts: DilithiumOpts) {
         x256.clean();
         const res = sigCoder.encode([cTilde, cs1, h]); // σ ← sigEncode(c˜, z mod±q, h)
         // rho, _K, tr is subarray of secretKey, cannot clean.
-        cleanBytes(cTilde, cs1, h, cHat, w1, w, z, y, rhoprime, mu, s1, s2, t0, ...A);
+        cleanBytes(cTilde, cs1, h, cHat, w1, w, z, y, rhoprime, s1, s2, t0, ...A);
+        // `externalMu` hands ownership of `mu` to the caller,
+        // so only wipe the internally derived digest form here;
+        // zeroizing caller memory would break the caller's own reuse / verify path.
+        if (!externalMu) cleanBytes(mu);
         return res;
       }
       // @ts-ignore
@@ -557,12 +606,15 @@ function getDilithium(opts: DilithiumOpts) {
       const tr = shake256(publicKey, { dkLen: TR_BYTES }); // 6: tr ← H(BytesToBits(pk), 512)
 
       if (sig.length !== sigCoder.bytesLen) return false; // return false instead of exception
-      const [cTilde, z, h] = sigCoder.decode(sig); // (c˜, z, h) ← sigDecode(σ), ▷ Signer’s commitment hash c ˜, response z and hint
+      // (c˜, z, h) ← sigDecode(σ)
+      // ▷ Signer’s commitment hash c ˜, response z and hint
+      const [cTilde, z, h] = sigCoder.decode(sig);
       if (h === false) return false; // if h = ⊥ then return false
       for (let i = 0; i < L; i++) if (polyChknorm(z[i], GAMMA1 - BETA)) return false;
       const mu = externalMu
         ? msg
-        : shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest(); // 7: µ ← H(tr||M, 512)
+        : // 7: µ ← H(tr||M, 512)
+          shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest();
       // Compute verifer’s challenge from c˜
       const c = crystals.NTT.encode(SampleInBall(cTilde)); // c ← SampleInBall(c˜1)
       const zNtt = z.map((i) => i.slice()); // zNtt = NTT(z)

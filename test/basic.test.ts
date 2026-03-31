@@ -10,11 +10,12 @@ import {
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, throws } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
-import { ml_kem512 } from '../src/ml-kem.ts';
+import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
 import {
   getMessage,
   getMessagePrehash,
+  getMask,
   randomBytes,
   validateOpts,
   validateSigOpts,
@@ -27,6 +28,9 @@ describe('Basic', () => {
     throws(() => validateOpts(new Uint8Array([1]) as any), TypeError);
     throws(() => validateVerOpts(new Uint8Array([1]) as any), TypeError);
     throws(() => validateSigOpts(new Uint8Array([1]) as any), TypeError);
+    throws(() => validateOpts([] as any), TypeError);
+    throws(() => validateVerOpts([] as any), TypeError);
+    throws(() => validateSigOpts([] as any), TypeError);
     const c = vecCoder(
       {
         bytesLen: 1,
@@ -38,6 +42,10 @@ describe('Basic', () => {
     throws(() => c.encode([1]), RangeError);
     throws(() => getMessage(new Uint8Array([1]), new Uint8Array(256)), RangeError);
     throws(() => getMessagePrehash(sha3_256, new Uint8Array([1]), new Uint8Array(256)), RangeError);
+  });
+  should('getMask wide 32-bit edges', () => {
+    eql(getMask(31), 0x7fffffff);
+    eql(getMask(32), 0xffffffff);
   });
   describe('Immutability', () => {
     should('ML-KEM', () => {
@@ -91,6 +99,32 @@ describe('Basic', () => {
       eql(publicKey, keys.publicKey);
       eql(msg, msgCopy);
     });
+    should('ML-DSA internal externalMu', () => {
+      const cases = { ml_dsa44, ml_dsa65, ml_dsa87 };
+      for (const mldsa of Object.values(cases)) {
+        const keys = mldsa.keygen();
+        const secretKey = Uint8Array.from(keys.secretKey);
+        const secretCopy = Uint8Array.from(secretKey);
+        const publicKey = Uint8Array.from(keys.publicKey);
+        const publicCopy = Uint8Array.from(publicKey);
+        const mu = Uint8Array.from({ length: 64 }, (_, i) => i + 1);
+        const muCopy = Uint8Array.from(mu);
+        const random = randomBytes(mldsa.lengths.signRand);
+        const randomCopy = Uint8Array.from(random);
+        const sig = mldsa.internal.sign(mu, secretKey, {
+          externalMu: true,
+          extraEntropy: random,
+        });
+        eql(secretKey, secretCopy);
+        eql(mu, muCopy);
+        eql(random, randomCopy);
+        const sigCopy = Uint8Array.from(sig);
+        eql(mldsa.internal.verify(sig, mu, publicKey, { externalMu: true }), true);
+        eql(sig, sigCopy);
+        eql(mu, muCopy);
+        eql(publicKey, publicCopy);
+      }
+    });
     should('SLH-DSA', () => {
       // keygen
       const seed = randomBytes(48);
@@ -119,6 +153,22 @@ describe('Basic', () => {
       eql(sig, sigCopy);
       eql(msg, msgCopy);
     });
+  });
+  should('ML-KEM rejects public keys with coeffs above q - 1', () => {
+    const msg = randomBytes(32);
+    const cases = [
+      ['ml_kem512', ml_kem512, 64],
+      ['ml_kem768', ml_kem768, 64],
+      ['ml_kem1024', ml_kem1024, 64],
+    ] as const;
+    for (const [_name, kem, seedLen] of cases) {
+      const seed = Uint8Array.from({ length: seedLen }, (_, i) => i + 1);
+      const { publicKey } = kem.keygen(seed);
+      const bad = Uint8Array.from(publicKey);
+      bad[0] = 0xff;
+      bad[1] = (bad[1] & 0xf0) | 0x0f;
+      throws(() => kem.encapsulate(bad, msg), /wrong publicKey modulus/);
+    }
   });
   should('Hash compatibility', () => {
     const keys44 = ml_dsa44.keygen();
