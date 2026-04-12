@@ -24,6 +24,7 @@ import {
 } from '@noble/hashes/utils.js';
 import { genCrystals, type TypedCons } from './_crystals.ts';
 import {
+  baswap64If,
   type BytesCoderLen,
   cleanBytes,
   type Coder,
@@ -31,8 +32,9 @@ import {
   getMask,
   type Signer,
   type SigOpts,
-  baswap64If,
   splitCoder,
+  type TArg,
+  type TRet,
   validateSigOpts,
   validateVerOpts,
   type VerOpts,
@@ -121,12 +123,12 @@ const bitsCoderMSB = <T extends TypedArray>(
   N: number,
   d: number,
   c: Coder<number, number>
-): BytesCoderLen<T> => {
+): TRet<BytesCoderLen<T>> => {
   const mask = getMask(d);
   const bytesLen = d * (N / 8);
   return {
     bytesLen,
-    encode: (poly: T): Uint8Array => {
+    encode: (poly: TArg<T>): TRet<Uint8Array> => {
       if (poly.length !== N) throw new Error(`wrong length: expected ${N}, got ${poly.length}`);
       const r = new Uint8Array(bytesLen);
       for (let i = 0, buf = 0, bufLen = 0, pos = 0; i < poly.length; i++) {
@@ -134,38 +136,39 @@ const bitsCoderMSB = <T extends TypedArray>(
         bufLen += d;
         for (; bufLen >= 8; bufLen -= 8) r[pos++] = (buf >>> (bufLen - 8)) & 0xff;
       }
-      return r;
+      return r as TRet<Uint8Array>;
     },
-    decode: (bytes: Uint8Array): T => {
+    decode: (bytes: TArg<Uint8Array>): TRet<T> => {
       const r = newPoly(N);
       for (let i = 0, buf = 0, bufLen = 0, pos = 0; i < bytes.length; i++) {
         buf = (buf << 8) | bytes[i];
         bufLen += 8;
         for (; bufLen >= d; bufLen -= d) r[pos++] = c.decode((buf >>> (bufLen - d)) & mask);
       }
-      return r;
+      return r as TRet<T>;
     },
-  };
+  } as TRet<BytesCoderLen<T>>;
 };
 // Adds a single leading tag byte. Exact body validation is delegated to `restCoder.decode()`.
 // encode() zeroizes the temporary encoded body after copying, so wrapped encoders must return
 // owned scratch bytes rather than caller-owned buffers.
-const headerCoder = <T>(tag: number, restCoder: BytesCoderLen<T>): BytesCoderLen<T> => {
+const headerCoder = <T>(tag: number, restCoder: TArg<BytesCoderLen<T>>): TRet<BytesCoderLen<T>> => {
+  const coder = restCoder as BytesCoderLen<T>;
   return {
-    bytesLen: 1 + restCoder.bytesLen,
-    encode(value: T): Uint8Array {
-      const body = restCoder.encode(value);
+    bytesLen: 1 + coder.bytesLen,
+    encode(value: TArg<T>): TRet<Uint8Array> {
+      const body = coder.encode(value as T);
       const out = new Uint8Array(1 + body.length);
       out[0] = tag;
       out.set(body, 1);
       cleanBytes(body);
-      return out;
+      return out as TRet<Uint8Array>;
     },
-    decode(data: Uint8Array): T {
+    decode(data: TArg<Uint8Array>): TRet<T> {
       if (data[0] !== tag) throw new Error(`wrong tag: expected ${tag}, got 0x${data[0]}`);
-      return restCoder.decode(data.subarray(1));
+      return coder.decode(data.subarray(1)) as TRet<T>;
     },
-  };
+  } as TRet<BytesCoderLen<T>>;
 };
 
 // Fun, but overengineered. Hoping FIPS would fix this.
@@ -176,7 +179,7 @@ const headerCoder = <T>(tag: number, restCoder: BytesCoderLen<T>): BytesCoderLen
 const compCoder = (n: number) => {
   const LIMIT = 2047;
   return {
-    encode(data: Int16Array): Uint8Array {
+    encode(data: TArg<Int16Array>): TRet<Uint8Array> {
       // Algorithm 17: Compress(s, slen) (Page 47)
       // Require: A polynomial s = Σ sᵢxⁱ ∈ Z[x] of degree < n, a string bitlength slen
       // Ensure: A compressed representation str of s of slen bits, or ⊥
@@ -216,9 +219,9 @@ const compCoder = (n: number) => {
         writeBits((v >>> 7) + 1, 1); // high (unary)
       }
       if (bufLen > 0) res.push((buf << (8 - bufLen)) & 0xff);
-      return new Uint8Array(res);
+      return new Uint8Array(res) as TRet<Uint8Array>;
     },
-    decode(data: Uint8Array): Int16Array {
+    decode(data: TArg<Uint8Array>): TRet<Int16Array> {
       // Algorithm 18: Decompress(str, slen), (Page 48)
       // Require: A bitstring str = (str[i])_{i=0,...,slen-1}, a bitlength slen
       // Ensure: A polynomial s = Σ sᵢxⁱ ∈ Z[x], or ⊥
@@ -260,7 +263,7 @@ const compCoder = (n: number) => {
         res[resPos] = sign ? -v : v;
       }
       if (buf) throw new Error('non-empty accumulator');
-      return res;
+      return res as TRet<Int16Array>;
     },
   };
 };
@@ -268,12 +271,12 @@ const compCoder = (n: number) => {
 // Falcon padded-signature helper. encode() assumes `data.length <= len`; decode() strips trailing
 // zero padding and returns a subarray view, so it is not a generic byte-string codec.
 const pad = (len: number) => ({
-  encode(data: Uint8Array) {
+  encode(data: TArg<Uint8Array>) {
     const res = new Uint8Array(len);
     res.set(data);
     return res;
   },
-  decode(data: Uint8Array) {
+  decode(data: TArg<Uint8Array>) {
     let end = data.length;
     while (end > 0 && data[end - 1] === 0) end--;
     return data.subarray(0, end);
@@ -391,22 +394,22 @@ const ComplexArrInterleaved = {
   },
 };
 // Alias a Float64Array as bytes for the root-table hash pin; not a portable serialization.
-const u8f = (arr: Float64Array): Uint8Array =>
-  new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+const u8f = (arr: TArg<Float64Array>): TRet<Uint8Array> =>
+  new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength) as TRet<Uint8Array>;
 
 // Alias bytes as Float64Array lanes. Falcon's exact binary64 tables are stored as little-endian
 // payload bytes, so BE runtimes must decode lane-by-lane instead of aliasing host-endian floats.
 // Copy/truncate to whole 8-byte lanes first
 // so BE byte swaps cannot mutate caller-owned bytes
 // or read a partial float.
-const f64a = (arr: Uint8Array): Float64Array =>
+const f64a = (arr: TArg<Uint8Array>): TRet<Float64Array> =>
   new Float64Array(
     baswap64If(Uint8Array.from(arr.subarray(0, Math.floor(arr.byteLength / 8) * 8))).buffer
-  );
+  ) as TRet<Float64Array>;
 
 // Exact big-endian binary64 hex helper for constants. Only decode() is currently used; malformed
 // inputs fail through lower-level hex / DataView checks instead of an explicit wrapper guard.
-const Float = {
+const Float = /* @__PURE__ */ Object.freeze({
   encode(n: number): string {
     const bytes = new Uint8Array(8);
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -418,7 +421,7 @@ const Float = {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     return view.getFloat64(0, false);
   },
-};
+});
 // Decode a 64-bit bigint bit pattern into the exact binary64 value.
 const f64b = (n: bigint): number => Float.decode(numberToHexUnpadded(n));
 
@@ -426,8 +429,6 @@ const f64b = (n: bigint): number => Float.decode(numberToHexUnpadded(n));
 type SignatureRaw = { msg: Uint8Array; nonce: Uint8Array; s2: Uint8Array };
 type BPoly = bigint[];
 type FPoly = Float64Array;
-// Keep these non-generic to match the rest of noble;
-// newer typed-array defs get handled at call sites.
 type SPoly = Int8Array; // Small poly (f/g/F/G)
 type IPoly = Uint16Array; // Integer poly mod Q
 
@@ -510,7 +511,7 @@ const gauss_1024_12289 = [
 
 // Exact binary64 1/sigma payloads from round-3 fpr.h. Nearby decimal spellings round 1 ULP low in
 // JS, so keep these as decoded bit patterns and recheck the raw payloads after edits.
-const INV_SIGMA = [
+const INV_SIGMA = /* @__PURE__ */ Object.freeze([
   0.0, // unused
   f64b(BigInt('4574611497772390042')),
   f64b(BigInt('4574501679055810265')),
@@ -522,12 +523,12 @@ const INV_SIGMA = [
   f64b(BigInt('4573721358406441454')),
   f64b(BigInt('4573606369665796042')),
   f64b(BigInt('4573496814039276259')),
-];
+]);
 
 // Exact binary64 sigma_min constants from round-3 fpr.h indexed by logn; despite one PQClean
 // summary comment, these are sigma_min itself, not 1/sigma_min, which is why this table stays
 // separate from INV_SIGMA.
-const SIGMA_MIN = [
+const SIGMA_MIN = /* @__PURE__ */ Object.freeze([
   0.0, // unused
   f64b(BigInt('4607707126469777035')),
   f64b(BigInt('4607777455861499430')),
@@ -539,7 +540,7 @@ const SIGMA_MIN = [
   f64b(BigInt('4608340089478362016')),
   f64b(BigInt('4608433670533905013')),
   f64b(BigInt('4608525754002622308')),
-];
+]);
 
 // Falcon Table 3.1 RCDT values for chi, split into 24-bit limbs; storage is [high, mid, low],
 // so gaussian0() intentionally compares them against v0, v1, v2 in reverse order. The final
@@ -1018,19 +1019,19 @@ function getIntPoly(logn: number) {
   });
   // Keep Falcon source compatible with older TS parsers: avoid spelling newer
   // `Uint16Array<ArrayBuffer>` syntax directly and cast the callee side at the boundary.
-  const ntt = (r: IPoly): IPoly => (NTT.encode as any)(r);
-  const intt = (r: IPoly): IPoly => (NTT.decode as any)(r);
+  const ntt = (r: TArg<IPoly>): TRet<IPoly> => (NTT.encode as any)(r);
+  const intt = (r: TArg<IPoly>): TRet<IPoly> => (NTT.decode as any)(r);
   // Falcon integer helpers mutate their first argument in place; div() also performs intt()
   // before returning, so callers must treat these as owned-temporary transforms, not pure helpers.
   // Centered representatives are in [-6144, 6144] for odd q = 12289,
   // not a generic [-q/2, q/2] range.
   const signedCoder = {
-    encode: (p: IPoly) => Int16Array.from(p, (x) => smod(x)),
-    decode: (p: SPoly | Int16Array) => Uint16Array.from(p, (x) => mod(x)),
+    encode: (p: TArg<IPoly>) => Int16Array.from(p, (x) => smod(x)),
+    decode: (p: TArg<SPoly | Int16Array>) => Uint16Array.from(p, (x) => mod(x)),
   };
   const intPoly = {
     create: newPoly,
-    smallSqnorm(f: SPoly) {
+    smallSqnorm(f: TArg<SPoly>) {
       let s = 0;
       let ng = 0;
       for (let u = 0; u < n; u++) {
@@ -1040,7 +1041,7 @@ function getIntPoly(logn: number) {
       }
       return (s | -(ng >>> 31)) >>> 0;
     },
-    isShort(s1: Int16Array, s2: Int16Array) {
+    isShort(s1: TArg<Int16Array>, s2: TArg<Int16Array>) {
       let s = 0 >>> 0;
       let ng = 0 >>> 0;
       for (let u = 0; u < n; u++) {
@@ -1054,24 +1055,24 @@ function getIntPoly(logn: number) {
       if (ng & 0x80000000) s = 0xffffffff;
       return s <= L2BOUND[logn];
     },
-    sub(a: IPoly, b: IPoly): IPoly {
+    sub(a: TArg<IPoly>, b: TArg<IPoly>): TRet<IPoly> {
       for (let i = 0; i < n; i++) a[i] = mod(a[i] - b[i]);
-      return a;
+      return a as TRet<IPoly>;
     },
     ntt,
     intt,
-    toMontgomery(d: IPoly): IPoly {
+    toMontgomery(d: TArg<IPoly>): TRet<IPoly> {
       for (let i = 0; i < n; i++) d[i] = intField.mul(d[i], R2);
-      return d;
+      return d as TRet<IPoly>;
     },
-    mul(f: IPoly, d: IPoly): IPoly {
+    mul(f: TArg<IPoly>, d: TArg<IPoly>): TRet<IPoly> {
       for (let i = 0; i < n; i++) f[i] = intField.mul(f[i], d[i]);
-      return f;
+      return f as TRet<IPoly>;
     },
-    div(f: IPoly, d: IPoly): IPoly {
+    div(f: TArg<IPoly>, d: TArg<IPoly>): TRet<IPoly> {
       for (let i = 0; i < n; i++) f[i] = intField.div(f[i], d[i]);
       this.intt(f);
-      return f;
+      return f as TRet<IPoly>;
     },
   };
   return { newPoly, intPoly, signedCoder };
@@ -1127,19 +1128,19 @@ function getFloatPoly(logn: number) {
   const fftOpts = { N: N_COMPLEX, invertButterflies: true, skipStages: 0, brp: false };
   const inv = 1.0 / N_COMPLEX;
   return {
-    to: (f: FPoly) => ComplexArr.decode(Array.from(f)),
-    from: (f: CPoly): FPoly => new Float64Array(ComplexArr.encode(f)),
+    to: (f: TArg<FPoly>) => ComplexArr.decode(Array.from(f)),
+    from: (f: CPoly): TRet<FPoly> => new Float64Array(ComplexArr.encode(f)) as TRet<FPoly>,
     // Runtime callers also pass HashToPoint's Uint16Array output here;
     // the implementation only needs a numeric typed-array shape,
     // even though the local type is narrower.
-    convSmall: (f: SPoly): CPoly => ComplexArr.decode(Array.from(f)),
+    convSmall: (f: TArg<SPoly>): CPoly => ComplexArr.decode(Array.from(f)),
     add: (a: CPoly, b: CPoly): CPoly => a.map((i, j) => fComplex.add(i, b[j])),
     sub: (a: CPoly, b: CPoly): CPoly => a.map((i, j) => fComplex.sub(i, b[j])),
     neg: (a: CPoly): CPoly => a.map((i) => fComplex.neg(i)),
     mul: (a: CPoly, b: CPoly): CPoly => a.map((i, j) => fComplex.mul(i, b[j])),
     conj: (a: CPoly): CPoly => a.map((i) => fComplex.conj(i)),
     mulConst: (a: CPoly, x: number): CPoly => a.map((i) => fComplex.scale(i, x)),
-    scaleNorm: (a: CPoly, b: FPoly): CPoly => a.map((i, j) => fComplex.scale(i, b[j])),
+    scaleNorm: (a: CPoly, b: TArg<FPoly>): CPoly => a.map((i, j) => fComplex.scale(i, b[j])),
     invNorm: (a: CPoly, b: CPoly) =>
       new Float64Array(a.map((i, j) => 1.0 / fComplex.magSqSum(i, b[j]))),
     FFT: (f: CPoly): CPoly =>
@@ -1199,7 +1200,8 @@ type FalconOpts = {
   maxS2Len: number;
 };
 
-type FalconSigOpts = SigOpts & { random?: typeof randomBytes };
+type FalconRandom = (bytesLength?: number) => TRet<Uint8Array>;
+type FalconSigOpts = SigOpts & { random?: FalconRandom };
 /** Falcon attached-signature API. */
 export type FalconAttached = CryptoKeys & {
   /** Key lengths plus the 48-byte sampler-seed hook for signing. */
@@ -1227,7 +1229,7 @@ export type Falcon = Signer & {
   attached: FalconAttached;
 };
 
-function genFalcon(opts: FalconOpts): Falcon {
+function genFalcon(opts: FalconOpts): TRet<Falcon> {
   const { N } = opts;
   const logn = Math.log2(N);
   const id = <T>(n: T): T => n;
@@ -1544,14 +1546,14 @@ function genFalcon(opts: FalconOpts): Falcon {
     }) as BytesCoderLen<IPoly>;
     return {
       bytesLen: coder.bytesLen,
-      encode(poly: Uint16Array) {
+      encode(poly: TArg<Uint16Array>) {
         // Keep these raw checks in sync with Q:
         // Falcon public-key coefficients must stay in [0, q - 1].
         for (let i = 0; i < poly.length; i++)
           if (poly[i] >= 12289) throw new Error('public key coeff out of range');
         return coder.encode(poly);
       },
-      decode(bytes: Uint8Array) {
+      decode(bytes: TArg<Uint8Array>) {
         // Round-3 Falcon requires exact body length here;
         // otherwise truncated keys decode as zero-padded
         // and overlong keys silently ignore the tail in this generic bit decoder.
@@ -1577,7 +1579,7 @@ function genFalcon(opts: FalconOpts): Falcon {
     }) as BytesCoderLen<SPoly>;
     return {
       bytesLen: coder.bytesLen,
-      encode(poly: Int8Array) {
+      encode(poly: TArg<Int8Array>) {
         // Secret-key trim encodings keep a symmetric signed range and reserve the most-negative
         // value as a non-canonical sentinel,
         // so encode() and decode() intentionally use different bounds.
@@ -1587,7 +1589,7 @@ function genFalcon(opts: FalconOpts): Falcon {
           if (poly[i] < min || poly[i] > max) throw new Error('private key coeff out of range');
         return coder.encode(poly);
       },
-      decode(bytes: Uint8Array) {
+      decode(bytes: TArg<Uint8Array>) {
         const poly = coder.decode(bytes);
         const min = -(1 << (bits - 1));
         for (let i = 0; i < poly.length; i++)
@@ -1606,7 +1608,7 @@ function genFalcon(opts: FalconOpts): Falcon {
     splitCoder('falcon.secretKey', fgCoder, fgCoder, FGCoder)
   ) as BytesCoderLen<[Int8Array, Int8Array, Int8Array]>;
   const publicKeyCoder = headerCoder(0x00 + logn, modqCoder()) as BytesCoderLen<Uint16Array>;
-  const decodePaddedSig = (s2: Uint8Array) => {
+  const decodePaddedSig = (s2: TArg<Uint8Array>) => {
     // The fixed padded form accepts only a canonical compressed payload
     // followed by an all-zero tail.
     const normalized = compCoder(N).encode(compCoder(N).decode(s2));
@@ -1614,7 +1616,7 @@ function genFalcon(opts: FalconOpts): Falcon {
       if (s2[i] !== 0) throw new Error('non-zero padding');
     return normalized;
   };
-  const decodeUnpaddedSig = (s2: Uint8Array) => {
+  const decodeUnpaddedSig = (s2: TArg<Uint8Array>) => {
     // Unpadded attached and detached signatures require the compressed payload to use its exact
     // canonical bitlength. Appending a zero tail and adjusting the outer container length must
     // still be rejected.
@@ -1628,7 +1630,7 @@ function genFalcon(opts: FalconOpts): Falcon {
   const SignatureCoderBasic = (logn: number) => {
     const TYPE_BYTE = 0x20 + logn;
     return {
-      encode({ msg, nonce, s2 }: SignatureRaw): Uint8Array {
+      encode({ msg, nonce, s2 }: TArg<SignatureRaw>): TRet<Uint8Array> {
         let compressed: Uint8Array = s2;
         const payloadLen = 1 + compressed.length;
         const totalLen = 2 + NONCELEN + msg.length + payloadLen;
@@ -1642,9 +1644,9 @@ function genFalcon(opts: FalconOpts): Falcon {
         i += msg.length;
         out[i++] = TYPE_BYTE;
         out.set(compressed, i);
-        return out;
+        return out as TRet<Uint8Array>;
       },
-      decode(data: Uint8Array): SignatureRaw {
+      decode(data: TArg<Uint8Array>): TRet<SignatureRaw> {
         if (!data || data.length < NONCELEN + 3) throw new Error('signature coder: wrong length');
         const len = (data[0] << 8) | data[1];
         const s2Len = len - 1;
@@ -1656,50 +1658,50 @@ function genFalcon(opts: FalconOpts): Falcon {
         const msg = data.subarray(2 + NONCELEN, 2 + NONCELEN + msgLen);
         const s2 = decodeUnpaddedSig(data.subarray(2 + NONCELEN + msgLen + 1));
         if (s2.length !== s2Len) throw new Error('signature coder: wrong s2 length');
-        return { msg, nonce, s2 };
+        return { msg, nonce, s2 } as TRet<SignatureRaw>;
       },
     };
   };
   const SignatureCoderPadded = (logn: number) => {
     const sigLen = opts.paddedLen;
     return {
-      encode({ msg, nonce, s2 }: SignatureRaw): Uint8Array {
+      encode({ msg, nonce, s2 }: TArg<SignatureRaw>): TRet<Uint8Array> {
         return headerCoder(
           0x30 + logn,
           splitCoder('falcon.signature', NONCELEN, sigLen, msg.length)
         ).encode([nonce, pad(sigLen).encode(s2), msg]);
       },
-      decode(data: Uint8Array): SignatureRaw {
+      decode(data: TArg<Uint8Array>): TRet<SignatureRaw> {
         const msgLen = data.length - NONCELEN - sigLen - 1;
         const [nonce, s2, msg] = headerCoder(
           0x30 + logn,
           splitCoder('falcon.signature', NONCELEN, sigLen, msgLen)
         ).decode(data);
-        return { nonce, s2: decodeSig(s2), msg };
+        return { nonce, s2: decodeSig(s2), msg } as TRet<SignatureRaw>;
       },
     };
   };
   // [ 1B header ] [ 40B nonce ] [ compressed_sig ]
   const SignatureCoderDetached = (logn: number) => {
     const sigLen = opts.padded ? opts.sigLen - 1 - NONCELEN : opts.detachedLen;
-    const getSigLen = (s2: Uint8Array) => (opts.padded ? sigLen : s2.length);
+    const getSigLen = (s2: TArg<Uint8Array>) => (opts.padded ? sigLen : s2.length);
     return {
-      encode({ nonce, s2 }: { nonce: Uint8Array; s2: Uint8Array }): Uint8Array {
+      encode({ nonce, s2 }: TArg<{ nonce: Uint8Array; s2: Uint8Array }>): TRet<Uint8Array> {
         return headerCoder(
           0x30 + logn,
           splitCoder('falcon.detachedSignature', NONCELEN, getSigLen(s2))
         ).encode([nonce, opts.padded ? pad(sigLen).encode(s2) : s2]);
       },
-      decode(data: Uint8Array): {
+      decode(data: TArg<Uint8Array>): TRet<{
         nonce: Uint8Array;
         s2: Uint8Array;
-      } {
+      }> {
         const [nonce, raw] = headerCoder(
           0x30 + logn,
           splitCoder('falcon.detachedSignature', NONCELEN, data.length - NONCELEN - 1)
         ).decode(data);
         const s2 = decodeSig(raw);
-        return { nonce, s2 };
+        return { nonce, s2 } as TRet<{ nonce: Uint8Array; s2: Uint8Array }>;
       },
     };
   };
@@ -1708,13 +1710,13 @@ function genFalcon(opts: FalconOpts): Falcon {
   // otherwise malformed secret keys leak a raw arithmetic error.
   // Returns NTT(f) after the nonzero-lane check;
   // callers still apply f^{-1} via coefficient-wise division.
-  const invertF = (f: SPoly) => {
+  const invertF = (f: TArg<SPoly>) => {
     const tt = intPoly.ntt(signedCoder.decode(f));
     for (let u = 0; u < N; u++)
       if (tt[u] === 0) throw new Error('invalid secretKey: non-invertible f');
     return tt;
   };
-  function computePublic(f: SPoly, g: SPoly) {
+  function computePublic(f: TArg<SPoly>, g: TArg<SPoly>) {
     const tt = invertF(f);
     const h = intPoly.ntt(signedCoder.decode(g));
     // intPoly.div() returns to coefficient form via intt(), so public keys are encoded from the
@@ -1725,7 +1727,7 @@ function genFalcon(opts: FalconOpts): Falcon {
   }
   // Reconstruct the omitted secret-key limb G as g*F/f mod q, then mirror round-3 Falcon's centered
   // reduction and small-coefficient check before using the completed basis for signing.
-  function completePrivate(f: SPoly, g: SPoly, F: SPoly) {
+  function completePrivate(f: TArg<SPoly>, g: TArg<SPoly>, F: TArg<SPoly>) {
     let t1 = intPoly.toMontgomery(intPoly.ntt(signedCoder.decode(g)));
     const t2 = intPoly.ntt(signedCoder.decode(F));
     const tt = invertF(f);
@@ -1747,7 +1749,7 @@ function genFalcon(opts: FalconOpts): Falcon {
     cleanBytes(t1, t2, tt);
     return G;
   }
-  function HashToPoint(nonce: Uint8Array, msg: Uint8Array) {
+  function HashToPoint(nonce: TArg<Uint8Array>, msg: TArg<Uint8Array>): TRet<IPoly> {
     // Algorithm 3: HashToPoint(str, q, n)
     // (Page 31)
     // Require: A string str, a modulus q ≤ 2¹⁶, a degree n ∈ N*
@@ -1772,7 +1774,7 @@ function genFalcon(opts: FalconOpts): Falcon {
       let w = (tmp[0] << 8) | tmp[1];
       if (w < kQ) c[i++] = w % Q; // 8:         cᵢ ← t mod q
     }
-    return c;
+    return c as TRet<IPoly>;
   }
   // This is basically one sampling routine,
   // but it carries a lot of internal state and gets complex quickly.
@@ -2154,7 +2156,12 @@ function genFalcon(opts: FalconOpts): Falcon {
     }
   }
 
-  const signRaw = (sk: Uint8Array, msg: Uint8Array, maxLen: number, rnd = randomBytes) => {
+  const signRaw = (
+    sk: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>,
+    maxLen: number,
+    rnd: TArg<FalconRandom> = randomBytes
+  ): TRet<SignatureRaw> => {
     // Algorithm 10: Sign(m, sk, [β²]), (Page 39)
     // Require: A message m, a secret key sk, a bound [β²]
     // Ensure: A signature sig of m
@@ -2226,7 +2233,7 @@ function genFalcon(opts: FalconOpts): Falcon {
               cleanBytes(s2comp);
               continue;
             }
-            return { s2: s2comp, nonce, msg };
+            return { s2: s2comp, nonce, msg } as TRet<SignatureRaw>;
           }
         } finally {
           cleanBytes(s2);
@@ -2244,7 +2251,12 @@ function genFalcon(opts: FalconOpts): Falcon {
 
   // Raw helper: malformed encodings or wrong lengths still throw here; the public verify()/open()
   // wrappers decide whether to translate those failures into false or an exception.
-  const verifyRaw = (pk: Uint8Array, s2comp: Uint8Array, nonce: Uint8Array, msg: Uint8Array) => {
+  const verifyRaw = (
+    pk: TArg<Uint8Array>,
+    s2comp: TArg<Uint8Array>,
+    nonce: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>
+  ) => {
     // Algorithm 16: Verify(m, sig, pk, [β²])
     // (Page 45)
     // Require: A message m, a signature sig = (r, s), a public key pk = h ∈ Zq[x]/(φ), a bound [β²]
@@ -2266,34 +2278,42 @@ function genFalcon(opts: FalconOpts): Falcon {
     return intPoly.isShort(signedCoder.encode(s1), s2); // 6: if ||(s₁, s₂)||² < [β²] then
   };
 
-  const info = { type: 'falcon' };
-  const keyLengths = {
+  const info = Object.freeze({ type: 'falcon' });
+  const keyLengths = Object.freeze({
     seed: 48,
     publicKey: publicKeyCoder.bytesLen,
     secretKey: secretKeyCoder.bytesLen,
-  };
+  });
   // Noble exposes a 48-byte sampler-seed hook,
   // but Falcon still samples/encodes a separate 40-byte nonce per signature.
-  const getRnd = (opts: FalconSigOpts = {}) => {
+  const getRnd = (opts: TArg<FalconSigOpts> = {}): TRet<FalconRandom> => {
     validateSigOpts(opts);
     if (opts.context !== undefined) throw new Error('context is not supported');
-    if (opts.random !== undefined) return opts.random;
+    if (opts.random !== undefined) return opts.random as TRet<FalconRandom>;
     if (opts.extraEntropy === undefined) return randomBytes;
     const seed = opts.extraEntropy === false ? new Uint8Array(48) : opts.extraEntropy;
     abytes(seed, 48, 'opts.extraEntropy');
     const drbg = rngAesCtrDrbg256(seed);
-    return (len = 0) => drbg.randomBytes(len);
+    return (len = 0) => drbg.randomBytes(len) as TRet<Uint8Array>;
   };
-  const checkVerOpts = (opts: VerOpts = {}) => {
+  const checkVerOpts = (opts: TArg<VerOpts> = {}) => {
     validateVerOpts(opts);
     if (opts.context !== undefined) throw new Error('context is not supported');
   };
-  const tests = { publicKeyCoder, privateKeyCoder: secretKeyCoder, maxS2Len: opts.maxS2Len };
+  const tests = Object.freeze({
+    publicKeyCoder: Object.freeze(publicKeyCoder),
+    privateKeyCoder: Object.freeze(secretKeyCoder),
+    maxS2Len: opts.maxS2Len,
+  });
   // `signRand` documents only the sampler-seed input length;
   // detached/attached signatures still include their own 40-byte nonce.
-  const attachedLengths = { ...keyLengths, signRand: 48 };
-  const lengths = opts.padded ? { ...attachedLengths, signature: opts.sigLen } : attachedLengths;
-  const keygen = (seed?: Uint8Array) => {
+  const attachedLengths = Object.freeze({ ...keyLengths, signRand: 48 });
+  const lengths = opts.padded
+    ? Object.freeze({ ...attachedLengths, signature: opts.sigLen })
+    : attachedLengths;
+  const keygen = (
+    seed?: TArg<Uint8Array>
+  ): TRet<{ publicKey: Uint8Array; secretKey: Uint8Array }> => {
     const randSeed = seed === undefined;
     if (randSeed) seed = randomBytes(48);
     abytes(seed!, 48, 'seed');
@@ -2302,20 +2322,27 @@ function genFalcon(opts: FalconOpts): Falcon {
     const pk = publicKeyCoder.encode(pub);
     if (randSeed) cleanBytes(seed!);
     cleanBytes(f, g, F, _G);
-    return { publicKey: pk, secretKey: sk };
+    return { publicKey: pk, secretKey: sk } as TRet<{
+      publicKey: Uint8Array;
+      secretKey: Uint8Array;
+    }>;
   };
-  const getPublicKey = (sk: Uint8Array) => {
+  const getPublicKey = (sk: TArg<Uint8Array>): TRet<Uint8Array> => {
     const [f, g, F] = secretKeyCoder.decode(sk);
     try {
       const h = computePublic(f, g);
       cleanBytes(f, g, F);
-      return publicKeyCoder.encode(h);
+      return publicKeyCoder.encode(h) as TRet<Uint8Array>;
     } catch (e) {
       cleanBytes(f, g, F);
       throw e;
     }
   };
-  const sign = (msg: Uint8Array, sk: Uint8Array, sigOpts: FalconSigOpts = {}) => {
+  const sign = (
+    msg: TArg<Uint8Array>,
+    sk: TArg<Uint8Array>,
+    sigOpts: TArg<FalconSigOpts> = {}
+  ): TRet<Uint8Array> => {
     const { s2, nonce } = signRaw(sk, msg, opts.maxS2Len, getRnd(sigOpts));
     return SignatureCoderDetached(logn).encode({ nonce, s2 });
   };
@@ -2324,7 +2351,12 @@ function genFalcon(opts: FalconOpts): Falcon {
    * and well-formed signatures that do not validate. Throws on malformed API argument types or
    * unsupported verification options.
    */
-  const verify = (sig: Uint8Array, msg: Uint8Array, pk: Uint8Array, verOpts: VerOpts = {}) => {
+  const verify = (
+    sig: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>,
+    pk: TArg<Uint8Array>,
+    verOpts: TArg<VerOpts> = {}
+  ) => {
     checkVerOpts(verOpts);
     abytes(sig);
     abytes(msg);
@@ -2336,16 +2368,16 @@ function genFalcon(opts: FalconOpts): Falcon {
       return false;
     }
   };
-  const attached: FalconAttached = {
+  const attached: TRet<FalconAttached> = Object.freeze({
     info,
     lengths: attachedLengths,
     keygen,
     getPublicKey,
-    seal(msg: Uint8Array, sk: Uint8Array, sigOpts: FalconSigOpts = {}) {
+    seal(msg: TArg<Uint8Array>, sk: TArg<Uint8Array>, sigOpts: TArg<FalconSigOpts> = {}) {
       const { s2, nonce } = signRaw(sk, msg, opts.maxS2Len, getRnd(sigOpts));
       return SignatureCoder.encode({ msg, nonce, s2 });
     },
-    open(sig: Uint8Array, pk: Uint8Array, verOpts: VerOpts = {}) {
+    open(sig: TArg<Uint8Array>, pk: TArg<Uint8Array>, verOpts: TArg<VerOpts> = {}) {
       checkVerOpts(verOpts);
       const { s2, nonce, msg } = SignatureCoder.decode(sig);
       // Zero-copy API: returned message aliases the caller-provided signature buffer.
@@ -2353,7 +2385,7 @@ function genFalcon(opts: FalconOpts): Falcon {
       if (verifyRaw(pk, s2, nonce, msg)) return msg;
       throw new Error('invalid signature');
     },
-  };
+  });
   const res = {
     info,
     lengths,
@@ -2364,7 +2396,7 @@ function genFalcon(opts: FalconOpts): Falcon {
     verify,
   };
   (res as any).__test = tests;
-  return res;
+  return Object.freeze(res);
 }
 
 const falcon512opts = {
@@ -2389,7 +2421,7 @@ const falcon512opts = {
  * falcon512.verify(sig, msg, publicKey);
  * ```
  */
-export const falcon512: Falcon = /* @__PURE__ */ (() =>
+export const falcon512: TRet<Falcon> = /* @__PURE__ */ (() =>
   genFalcon({ ...falcon512opts, maxS2Len: 711 }))();
 /**
  * Falcon-512 padded detached-signature API with the attached helper exposed as `.attached`.
@@ -2402,7 +2434,7 @@ export const falcon512: Falcon = /* @__PURE__ */ (() =>
  * falcon512padded.verify(sig, msg, publicKey);
  * ```
  */
-export const falcon512padded: Falcon = /* @__PURE__ */ (() =>
+export const falcon512padded: TRet<Falcon> = /* @__PURE__ */ (() =>
   genFalcon({
     ...falcon512opts,
     padded: true,
@@ -2431,7 +2463,7 @@ const falcon1024opts = {
  * falcon1024.verify(sig, msg, publicKey);
  * ```
  */
-export const falcon1024: Falcon = /* @__PURE__ */ (() =>
+export const falcon1024: TRet<Falcon> = /* @__PURE__ */ (() =>
   genFalcon({
     ...falcon1024opts,
     maxS2Len: 1421,
@@ -2447,7 +2479,7 @@ export const falcon1024: Falcon = /* @__PURE__ */ (() =>
  * falcon1024padded.verify(sig, msg, publicKey);
  * ```
  */
-export const falcon1024padded: Falcon = /* @__PURE__ */ (() =>
+export const falcon1024padded: TRet<Falcon> = /* @__PURE__ */ (() =>
   genFalcon({
     ...falcon1024opts,
     padded: true,
@@ -2455,16 +2487,17 @@ export const falcon1024padded: Falcon = /* @__PURE__ */ (() =>
   }))();
 
 // NOTE: for tests only, don't use
-export const __tests: any = /* @__PURE__ */ (() => ({
-  BNORM_MAX,
-  COMPLEX_ROOTS,
-  Float,
-  INV_SIGMA,
-  SIGMA_MIN,
-  getFloatPoly,
-  cleanCPoly,
-  falcon512: (falcon512 as any).__test,
-  falcon512padded: (falcon512padded as any).__test,
-  falcon1024: (falcon1024 as any).__test,
-  falcon1024padded: (falcon1024padded as any).__test,
-}))();
+export const __tests: any = /* @__PURE__ */ (() =>
+  Object.freeze({
+    BNORM_MAX,
+    COMPLEX_ROOTS,
+    Float,
+    INV_SIGMA,
+    SIGMA_MIN,
+    getFloatPoly,
+    cleanCPoly,
+    falcon512: (falcon512 as any).__test,
+    falcon512padded: (falcon512padded as any).__test,
+    falcon1024: (falcon1024 as any).__test,
+    falcon1024padded: (falcon1024padded as any).__test,
+  }))();

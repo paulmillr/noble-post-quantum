@@ -101,6 +101,8 @@ import {
   type CryptoKeys,
   type KEM,
   type Signer,
+  type TArg,
+  type TRet,
 } from './utils.ts';
 
 type CurveAll = ECDSA | EdDSA | MontgomeryECDH;
@@ -126,18 +128,26 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
     // Unlike noble-curves' seeded Weierstrass keygen, this path removes the post-reduction +1.
     // That is enough to match exact reduced-vector bytes, but an all-zero seed still reduces to
     // scalar 0 here and getPublicKey(secretKey) throws instead of "allowing zero".
-    keygen = (seed: Uint8Array = randomBytes(lengths.seed)) => {
+    keygen = (seed: TArg<Uint8Array> = randomBytes(lengths.seed)) => {
       abytes(seed, lengths.seed!, 'seed');
       const seedScalar = Fn.isLE ? bytesToNumberLE(seed) : bytesToNumberBE(seed);
       // Reduce directly into [0, ORDER); scalar 0 still stays invalid.
       const secretKey = Fn.toBytes(Fn.create(seedScalar));
-      return { secretKey, publicKey: curve.getPublicKey(secretKey) };
+      return {
+        secretKey: secretKey as TRet<Uint8Array>,
+        publicKey: curve.getPublicKey(secretKey) as TRet<Uint8Array>,
+      };
     };
   }
   return {
     lengths: { secretKey: lengths.secretKey, publicKey: lengths.publicKey, seed: lengths.seed },
-    keygen,
-    getPublicKey: (secretKey: Uint8Array) => curve.getPublicKey(secretKey),
+    keygen: (seed?: TArg<Uint8Array>) =>
+      keygen(seed) as TRet<{
+        secretKey: Uint8Array;
+        publicKey: Uint8Array;
+      }>,
+    getPublicKey: (secretKey: TArg<Uint8Array>) =>
+      curve.getPublicKey(secretKey) as TRet<Uint8Array>,
   };
 }
 
@@ -164,14 +174,17 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
  * const publicKeyLen = kem.lengths.publicKey;
  * ```
  */
-export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
+export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): TRet<KEM> {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
     lengths: { ...kg.lengths, msg: kg.lengths.seed, cipherText: kg.lengths.publicKey },
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
-    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(curve.lengths.seed)) {
+    encapsulate(
+      publicKey: TArg<Uint8Array>,
+      rand: TArg<Uint8Array> = randomBytes(curve.lengths.seed)
+    ) {
       // Some curve.keygen(seed) paths reuse the provided seed buffer as secretKey; detach caller
       // randomness first so cleanBytes() only wipes wrapper-owned material.
       const seed = copyBytes(rand);
@@ -179,7 +192,7 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
       try {
         ek = this.keygen(seed).secretKey;
         const sharedSecret = this.decapsulate(publicKey, ek);
-        const cipherText = curve.getPublicKey(ek);
+        const cipherText = curve.getPublicKey(ek) as TRet<Uint8Array>;
         return { sharedSecret, cipherText };
       } finally {
         // Invalid peer public keys can make decapsulation throw; wipe both the detached seed and
@@ -188,9 +201,9 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
         if (ek) cleanBytes(ek);
       }
     },
-    decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
+    decapsulate(cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) {
       const res = curve.getSharedSecret(secretKey, cipherText);
-      return curve.lengths.publicKeyHasPrefix ? res.subarray(1) : res;
+      return (curve.lengths.publicKeyHasPrefix ? res.subarray(1) : res) as TRet<Uint8Array>;
     },
   };
 }
@@ -216,7 +229,7 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): KEM {
  * const sigLen = signer.lengths.signature;
  * ```
  */
-export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): Signer {
+export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): TRet<Signer> {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.sign || !curve.verify) throw new Error('wrong curve'); // ed25519 doesn't have one!
   return {
@@ -234,7 +247,7 @@ export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): Signe
         );
       if (opts.context !== undefined)
         throw new Error('ecSigner does not support context; use the underlying curve directly');
-      return curve.sign(message, secretKey);
+      return curve.sign(message, secretKey) as TRet<Uint8Array>;
     },
     /** Verify one wrapped curve signature.
      * Returns the wrapped curve's `verify()` result for well-formed inputs. Throws on unsupported
@@ -264,7 +277,7 @@ function splitLengths<K extends string, T extends { lengths: Partial<Record<K, n
 }
 
 /** Seed-expansion callback used by the hybrid combiners. */
-export type ExpandSeed = (seed: Uint8Array, len: number) => Uint8Array;
+export type ExpandSeed = (seed: TArg<Uint8Array>, len: number) => TRet<Uint8Array>;
 type XOF = CHashXOF<any, { dkLen: number }>;
 
 // It is XOF for most cases, but can be more complex!
@@ -282,30 +295,36 @@ type XOF = CHashXOF<any, { dkLen: number }>;
  * const seed = expandSeed(new Uint8Array([1]), 4);
  * ```
  */
-export function expandSeedXof(xof: XOF): ExpandSeed {
+export function expandSeedXof(xof: TArg<XOF>): TRet<ExpandSeed> {
   // Forward the caller seed directly: XOFs are expected to treat inputs as read-only, and this
   // adapter only translates the requested byte length into the hash API's `dkLen` option.
-  return (seed: Uint8Array, seedLen: number) => xof(seed, { dkLen: seedLen });
+  return ((seed: TArg<Uint8Array>, seedLen: number): TRet<Uint8Array> =>
+    (xof as XOF)(seed, { dkLen: seedLen }) as TRet<Uint8Array>) as TRet<ExpandSeed>;
 }
 
 /** Combines public keys, ciphertexts, and shared secrets into one shared secret. */
 export type Combiner = (
-  publicKeys: Uint8Array[],
-  cipherTexts: Uint8Array[],
-  sharedSecrets: Uint8Array[]
-) => Uint8Array;
+  publicKeys: TArg<Uint8Array[]>,
+  cipherTexts: TArg<Uint8Array[]>,
+  sharedSecrets: TArg<Uint8Array[]>
+) => TRet<Uint8Array>;
 
 function combineKeys(
   realSeedLen: number | undefined, // how much bytes expandSeed expects
-  expandSeed: ExpandSeed,
-  ...ck: CryptoKeys[]
+  expandSeed_: TArg<ExpandSeed>,
+  ...ck_: TArg<CryptoKeys[]>
 ) {
+  const expandSeed = expandSeed_ as ExpandSeed;
+  const ck = ck_ as CryptoKeys[];
   const seedCoder = splitLengths(ck, 'seed');
   const pkCoder = splitLengths(ck, 'publicKey');
   // Allows to use identity functions for combiner/expandSeed
   if (realSeedLen === undefined) realSeedLen = seedCoder.bytesLen;
   anumber(realSeedLen);
-  function expandDecapsulationKey(seed: Uint8Array) {
+  function expandDecapsulationKey(seed: TArg<Uint8Array>): TRet<{
+    secretKey: Uint8Array[];
+    publicKey: Uint8Array[];
+  }> {
     abytes(seed, realSeedLen!);
     const expandedRaw = expandSeed(seed, seedCoder.bytesLen);
     // Identity/subarray expanders can hand back caller-owned seed storage. Detach those outputs so
@@ -328,7 +347,10 @@ function combineKeys(
         publicKey.push(keys.publicKey);
       }
       ok = true;
-      return { secretKey, publicKey };
+      return { secretKey, publicKey } as TRet<{
+        secretKey: Uint8Array[];
+        publicKey: Uint8Array[];
+      }>;
     } finally {
       // Child keygen() can throw after deriving only a prefix of the composite key schedule. Keep
       // the exported copies on success, but wipe all temporary and partially built secret material
@@ -339,16 +361,16 @@ function combineKeys(
   }
   return {
     info: { lengths: { seed: realSeedLen, publicKey: pkCoder.bytesLen, secretKey: realSeedLen } },
-    getPublicKey(secretKey: Uint8Array) {
+    getPublicKey(secretKey: TArg<Uint8Array>) {
       // Composite secret keys are root seeds, so public-key derivation reruns key expansion from
       // that seed instead of decoding a packed child-secret-key structure.
-      return this.keygen(secretKey).publicKey;
+      return this.keygen(secretKey).publicKey as TRet<Uint8Array>;
     },
-    keygen(seed: Uint8Array = randomBytes(realSeedLen)) {
+    keygen(seed: TArg<Uint8Array> = randomBytes(realSeedLen)) {
       const { publicKey: pk, secretKey } = expandDecapsulationKey(seed);
       try {
-        const publicKey = pkCoder.encode(pk);
-        return { secretKey: seed, publicKey };
+        const publicKey = pkCoder.encode(pk) as TRet<Uint8Array>;
+        return { secretKey: seed as TRet<Uint8Array>, publicKey };
       } finally {
         cleanBytes(pk);
         // The exported secretKey is the caller/root seed itself; child secret keys are internal
@@ -390,41 +412,47 @@ function combineKeys(
 export function combineKEMS(
   realSeedLen: number | undefined, // how much bytes expandSeed expects
   realMsgLen: number | undefined, // how much bytes combiner returns
-  expandSeed: ExpandSeed,
-  combiner: Combiner,
-  ...kems: KEM[]
-): KEM {
-  const keys = combineKeys(realSeedLen, expandSeed, ...kems);
-  const ctCoder = splitLengths(kems, 'cipherText');
-  const pkCoder = splitLengths(kems, 'publicKey');
-  const msgCoder = splitLengths(kems, 'msg');
+  expandSeed: TArg<ExpandSeed>,
+  combiner: TArg<Combiner>,
+  ...kems: TArg<KEM[]>
+): TRet<KEM> {
+  const rawCombiner = combiner as Combiner;
+  const rawKems = kems as KEM[];
+  const keys = combineKeys(realSeedLen, expandSeed, ...rawKems);
+  const ctCoder = splitLengths(rawKems, 'cipherText');
+  const pkCoder = splitLengths(rawKems, 'publicKey');
+  const msgCoder = splitLengths(rawKems, 'msg');
   if (realMsgLen === undefined) realMsgLen = msgCoder.bytesLen;
   anumber(realMsgLen);
-  return {
-    lengths: {
-      ...keys.info.lengths,
-      msg: realMsgLen,
-      msgRand: msgCoder.bytesLen,
-      cipherText: ctCoder.bytesLen,
-    },
+  const lengths = Object.freeze({
+    ...keys.info.lengths,
+    msg: realMsgLen,
+    msgRand: msgCoder.bytesLen,
+    cipherText: ctCoder.bytesLen,
+  });
+  return Object.freeze({
+    lengths,
     getPublicKey: keys.getPublicKey,
     keygen: keys.keygen,
-    encapsulate(pk: Uint8Array, randomness: Uint8Array = randomBytes(msgCoder.bytesLen)) {
+    encapsulate(
+      pk: TArg<Uint8Array>,
+      randomness: TArg<Uint8Array> = randomBytes(msgCoder.bytesLen)
+    ) {
       const pks = pkCoder.decode(pk);
       const rand = msgCoder.decode(randomness);
       const sharedSecret: Uint8Array[] = [];
       const cipherText: Uint8Array[] = [];
       try {
-        for (let i = 0; i < kems.length; i++) {
-          const enc = kems[i].encapsulate(pks[i], rand[i]);
+        for (let i = 0; i < rawKems.length; i++) {
+          const enc = rawKems[i].encapsulate(pks[i], rand[i]);
           sharedSecret.push(enc.sharedSecret);
           cipherText.push(enc.cipherText);
         }
         return {
           // Detach the combiner result before cleanup: a caller-provided combiner may alias one of
           // the child sharedSecret buffers, and those child buffers are zeroized immediately below.
-          sharedSecret: copyBytes(combiner(pks, cipherText, sharedSecret)),
-          cipherText: ctCoder.encode(cipherText),
+          sharedSecret: copyBytes(rawCombiner(pks, cipherText, sharedSecret)),
+          cipherText: ctCoder.encode(cipherText) as TRet<Uint8Array>,
         };
       } finally {
         // Child encapsulation or combiner failures can happen after some components already
@@ -432,21 +460,21 @@ export function combineKEMS(
         cleanBytes(sharedSecret, cipherText);
       }
     },
-    decapsulate(ct: Uint8Array, seed: Uint8Array) {
+    decapsulate(ct: TArg<Uint8Array>, seed: TArg<Uint8Array>) {
       const cts = ctCoder.decode(ct);
       const { publicKey, secretKey } = keys.expandDecapsulationKey(seed);
-      const sharedSecret = kems.map((i, j) => i.decapsulate(cts[j], secretKey[j]));
+      const sharedSecret = rawKems.map((i, j) => i.decapsulate(cts[j], secretKey[j]));
       try {
         // Detach the decapsulation result before cleanup: the combiner may hand back one of the
         // child shared-secret buffers, and those temporary buffers are zeroized below.
-        return copyBytes(combiner(publicKey, cts, sharedSecret));
+        return copyBytes(rawCombiner(publicKey, cts, sharedSecret));
       } finally {
         // Decapsulation only needs the expanded child secret keys and child shared secrets for this
         // call; keep the caller/root seed intact, but wipe all derived material even on errors.
         cleanBytes(secretKey, sharedSecret);
       }
     },
-  };
+  });
 }
 // There is no specs for this, but can be useful
 // realSeedLen: how much bytes expandSeed expects.
@@ -468,12 +496,13 @@ export function combineKEMS(
  */
 export function combineSigners(
   realSeedLen: number | undefined,
-  expandSeed: ExpandSeed,
-  ...signers: Signer[]
-): Signer {
-  const keys = combineKeys(realSeedLen, expandSeed, ...signers);
-  const sigCoder = splitLengths(signers, 'signature');
-  const pkCoder = splitLengths(signers, 'publicKey');
+  expandSeed: TArg<ExpandSeed>,
+  ...signers: TArg<Signer[]>
+): TRet<Signer> {
+  const rawSigners = signers as Signer[];
+  const keys = combineKeys(realSeedLen, expandSeed, ...rawSigners);
+  const sigCoder = splitLengths(rawSigners, 'signature');
+  const pkCoder = splitLengths(rawSigners, 'publicKey');
   return {
     lengths: { ...keys.info.lengths, signature: sigCoder.bytesLen, signRand: 0 },
     getPublicKey: keys.getPublicKey,
@@ -493,8 +522,8 @@ export function combineSigners(
         );
       const { secretKey } = keys.expandDecapsulationKey(seed);
       try {
-        const sigs = signers.map((i, j) => i.sign(message, secretKey[j]));
-        return sigCoder.encode(sigs);
+        const sigs = rawSigners.map((i, j) => i.sign(message, secretKey[j]));
+        return sigCoder.encode(sigs) as TRet<Uint8Array>;
       } finally {
         // Composite secret keys are root seeds; the per-signer child secret keys are temporary
         // expansion outputs and must not stay live after the combined signature is produced.
@@ -513,8 +542,8 @@ export function combineSigners(
         );
       const pks = pkCoder.decode(publicKey);
       const sigs = sigCoder.decode(signature);
-      for (let i = 0; i < signers.length; i++) {
-        if (!signers[i].verify(sigs[i], message, pks[i])) return false;
+      for (let i = 0; i < rawSigners.length; i++) {
+        if (!rawSigners[i].verify(sigs[i], message, pks[i])) return false;
       }
       return true;
     },
@@ -545,21 +574,28 @@ export function combineSigners(
  * const publicKeyLen = kem.lengths.publicKey;
  * ```
  */
-export function QSF(label: string, pqc: KEM, curveKEM: KEM, xof: XOF, kdf: CHash): KEM {
+export function QSF(
+  label: string,
+  pqc: TArg<KEM>,
+  curveKEM: TArg<KEM>,
+  xof: TArg<XOF>,
+  kdf: CHash
+): TRet<KEM> {
   ahash(xof);
   ahash(kdf);
   return combineKEMS(
     32,
     kdf.outputLen,
     expandSeedXof(xof),
-    (pk, ct, ss) => kdf(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
+    (pk: TArg<Uint8Array[]>, ct: TArg<Uint8Array[]>, ss: TArg<Uint8Array[]>) =>
+      kdf(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
     pqc,
     curveKEM
   );
 }
 
 /** QSF preset combining ML-KEM-768 with P-256. */
-export const QSF_ml_kem768_p256: KEM = /* @__PURE__ */ (() =>
+export const QSF_ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
   QSF(
     'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)',
     ml_kem768,
@@ -568,7 +604,7 @@ export const QSF_ml_kem768_p256: KEM = /* @__PURE__ */ (() =>
     sha3_256
   ))();
 /** QSF preset combining ML-KEM-1024 with P-384. */
-export const QSF_ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
+export const QSF_ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
   QSF(
     'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)',
     ml_kem1024,
@@ -605,18 +641,18 @@ export const QSF_ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
  */
 export function createKitchenSink(
   label: string,
-  pqc: KEM,
-  curveKEM: KEM,
-  xof: XOF,
+  pqc: TArg<KEM>,
+  curveKEM: TArg<KEM>,
+  xof: TArg<XOF>,
   hash: CHash
-): KEM {
+): TRet<KEM> {
   ahash(xof);
   ahash(hash);
   return combineKEMS(
     32,
     32,
     expandSeedXof(xof),
-    (pk, ct, ss) => {
+    (pk: TArg<Uint8Array[]>, ct: TArg<Uint8Array[]>, ss: TArg<Uint8Array[]>) => {
       const preimage = concatBytes(ss[0], ss[1], ct[0], pk[0], ct[1], pk[1], asciiToBytes(label));
       const len = 32;
       const ikm = concatBytes(asciiToBytes('hybrid_prk'), preimage);
@@ -641,7 +677,7 @@ const x25519kem = /* @__PURE__ */ ecdhKem(x25519);
 /** KitchenSink preset combining ML-KEM-768 with X25519.
  * Caller randomness splits into 32 ML-KEM coins plus a 32-byte X25519 ephemeral-secret seed.
  */
-export const KitchenSink_ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
+export const KitchenSink_ml_kem768_x25519: TRet<KEM> = /* @__PURE__ */ (() =>
   createKitchenSink(
     'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)',
     ml_kem768,
@@ -655,13 +691,14 @@ export const KitchenSink_ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
  * Uses the hard-coded domain-separation label `\\.//^\\` and hashes only `ct1 || pk1`
  * from the X25519 side in addition to the two component shared secrets.
  */
-export const ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
+export const ml_kem768_x25519: TRet<KEM> = /* @__PURE__ */ (() =>
   combineKEMS(
     32,
     32,
     expandSeedXof(shake256),
     // Awesome label, so much escaping hell in a single line.
-    (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes('\\.//^\\'))),
+    (pk: TArg<Uint8Array[]>, ct: TArg<Uint8Array[]>, ss: TArg<Uint8Array[]>) =>
+      sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes('\\.//^\\'))),
     ml_kem768,
     x25519kem
   ))();
@@ -674,12 +711,15 @@ export const ml_kem768_x25519: KEM = /* @__PURE__ */ (() =>
  * prefix, not the SEC 1 `x_P`-only primitive output, because current hybrid combiners hash
  * both coordinates.
  */
-function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): KEM {
+function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): TRet<KEM> {
   const Fn = curve.Point.Fn;
   if (!Fn) throw new Error('no Point.Fn');
   // Scan scalar-sized windows until one decodes to a nonzero scalar in `[1, n-1]`; if every
   // window is zero or out of range, fail instead of silently reducing modulo `n`.
-  function rejectionSampling(seed: Uint8Array): { secretKey: Uint8Array; publicKey: Uint8Array } {
+  function rejectionSampling(seed: TArg<Uint8Array>): TRet<{
+    secretKey: Uint8Array;
+    publicKey: Uint8Array;
+  }> {
     let sk: bigint;
     for (let start = 0, end = scalarLen; ; start = end, end += scalarLen) {
       if (end > seed.length) throw new Error('rejection sampling failed');
@@ -688,7 +728,10 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
     }
     const secretKey = Fn.toBytes(Fn.create(sk));
     const publicKey = curve.getPublicKey(secretKey, false);
-    return { secretKey, publicKey };
+    return { secretKey, publicKey } as TRet<{
+      secretKey: Uint8Array;
+      publicKey: Uint8Array;
+    }>;
   }
 
   return {
@@ -699,20 +742,20 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
       msg: nseed,
       cipherText: elemLen,
     },
-    keygen(seed: Uint8Array = randomBytes(nseed)) {
+    keygen(seed: TArg<Uint8Array> = randomBytes(nseed)) {
       abytes(seed, nseed, 'seed');
       return rejectionSampling(seed);
     },
-    getPublicKey(secretKey: Uint8Array) {
-      return curve.getPublicKey(secretKey, false);
+    getPublicKey(secretKey: TArg<Uint8Array>) {
+      return curve.getPublicKey(secretKey, false) as TRet<Uint8Array>;
     },
-    encapsulate(publicKey: Uint8Array, rand: Uint8Array = randomBytes(nseed)) {
+    encapsulate(publicKey: TArg<Uint8Array>, rand: TArg<Uint8Array> = randomBytes(nseed)) {
       abytes(rand, nseed, 'rand');
       let ek: Uint8Array | undefined = undefined;
       try {
         ek = rejectionSampling(rand).secretKey;
         const sharedSecret = this.decapsulate(publicKey, ek);
-        const cipherText = curve.getPublicKey(ek, false);
+        const cipherText = curve.getPublicKey(ek, false) as TRet<Uint8Array>;
         return { sharedSecret, cipherText };
       } finally {
         // Rejection-sampled NIST-curve ephemeral secret keys are temporary encapsulation state and
@@ -720,9 +763,9 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
         if (ek) cleanBytes(ek);
       }
     },
-    decapsulate(cipherText: Uint8Array, secretKey: Uint8Array) {
+    decapsulate(cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) {
       const full = curve.getSharedSecret(secretKey, cipherText);
-      return full.subarray(1);
+      return full.subarray(1) as TRet<Uint8Array>;
     },
   };
 }
@@ -735,7 +778,12 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
  * `shake256(seed, { dkLen: 64 + nseed })`,
  * and the combiner hashes `ss0 || ss1 || ct1 || pk1 || label`.
  */
-function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: number): KEM {
+function concreteHybridKem(
+  label: string,
+  mlkem: TArg<KEM>,
+  curve: ECDSA,
+  nseed: number
+): TRet<KEM> {
   const { secretKey: scalarLen, publicKeyUncompressed: elemLen } = curve.lengths;
   if (!scalarLen || !elemLen) throw new Error('wrong curve');
   const curveKem = nistCurveKem(curve, scalarLen, elemLen, nseed);
@@ -745,40 +793,41 @@ function concreteHybridKem(label: string, mlkem: KEM, curve: ECDSA, nseed: numbe
   return combineKEMS(
     32,
     32,
-    (seed: Uint8Array) => {
+    (seed: TArg<Uint8Array>): TRet<Uint8Array> => {
       abytes(seed, 32);
       const expanded = shake256(seed, { dkLen: totalSeedLen });
       const mlkemSeed = expanded.subarray(0, mlkemSeedLen);
       const curveSeed = expanded.subarray(mlkemSeedLen, totalSeedLen);
-      return concatBytes(mlkemSeed, curveSeed);
+      return concatBytes(mlkemSeed, curveSeed) as TRet<Uint8Array>;
     },
-    (pk, ct, ss) => sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
+    (pk: TArg<Uint8Array[]>, ct: TArg<Uint8Array[]>, ss: TArg<Uint8Array[]>) =>
+      sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),
     mlkem,
     curveKem
   );
 }
 
 /** P-256 + ML-KEM-768 hybrid preset. */
-export const ml_kem768_p256: KEM = /* @__PURE__ */ (() =>
+export const ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM768-P256', ml_kem768, p256, 128))();
 
 /** P-384 + ML-KEM-1024 hybrid preset. */
-export const ml_kem1024_p384: KEM = /* @__PURE__ */ (() =>
+export const ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48))();
 
 // Legacy aliases
 /** Legacy alias for `ml_kem768_x25519`. */
-export const XWing: KEM = /* @__PURE__ */ (() => ml_kem768_x25519)();
+export const XWing: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_x25519)();
 /** Legacy alias for `ml_kem768_x25519`. */
-export const MLKEM768X25519: KEM = /* @__PURE__ */ (() => ml_kem768_x25519)();
+export const MLKEM768X25519: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_x25519)();
 /** Legacy alias for `ml_kem768_p256`. */
-export const MLKEM768P256: KEM = /* @__PURE__ */ (() => ml_kem768_p256)();
+export const MLKEM768P256: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_p256)();
 /** Legacy alias for `ml_kem1024_p384`. */
-export const MLKEM1024P384: KEM = /* @__PURE__ */ (() => ml_kem1024_p384)();
+export const MLKEM1024P384: TRet<KEM> = /* @__PURE__ */ (() => ml_kem1024_p384)();
 /** Legacy alias for `QSF_ml_kem768_p256`. */
-export const QSFMLKEM768P256: KEM = /* @__PURE__ */ (() => QSF_ml_kem768_p256)();
+export const QSFMLKEM768P256: TRet<KEM> = /* @__PURE__ */ (() => QSF_ml_kem768_p256)();
 /** Legacy alias for `QSF_ml_kem1024_p384`. */
-export const QSFMLKEM1024P384: KEM = /* @__PURE__ */ (() => QSF_ml_kem1024_p384)();
+export const QSFMLKEM1024P384: TRet<KEM> = /* @__PURE__ */ (() => QSF_ml_kem1024_p384)();
 /** Legacy alias for `KitchenSink_ml_kem768_x25519`. */
-export const KitchenSinkMLKEM768X25519: KEM = /* @__PURE__ */ (() =>
+export const KitchenSinkMLKEM768X25519: TRet<KEM> = /* @__PURE__ */ (() =>
   KitchenSink_ml_kem768_x25519)();

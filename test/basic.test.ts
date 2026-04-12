@@ -13,6 +13,7 @@ import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
 import {
+  copyBytes,
   getMessage,
   getMessagePrehash,
   getMask,
@@ -31,6 +32,10 @@ describe('Basic', () => {
     throws(() => validateOpts([] as any), TypeError);
     throws(() => validateVerOpts([] as any), TypeError);
     throws(() => validateSigOpts([] as any), TypeError);
+    throws(() => copyBytes('ab' as any), TypeError);
+    throws(() => copyBytes([257, -1, 2.9] as any), TypeError);
+    throws(() => copyBytes(new Uint16Array([0x0102, 0x0304]) as any), TypeError);
+    throws(() => copyBytes(new DataView(new ArrayBuffer(4)) as any), TypeError);
     const c = vecCoder(
       {
         bytesLen: 1,

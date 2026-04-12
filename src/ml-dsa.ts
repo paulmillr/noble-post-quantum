@@ -25,6 +25,8 @@ import {
   type Signer,
   type SigOpts,
   splitCoder,
+  type TArg,
+  type TRet,
   validateOpts,
   validateSigOpts,
   validateVerOpts,
@@ -41,7 +43,7 @@ export type DSAInternalOpts = {
    */
   externalMu?: boolean;
 };
-function validateInternalOpts(opts: DSAInternalOpts) {
+function validateInternalOpts(opts: TArg<DSAInternalOpts>) {
   validateOpts(opts);
   if (opts.externalMu !== undefined) abool(opts.externalMu, 'opts.externalMu');
 }
@@ -49,16 +51,20 @@ function validateInternalOpts(opts: DSAInternalOpts) {
 /** ML-DSA signer surface with access to the internal message formatting mode. */
 export type DSAInternal = CryptoKeys & {
   lengths: Signer['lengths'];
-  sign: (msg: Uint8Array, secretKey: Uint8Array, opts?: SigOpts & DSAInternalOpts) => Uint8Array;
+  sign: (
+    msg: TArg<Uint8Array>,
+    secretKey: TArg<Uint8Array>,
+    opts?: TArg<SigOpts & DSAInternalOpts>
+  ) => TRet<Uint8Array>;
   verify: (
-    sig: Uint8Array,
-    msg: Uint8Array,
-    pubKey: Uint8Array,
-    opts?: VerOpts & DSAInternalOpts
+    sig: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>,
+    pubKey: TArg<Uint8Array>,
+    opts?: TArg<VerOpts & DSAInternalOpts>
   ) => boolean;
 };
 /** Public ML-DSA signer surface. */
-export type DSA = Signer & { internal: DSAInternal };
+export type DSA = Signer & { internal: TRet<DSAInternal> };
 
 // Constants
 // FIPS 204 fixes ML-DSA over R = Z[X]/(X^256 + 1), so every polynomial has 256 coefficients.
@@ -106,15 +112,22 @@ export type DSAParam = {
  * This is only the Table 1 subset used directly here: `BETA = TAU * ETA` is derived later,
  * while `C_TILDE_BYTES`, `TR_BYTES`, `CRH_BYTES`, and `securityLevel` live in the preset wrappers.
  */
-export const PARAMS: Record<string, DSAParam> = /* @__PURE__ */ (() => ({
-  2: { K: 4, L: 4, D, GAMMA1: 2 ** 17, GAMMA2: GAMMA2_1, TAU: 39, ETA: 2, OMEGA: 80 },
-  3: { K: 6, L: 5, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 49, ETA: 4, OMEGA: 55 },
-  5: { K: 8, L: 7, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 60, ETA: 2, OMEGA: 75 },
-} as const))();
+export const PARAMS: Record<string, DSAParam> = /* @__PURE__ */ (() =>
+  Object.freeze({
+    2: Object.freeze({
+      K: 4, L: 4, D, GAMMA1: 2 ** 17, GAMMA2: GAMMA2_1, TAU: 39, ETA: 2, OMEGA: 80
+    }),
+    3: Object.freeze({
+      K: 6, L: 5, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 49, ETA: 4, OMEGA: 55
+    }),
+    5: Object.freeze({
+      K: 8, L: 7, D, GAMMA1: 2 ** 19, GAMMA2: GAMMA2_2, TAU: 60, ETA: 2, OMEGA: 75
+    }),
+  } as const))();
 
 // NOTE: there is a lot cases where negative numbers used (with smod instead of mod).
 type Poly = Int32Array;
-const newPoly = (n: number): Int32Array => new Int32Array(n);
+const newPoly = (n: number): TRet<Int32Array> => new Int32Array(n) as TRet<Int32Array>;
 
 // Shared CRYSTALS helper in the ML-DSA branch: non-Kyber mode, 8-bit bit-reversal,
 // and Int32Array polys because ordinary-form coefficients can be negative / centered.
@@ -141,41 +154,50 @@ const polyCoder = (d: number, compress: IdNum = id, verify: IdNum = id) =>
   });
 
 // Mutates `a` in place; callers must pass same-length polynomials.
-const polyAdd = (a: Poly, b: Poly) => {
+const polyAdd = (a_: TArg<Poly>, b_: TArg<Poly>): TRet<Poly> => {
+  const a = a_ as Poly;
+  const b = b_ as Poly;
   for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i] + b[i]);
-  return a;
+  return a as TRet<Poly>;
 };
 // Mutates `a` in place; callers must pass same-length polynomials.
-const polySub = (a: Poly, b: Poly): Poly => {
+const polySub = (a_: TArg<Poly>, b_: TArg<Poly>): TRet<Poly> => {
+  const a = a_ as Poly;
+  const b = b_ as Poly;
   for (let i = 0; i < a.length; i++) a[i] = crystals.mod(a[i] - b[i]);
-  return a;
+  return a as TRet<Poly>;
 };
 
 // Mutates `p` in place and assumes it is a decoded `t1`-range polynomial.
-const polyShiftl = (p: Poly): Poly => {
+const polyShiftl = (p_: TArg<Poly>): TRet<Poly> => {
+  const p = p_ as Poly;
   for (let i = 0; i < N; i++) p[i] <<= D;
-  return p;
+  return p as TRet<Poly>;
 };
 
-const polyChknorm = (p: Poly, B: number): boolean => {
+const polyChknorm = (p_: TArg<Poly>, B: number): boolean => {
+  const p = p_ as Poly;
   // FIPS 204 Algorithms 7 and 8 express the same centered-norm check with explicit inequalities.
   for (let i = 0; i < N; i++) if (Math.abs(crystals.smod(p[i])) >= B) return true;
   return false;
 };
 
 // Both inputs must already be in NTT / `T_q` form.
-const MultiplyNTTs = (a: Poly, b: Poly): Poly => {
+const MultiplyNTTs = (a_: TArg<Poly>, b_: TArg<Poly>): TRet<Poly> => {
+  const a = a_ as Poly;
+  const b = b_ as Poly;
   // NOTE: we don't use montgomery reduction in code, since it requires 64 bit ints,
   // which is not available in JS. mod(a[i] * b[i]) is ok, since Q is 23 bit,
   // which means a[i] * b[i] is 46 bit, which is safe to use in JS. (number is 53 bits).
   // Barrett reduction is slower than mod :(
   const c = newPoly(N);
   for (let i = 0; i < a.length; i++) c[i] = crystals.mod(a[i] * b[i]);
-  return c;
+  return c as TRet<Poly>;
 };
 
 // Return poly in NTT representation
-function RejNTTPoly(xof: XofGet) {
+function RejNTTPoly(xof_: TArg<XofGet>): TRet<Poly> {
+  const xof = xof_ as XofGet;
   // Samples a polynomial ∈ Tq. xof() must return byte lengths divisible by 3.
   const r = newPoly(N);
   // NOTE: we can represent 3xu24 as 4xu32, but it doesn't improve perf :(
@@ -188,7 +210,7 @@ function RejNTTPoly(xof: XofGet) {
       if (t < Q) r[j++] = t;
     }
   }
-  return r;
+  return r as TRet<Poly>;
 }
 
 type DilithiumOpts = {
@@ -209,7 +231,8 @@ type DilithiumOpts = {
 
 // Instantiate one ML-DSA parameter set from the Table 1 lattice constants plus the
 // Table 2 byte lengths / hash-width choices used by the public wrappers below.
-function getDilithium(opts: DilithiumOpts) {
+function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
+  const opts = opts_ as DilithiumOpts;
   const { K, L, GAMMA1, GAMMA2, TAU, ETA, OMEGA } = opts;
   const { CRH_BYTES, TR_BYTES, C_TILDE_BYTES, XOF128, XOF256, securityLevel } = opts;
 
@@ -270,30 +293,31 @@ function getDilithium(opts: DilithiumOpts) {
 
   const hintCoder: BytesCoderLen<Poly[] | false> = {
     bytesLen: OMEGA + K,
-    encode: (h: Poly[] | false) => {
+    encode: (h_: TArg<Poly[] | false>): TRet<Uint8Array> => {
+      const h = h_ as Poly[] | false;
       if (h === false) throw new Error('hint.encode: hint is false'); // should never happen
       const res = new Uint8Array(OMEGA + K);
       for (let i = 0, k = 0; i < K; i++) {
         for (let j = 0; j < N; j++) if (h[i][j] !== 0) res[k++] = j;
         res[OMEGA + i] = k;
       }
-      return res;
+      return res as TRet<Uint8Array>;
     },
-    decode: (buf: Uint8Array) => {
+    decode: (buf: TArg<Uint8Array>): TRet<Poly[] | false> => {
       const h = [];
       let k = 0;
       for (let i = 0; i < K; i++) {
         const hi = newPoly(N);
-        if (buf[OMEGA + i] < k || buf[OMEGA + i] > OMEGA) return false;
+        if (buf[OMEGA + i] < k || buf[OMEGA + i] > OMEGA) return false as TRet<false>;
         for (let j = k; j < buf[OMEGA + i]; j++) {
-          if (j > k && buf[j] <= buf[j - 1]) return false;
+          if (j > k && buf[j] <= buf[j - 1]) return false as TRet<false>;
           hi[buf[j]] = 1;
         }
         k = buf[OMEGA + i];
         h.push(hi);
       }
-      for (let j = k; j < OMEGA; j++) if (buf[j] !== 0) return false;
-      return h;
+      for (let j = k; j < OMEGA; j++) if (buf[j] !== 0) return false as TRet<false>;
+      return h as TRet<Poly[]>;
     },
   };
 
@@ -332,7 +356,8 @@ function getDilithium(opts: DilithiumOpts) {
   // Return poly in ordinary representation.
   // This helper returns ordinary-form `[-ETA, ETA]` coefficients for ExpandS; callers apply
   // `NTT.encode()` later when needed.
-  function RejBoundedPoly(xof: XofGet) {
+  function RejBoundedPoly(xof_: TArg<XofGet>): TRet<Poly> {
+    const xof = xof_ as XofGet;
     // Samples an element a ∈ Rq with coeffcients in [−η, η] computed via rejection sampling from ρ.
     const r: Poly = newPoly(N);
     for (let j = 0; j < N; ) {
@@ -345,10 +370,10 @@ function getDilithium(opts: DilithiumOpts) {
         if (j < N && d2 !== false) r[j++] = d2;
       }
     }
-    return r;
+    return r as TRet<Poly>;
   }
 
-  const SampleInBall = (seed: Uint8Array) => {
+  const SampleInBall = (seed: TArg<Uint8Array>): TRet<Poly> => {
     // Samples a polynomial c ∈ Rq with coeffcients from {−1, 0, 1} and Hamming weight τ
     const pre = newPoly(N);
     const s = shake256.create({}).update(seed);
@@ -372,10 +397,11 @@ function getDilithium(opts: DilithiumOpts) {
         maskBit = 0;
       }
     }
-    return pre;
+    return pre as TRet<Poly>;
   };
 
-  const polyPowerRound = (p: Poly) => {
+  const polyPowerRound = (p_: TArg<Poly>) => {
+    const p = p_ as Poly;
     const res0 = newPoly(N);
     const res1 = newPoly(N);
     for (let i = 0; i < p.length; i++) {
@@ -385,13 +411,17 @@ function getDilithium(opts: DilithiumOpts) {
     }
     return { r0: res0, r1: res1 };
   };
-  const polyUseHint = (u: Poly, h: Poly): Poly => {
+  const polyUseHint = (u_: TArg<Poly>, h_: TArg<Poly>): TRet<Poly> => {
+    const u = u_ as Poly;
+    const h = h_ as Poly;
     // In-place on `u`: verification only needs the recovered high bits, so reuse the
     // temporary `wApprox` buffer instead of allocating another polynomial.
     for (let i = 0; i < N; i++) u[i] = UseHint(h[i], u[i]);
-    return u;
+    return u as TRet<Poly>;
   };
-  const polyMakeHint = (a: Poly, b: Poly) => {
+  const polyMakeHint = (a_: TArg<Poly>, b_: TArg<Poly>) => {
+    const a = a_ as Poly;
+    const b = b_ as Poly;
     const v = newPoly(N);
     let cnt = 0;
     for (let i = 0; i < N; i++) {
@@ -405,16 +435,16 @@ function getDilithium(opts: DilithiumOpts) {
   const signRandBytes = 32;
   const seedCoder = splitCoder('seed', 32, 64, 32);
   // API & argument positions are exactly as in FIPS204.
-  const internal: DSAInternal = {
-    info: { type: 'internal-ml-dsa' },
-    lengths: {
+  const internal: TRet<DSAInternal> = Object.freeze({
+    info: Object.freeze({ type: 'internal-ml-dsa' }),
+    lengths: Object.freeze({
       secretKey: secretCoder.bytesLen,
       publicKey: publicCoder.bytesLen,
       seed: 32,
       signature: sigCoder.bytesLen,
       signRand: signRandBytes,
-    },
-    keygen: (seed?: Uint8Array) => {
+    }),
+    keygen: (seed?: TArg<Uint8Array>) => {
       // H(𝜉||IntegerToBytes(𝑘, 1)||IntegerToBytes(ℓ, 1), 128) 2: ▷ expand seed
       const seedDst = new Uint8Array(32 + 2);
       const randSeed = seed === undefined;
@@ -462,9 +492,12 @@ function getDilithium(opts: DilithiumOpts) {
       // DSA44: { calls: 24, xofs: 24 }, DSA65: { calls: 41, xofs: 41 },
       // DSA87: { calls: 71, xofs: 71 }
       cleanBytes(rho, rhoPrime, K_, s1, s2, s1Hat, t, t0, t1, tr, seedDst);
-      return { publicKey, secretKey };
+      return {
+        publicKey: publicKey as TRet<Uint8Array>,
+        secretKey: secretKey as TRet<Uint8Array>,
+      };
     },
-    getPublicKey: (secretKey: Uint8Array) => {
+    getPublicKey: (secretKey: TArg<Uint8Array>): TRet<Uint8Array> => {
       // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
       const [rho, _K, _tr, s1, s2, _t0] = secretCoder.decode(secretKey);
       const xof = XOF128(rho);
@@ -487,7 +520,11 @@ function getDilithium(opts: DilithiumOpts) {
       return publicCoder.encode([rho, t1]);
     },
     // NOTE: random is optional.
-    sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts & DSAInternalOpts = {}) => {
+    sign: (
+      msg: TArg<Uint8Array>,
+      secretKey: TArg<Uint8Array>,
+      opts: TArg<SigOpts & DSAInternalOpts> = {}
+    ): TRet<Uint8Array> => {
       validateSigOpts(opts);
       validateInternalOpts(opts);
       let { extraEntropy: random, externalMu = false } = opts;
@@ -588,16 +625,16 @@ function getDilithium(opts: DilithiumOpts) {
         // so only wipe the internally derived digest form here;
         // zeroizing caller memory would break the caller's own reuse / verify path.
         if (!externalMu) cleanBytes(mu);
-        return res;
+        return res as TRet<Uint8Array>;
       }
       // @ts-ignore
       throw new Error('Unreachable code path reached, report this error');
     },
     verify: (
-      sig: Uint8Array,
-      msg: Uint8Array,
-      publicKey: Uint8Array,
-      opts: DSAInternalOpts = {}
+      sig: TArg<Uint8Array>,
+      msg: TArg<Uint8Array>,
+      publicKey: TArg<Uint8Array>,
+      opts: TArg<DSAInternalOpts> = {}
     ) => {
       validateInternalOpts(opts);
       const { externalMu = false } = opts;
@@ -649,51 +686,69 @@ function getDilithium(opts: DilithiumOpts) {
       for (const t of z) if (polyChknorm(t, GAMMA1 - BETA)) return false;
       return equalBytes(cTilde, c2);
     },
-  };
-  return {
-    info: { type: 'ml-dsa' },
+  });
+  return Object.freeze({
+    info: Object.freeze({ type: 'ml-dsa' }),
     internal,
     securityLevel: securityLevel,
     keygen: internal.keygen,
     lengths: internal.lengths,
     getPublicKey: internal.getPublicKey,
-    sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts = {}) => {
+    sign: (
+      msg: TArg<Uint8Array>,
+      secretKey: TArg<Uint8Array>,
+      opts: TArg<SigOpts> = {}
+    ): TRet<Uint8Array> => {
       validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
       const res = internal.sign(M, secretKey, opts);
       cleanBytes(M);
-      return res;
+      return res as TRet<Uint8Array>;
     },
-    verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts: VerOpts = {}) => {
+    verify: (
+      sig: TArg<Uint8Array>,
+      msg: TArg<Uint8Array>,
+      publicKey: TArg<Uint8Array>,
+      opts: TArg<VerOpts> = {}
+    ) => {
       validateVerOpts(opts);
       return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
     prehash: (hash: CHash) => {
       checkHash(hash, securityLevel);
-      return {
-        info: { type: 'hashml-dsa' },
+      return Object.freeze({
+        info: Object.freeze({ type: 'hashml-dsa' }),
         securityLevel: securityLevel,
         lengths: internal.lengths,
         keygen: internal.keygen,
         getPublicKey: internal.getPublicKey,
-        sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts = {}) => {
+        sign: (
+          msg: TArg<Uint8Array>,
+          secretKey: TArg<Uint8Array>,
+          opts: TArg<SigOpts> = {}
+        ): TRet<Uint8Array> => {
           validateSigOpts(opts);
           const M = getMessagePrehash(hash, msg, opts.context);
           const res = internal.sign(M, secretKey, opts);
           cleanBytes(M);
-          return res;
+          return res as TRet<Uint8Array>;
         },
-        verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts: VerOpts = {}) => {
+        verify: (
+          sig: TArg<Uint8Array>,
+          msg: TArg<Uint8Array>,
+          publicKey: TArg<Uint8Array>,
+          opts: TArg<VerOpts> = {}
+        ) => {
           validateVerOpts(opts);
           return internal.verify(sig, getMessagePrehash(hash, msg, opts.context), publicKey);
         },
-      };
+      });
     },
-  };
+  });
 }
 
 /** ML-DSA-44 for 128-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_dsa44: DSA = /* @__PURE__ */ (() =>
+export const ml_dsa44: TRet<DSA> = /* @__PURE__ */ (() =>
   getDilithium({
     ...PARAMS[2],
     CRH_BYTES: 64,
@@ -705,7 +760,7 @@ export const ml_dsa44: DSA = /* @__PURE__ */ (() =>
   }))();
 
 /** ML-DSA-65 for 192-bit security level. Not recommended after 2030, as per ASD. */
-export const ml_dsa65: DSA = /* @__PURE__ */ (() =>
+export const ml_dsa65: TRet<DSA> = /* @__PURE__ */ (() =>
   getDilithium({
     ...PARAMS[3],
     CRH_BYTES: 64,
@@ -717,7 +772,7 @@ export const ml_dsa65: DSA = /* @__PURE__ */ (() =>
   }))();
 
 /** ML-DSA-87 for 256-bit security level. OK after 2030, as per ASD. */
-export const ml_dsa87: DSA = /* @__PURE__ */ (() =>
+export const ml_dsa87: TRet<DSA> = /* @__PURE__ */ (() =>
   getDilithium({
     ...PARAMS[5],
     CRH_BYTES: 64,

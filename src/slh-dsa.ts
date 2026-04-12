@@ -53,6 +53,8 @@ import {
   vecCoder,
   type Signer,
   type SigOpts,
+  type TArg,
+  type TRet,
   type VerOpts,
 } from './utils.ts';
 
@@ -96,14 +98,14 @@ export type SphincsHashOpts = {
  * stay derived at the export layer.
  */
 export const PARAMS: Record<string, SphincsOpts> = /* @__PURE__ */ (() =>
-  ({
-    '128f': { W: 16, N: 16, H: 66, D: 22, K: 33, A: 6, securityLevel: 128 },
-    '128s': { W: 16, N: 16, H: 63, D: 7, K: 14, A: 12, securityLevel: 128 },
-    '192f': { W: 16, N: 24, H: 66, D: 22, K: 33, A: 8, securityLevel: 192 },
-    '192s': { W: 16, N: 24, H: 63, D: 7, K: 17, A: 14, securityLevel: 192 },
-    '256f': { W: 16, N: 32, H: 68, D: 17, K: 35, A: 9, securityLevel: 256 },
-    '256s': { W: 16, N: 32, H: 64, D: 8, K: 22, A: 14, securityLevel: 256 },
-  }) as const)();
+  Object.freeze({
+    '128f': Object.freeze({ W: 16, N: 16, H: 66, D: 22, K: 33, A: 6, securityLevel: 128 }),
+    '128s': Object.freeze({ W: 16, N: 16, H: 63, D: 7, K: 14, A: 12, securityLevel: 128 }),
+    '192f': Object.freeze({ W: 16, N: 24, H: 66, D: 22, K: 33, A: 8, securityLevel: 192 }),
+    '192s': Object.freeze({ W: 16, N: 24, H: 63, D: 7, K: 17, A: 14, securityLevel: 192 }),
+    '256f': Object.freeze({ W: 16, N: 32, H: 68, D: 17, K: 35, A: 9, securityLevel: 256 }),
+    '256s': Object.freeze({ W: 16, N: 32, H: 64, D: 8, K: 22, A: 14, securityLevel: 256 }),
+  } as const))();
 
 // FIPS 205 `ADRS.setTypeAndClear(...)` selectors. Local names shorten the spec labels
 // (`WOTS_HASH` -> `WOTS`, `TREE` -> `HASHTREE`, `FORS_ROOTS` -> `FORSPK`), and `setAddr({ type })`
@@ -128,7 +130,7 @@ export type Context = {
    * @param addr - Address bytes.
    * @returns PRF output bytes.
    */
-  PRFaddr: (addr: ADRS) => Uint8Array;
+  PRFaddr: (addr: TArg<ADRS>) => TRet<Uint8Array>;
   /**
    * Derive the randomized message hash prefix.
    * @param skPRF - Secret PRF seed.
@@ -136,7 +138,11 @@ export type Context = {
    * @param msg - Message bytes.
    * @returns PRF output bytes.
    */
-  PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => Uint8Array;
+  PRFmsg: (
+    skPRF: TArg<Uint8Array>,
+    random: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>
+  ) => TRet<Uint8Array>;
   /**
    * Hash one randomized message transcript.
    * @param R - Randomized message prefix.
@@ -145,14 +151,19 @@ export type Context = {
    * @param outLen - Output length in bytes.
    * @returns Transcript hash bytes.
    */
-  Hmsg: (R: Uint8Array, pk: Uint8Array, m: Uint8Array, outLen: number) => Uint8Array;
+  Hmsg: (
+    R: TArg<Uint8Array>,
+    pk: TArg<Uint8Array>,
+    m: TArg<Uint8Array>,
+    outLen: number
+  ) => TRet<Uint8Array>;
   /**
    * Tweakable hash over one input block.
    * @param input - Input block.
    * @param addr - Address bytes.
    * @returns Hash output bytes.
    */
-  thash1: (input: Uint8Array, addr: ADRS) => Uint8Array;
+  thash1: (input: TArg<Uint8Array>, addr: TArg<ADRS>) => TRet<Uint8Array>;
   /**
    * Tweakable hash over multiple input blocks.
    * @param blocks - Number of input blocks.
@@ -160,14 +171,14 @@ export type Context = {
    * @param addr - Address bytes.
    * @returns Hash output bytes.
    */
-  thashN: (blocks: number, input: Uint8Array, addr: ADRS) => Uint8Array;
+  thashN: (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>) => TRet<Uint8Array>;
   /** Wipe any buffered hash state for the current context. */
   clean: () => void;
 };
 /** Factory that creates a context generator for one SLH-DSA parameter set. */
 export type GetContext = (
   opts: SphincsOpts
-) => (pub_seed: Uint8Array, sk_seed?: Uint8Array) => Context;
+) => (pub_seed: TArg<Uint8Array>, sk_seed?: TArg<Uint8Array>) => TRet<Context>;
 
 function hexToNumber(hex: string): bigint {
   if (typeof hex !== 'string') throw new Error('hex string expected, got ' + typeof hex);
@@ -175,12 +186,12 @@ function hexToNumber(hex: string): bigint {
 }
 
 // BE: Big Endian, LE: Little Endian. This is the local FIPS 205 `toInt(...)` equivalent.
-function bytesToNumberBE(bytes: Uint8Array): bigint {
+function bytesToNumberBE(bytes: TArg<Uint8Array>): bigint {
   return hexToNumber(bytesToHex(bytes));
 }
 
 // Local in-range FIPS 205 `toByte(x, n)` equivalent; callers must keep `n < 256^len`.
-function numberToBytesBE(n: number | bigint, len: number): Uint8Array {
+function numberToBytesBE(n: number | bigint, len: number): TRet<Uint8Array> {
   return hexToBytes(n.toString(16).padStart(len * 2, '0'));
 }
 
@@ -189,7 +200,7 @@ function numberToBytesBE(n: number | bigint, len: number): Uint8Array {
 // short inputs are not rejected and would zero-extend implicitly.
 const base2b = (outLen: number, b: number) => {
   const mask = getMask(b);
-  return (bytes: Uint8Array) => {
+  return (bytes: TArg<Uint8Array>): TRet<Uint32Array> => {
     const baseB = new Uint32Array(outLen);
     for (let out = 0, pos = 0, bits = 0, total = 0; out < outLen; out++) {
       while (bits < b) {
@@ -199,7 +210,7 @@ const base2b = (outLen: number, b: number) => {
       bits -= b;
       baseB[out] = (total >>> bits) & mask;
     }
-    return baseB;
+    return baseB as TRet<Uint32Array>;
   };
 };
 
@@ -209,9 +220,9 @@ function getMaskBig(bits: number) {
 
 /** Public SLH-DSA signer with prehash customization. */
 export type SphincsSigner = Signer & {
-  internal: Signer;
+  internal: TRet<Signer>;
   securityLevel: number;
-  prehash: (hash: CHash) => Signer;
+  prehash: (hash: TArg<CHash>) => TRet<Signer>;
 };
 
 /** One parameter/hash instantiation of the public SLH-DSA API.
@@ -219,7 +230,8 @@ export type SphincsSigner = Signer & {
  * and `getPublicKey(secretKey)` only extracts the embedded public key
  * instead of recomputing `PK.root`.
  */
-function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
+function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsSigner> {
+  const hashOpts = hashOpts_ as SphincsHashOpts;
   const { N, W, H, D, K, A, securityLevel: securityLevel } = opts;
   const getContext = hashOpts.getContext(opts);
   if (W !== 16) throw new Error('Unsupported Winternitz parameter');
@@ -256,7 +268,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   // `height` / `chain` and `index` / `hash` share the same spec words, so callers must use the
   // address-type-specific combinations instead of mixing both meanings in one call.
   const setAddr = (
-    opts: {
+    opts: TArg<{
       type?: (typeof AddressType)[keyof typeof AddressType];
       height?: number;
       tree?: bigint;
@@ -267,8 +279,8 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       keypair?: number;
       subtreeAddr?: ADRS;
       keypairAddr?: ADRS;
-    },
-    addr: ADRS = new Uint8Array(ADDR_BYTES)
+    }>,
+    addr: TArg<ADRS> = new Uint8Array(ADDR_BYTES)
   ) => {
     const { type, height, tree, layer, index, chain, hash, keypair } = opts;
     const { subtreeAddr, keypairAddr } = opts;
@@ -295,7 +307,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   };
 
   const chainCoder = base2b(WOTS_LEN2, WOTS_LOGW);
-  const chainLengths = (msg: Uint8Array) => {
+  const chainLengths = (msg: TArg<Uint8Array>) => {
     const W1 = base2b(WOTS_LEN1, WOTS_LOGW)(msg);
     let csum = 0;
     for (let i = 0; i < W1.length; i++) csum += W - 1 - W1[i]; // ▷ Compute checksum
@@ -321,9 +333,15 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   );
   // `pkSeed` is the full public key byte string `PK.seed || PK.root`; after splitting `Hmsg`,
   // mask away any spare high bits so `idx_tree` / `idx_leaf` match the spec's final mod-2^k steps.
-  const hashMessage = (R: Uint8Array, pkSeed: Uint8Array, msg: Uint8Array, context: Context) => {
+  const hashMessage = (
+    R: TArg<Uint8Array>,
+    pkSeed: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>,
+    context: TArg<Context>
+  ) => {
+    const rawContext = context as Context;
     // digest ← Hmsg(R, PK.seed, PK.root, M)
-    const digest = context.Hmsg(R, pkSeed, msg, hashMsgCoder.bytesLen);
+    const digest = rawContext.Hmsg(R, pkSeed, msg, hashMsgCoder.bytesLen);
     const [md, tmpIdxTree, tmpIdxLeaf] = hashMsgCoder.decode(digest);
     const tree = bytesToNumberBE(tmpIdxTree) & getMaskBig(TREE_BITS);
     const leafIdx = Number(bytesToNumberBE(tmpIdxLeaf)) & getMask(LEAF_BITS);
@@ -335,15 +353,22 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   // neighbor of the target leaf at that height.
   const treehash = <T>(
     height: number,
-    fn: (leafIdx: number, addrOffset: number, context: Context, info: T) => Uint8Array
+    fn: TArg<(leafIdx: number, addrOffset: number, context: Context, info: T) => Uint8Array>
   ) =>
     function treehash_i(
-      context: Context,
+      context: TArg<Context>,
       leafIdx: number,
       idxOffset: number,
-      treeAddr: ADRS,
+      treeAddr: TArg<ADRS>,
       info: T
     ) {
+      const rawContext = context as Context;
+      const leafFn = fn as (
+        leafIdx: number,
+        addrOffset: number,
+        context: Context,
+        info: T
+      ) => Uint8Array;
       const maxIdx = (1 << height) - 1;
       const stack = new Uint8Array(height * N);
       const authPath = new Uint8Array(height * N);
@@ -352,7 +377,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
         const cur0 = current.subarray(0, N);
         const cur1 = current.subarray(N);
         const addrOffset = idx + idxOffset;
-        cur1.set(fn(leafIdx, addrOffset, context, info));
+        cur1.set(leafFn(leafIdx, addrOffset, rawContext, info));
         let h = 0;
         for (let i = idx, o = idxOffset, l = leafIdx; ; h++, i >>>= 1, l >>>= 1, o >>>= 1) {
           if (h === height) return { root: cur1, authPath }; // Returns from here
@@ -360,7 +385,7 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
           if ((i & 1) === 0 && idx < maxIdx) break;
           setAddr({ height: h + 1, index: (i >> 1) + (o >> 1) }, treeAddr);
           cur0.set(stack.subarray(h * N).subarray(0, N));
-          cur1.set(context.thashN(2, current, treeAddr));
+          cur1.set(rawContext.thashN(2, current, treeAddr));
         }
         stack.subarray(h * N).set(cur1); // stack.push(cur1)
       }
@@ -374,45 +399,53 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
     leafAddr: ADRS;
     pkAddr: ADRS;
   };
-  const wotsTreehash = treehash(TREE_HEIGHT, (leafIdx, addrOffset, context, info: LeafInfo) => {
-    const wotsPk = new Uint8Array(WOTS_LEN * N);
-    // `keygen()` passes `leafIdx = ~0 >>> 0`, so no real XMSS leaf matches and this suppresses
-    // WOTS signature capture while still hashing every chain to its public-key endpoint.
-    const wotsKmask = addrOffset === leafIdx ? 0 : ~0 >>> 0;
-    setAddr({ keypair: addrOffset }, info.leafAddr);
-    setAddr({ keypair: addrOffset }, info.pkAddr);
-    for (let i = 0; i < WOTS_LEN; i++) {
-      const wotsK = info.wotsSteps[i] | wotsKmask;
-      const pk = wotsPk.subarray(i * N, (i + 1) * N);
-      setAddr({ chain: i, hash: 0, type: AddressType.WOTSPRF }, info.leafAddr);
-      pk.set(context.PRFaddr(info.leafAddr));
-      setAddr({ type: AddressType.WOTS }, info.leafAddr);
-      for (let k = 0; ; k++) {
-        if (k === wotsK) info.wotsSig.subarray(i * N).set(pk); //wotsSig.push()
-        if (k === W - 1) break;
-        setAddr({ hash: k }, info.leafAddr);
-        pk.set(context.thash1(pk, info.leafAddr));
+  const wotsTreehash = treehash(
+    TREE_HEIGHT,
+    (leafIdx: number, addrOffset: number, context: TArg<Context>, info: TArg<LeafInfo>) => {
+      const rawContext = context as Context;
+      const wotsPk = new Uint8Array(WOTS_LEN * N);
+      // `keygen()` passes `leafIdx = ~0 >>> 0`, so no real XMSS leaf matches and this suppresses
+      // WOTS signature capture while still hashing every chain to its public-key endpoint.
+      const wotsKmask = addrOffset === leafIdx ? 0 : ~0 >>> 0;
+      setAddr({ keypair: addrOffset }, info.leafAddr);
+      setAddr({ keypair: addrOffset }, info.pkAddr);
+      for (let i = 0; i < WOTS_LEN; i++) {
+        const wotsK = info.wotsSteps[i] | wotsKmask;
+        const pk = wotsPk.subarray(i * N, (i + 1) * N);
+        setAddr({ chain: i, hash: 0, type: AddressType.WOTSPRF }, info.leafAddr);
+        pk.set(rawContext.PRFaddr(info.leafAddr));
+        setAddr({ type: AddressType.WOTS }, info.leafAddr);
+        for (let k = 0; ; k++) {
+          if (k === wotsK) info.wotsSig.subarray(i * N).set(pk); //wotsSig.push()
+          if (k === W - 1) break;
+          setAddr({ hash: k }, info.leafAddr);
+          pk.set(rawContext.thash1(pk, info.leafAddr));
+        }
       }
+      return rawContext.thashN(WOTS_LEN, wotsPk, info.pkAddr);
     }
-    return context.thashN(WOTS_LEN, wotsPk, info.pkAddr);
-  });
+  );
 
-  const forsTreehash = treehash(A, (_, addrOffset, context, forsLeafAddr: ForsLeafInfo) => {
-    setAddr({ type: AddressType.FORSPRF, index: addrOffset }, forsLeafAddr);
-    const prf = context.PRFaddr(forsLeafAddr);
-    setAddr({ type: AddressType.FORSTREE }, forsLeafAddr);
-    return context.thash1(prf, forsLeafAddr);
-  });
+  const forsTreehash = treehash(
+    A,
+    (_: number, addrOffset: number, context: TArg<Context>, forsLeafAddr: TArg<ForsLeafInfo>) => {
+      const rawContext = context as Context;
+      setAddr({ type: AddressType.FORSPRF, index: addrOffset }, forsLeafAddr);
+      const prf = rawContext.PRFaddr(forsLeafAddr);
+      setAddr({ type: AddressType.FORSTREE }, forsLeafAddr);
+      return rawContext.thash1(prf, forsLeafAddr);
+    }
+  );
 
   // Fuse `xmss_sign` with the subtree-root computation needed by `ht_sign`, so one tree walk
   // yields both the WOTS/auth-path signature and the root that the next hypertree layer signs.
   const merkleSign = (
-    context: Context,
-    wotsAddr: ADRS,
-    treeAddr: ADRS,
+    context: TArg<Context>,
+    wotsAddr: TArg<ADRS>,
+    treeAddr: TArg<ADRS>,
     leafIdx: number,
-    prevRoot: Uint8Array = new Uint8Array(N)
-  ) => {
+    prevRoot: TArg<Uint8Array> = new Uint8Array(N)
+  ): TRet<{ root: Uint8Array; sigWots: Uint8Array; sigAuth: Uint8Array }> => {
     setAddr({ type: AddressType.HASHTREE }, treeAddr);
     // State variables
     const info = {
@@ -426,20 +459,21 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       root,
       sigWots: info.wotsSig.subarray(0, WOTS_LEN * N),
       sigAuth: authPath,
-    };
+    } as TRet<{ root: Uint8Array; sigWots: Uint8Array; sigAuth: Uint8Array }>;
   };
 
   type ForsLeafInfo = ADRS;
 
   const computeRoot = (
-    leaf: Uint8Array,
+    leaf: TArg<Uint8Array>,
     leafIdx: number,
     idxOffset: number,
-    authPath: Uint8Array,
+    authPath: TArg<Uint8Array>,
     treeHeight: number,
-    context: Context,
-    addr: ADRS
+    context: TArg<Context>,
+    addr: TArg<ADRS>
   ) => {
+    const rawContext = context as Context;
     const buffer = new Uint8Array(2 * N);
     const b0 = buffer.subarray(0, N);
     const b1 = buffer.subarray(N, 2 * N);
@@ -462,16 +496,16 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       setAddr({ height: i + 1, index: leafIdx + idxOffset }, addr);
       const a = authPath.subarray((i + 1) * N, (i + 2) * N);
       if ((leafIdx & 1) !== 0) {
-        b1.set(context.thashN(2, buffer, addr));
+        b1.set(rawContext.thashN(2, buffer, addr));
         b0.set(a);
       } else {
-        buffer.set(context.thashN(2, buffer, addr));
+        buffer.set(rawContext.thashN(2, buffer, addr));
         b1.set(a);
       }
     }
     // Root
     setAddr({ height: treeHeight, index: leafIdx + idxOffset }, addr);
-    return context.thashN(2, buffer, addr);
+    return rawContext.thashN(2, buffer, addr);
   };
 
   const seedCoder = splitCoder('seed', N, N, N);
@@ -480,16 +514,16 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
   const forsCoder = vecCoder(splitCoder('fors', N, N * A), K);
   const wotsCoder = vecCoder(splitCoder('wots', WOTS_LEN * N, TREE_HEIGHT * N), D);
   const sigCoder = splitCoder('signature', N, forsCoder, wotsCoder); // random || fors || wots
-  const internal: Signer = {
-    info: { type: 'internal-slh-dsa' },
-    lengths: {
+  const internal: TRet<Signer> = Object.freeze({
+    info: Object.freeze({ type: 'internal-slh-dsa' }),
+    lengths: Object.freeze({
       publicKey: publicCoder.bytesLen,
       secretKey: secretCoder.bytesLen,
       signature: sigCoder.bytesLen,
       seed: seedCoder.bytesLen,
       signRand: N,
-    },
-    keygen(seed?: Uint8Array) {
+    }),
+    keygen(seed?: TArg<Uint8Array>) {
       if (seed !== undefined) abytes(seed, seedCoder.bytesLen, 'seed');
       seed = seed === undefined ? randomBytes(seedCoder.bytesLen) : copyBytes(seed);
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
@@ -504,13 +538,16 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       const secretKey = secretCoder.encode([secretSeed, secretPRF, publicKey]);
       context.clean();
       cleanBytes(secretSeed, secretPRF, root, wotsAddr, topTreeAddr);
-      return { publicKey, secretKey };
+      return {
+        publicKey: publicKey as TRet<Uint8Array>,
+        secretKey: secretKey as TRet<Uint8Array>,
+      };
     },
-    getPublicKey: (secretKey: Uint8Array) => {
+    getPublicKey: (secretKey: TArg<Uint8Array>): TRet<Uint8Array> => {
       const [_skSeed, _skPRF, pk] = secretCoder.decode(secretKey);
-      return Uint8Array.from(pk);
+      return Uint8Array.from(pk) as TRet<Uint8Array>;
     },
-    sign: (msg: Uint8Array, sk: Uint8Array, opts: SigOpts = {}) => {
+    sign: (msg: TArg<Uint8Array>, sk: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
       validateSigOpts(opts);
       let { extraEntropy: random } = opts;
       const [skSeed, skPRF, pk] = secretCoder.decode(sk); // todo: fix
@@ -581,9 +618,9 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       context.clean();
       const SIG = sigCoder.encode([R, fors, wots]);
       cleanBytes(R, random, treeAddr, wotsAddr, forsLeaf, forsTreeAddr, indices, roots);
-      return SIG;
+      return SIG as TRet<Uint8Array>;
     },
-    verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array) => {
+    verify: (sig: TArg<Uint8Array>, msg: TArg<Uint8Array>, publicKey: TArg<Uint8Array>) => {
       const [pkSeed, pubRoot] = publicCoder.decode(publicKey);
       const [random, forsVec, wotsVec] = sigCoder.decode(sig);
       const pk = publicKey;
@@ -642,78 +679,106 @@ function gen(opts: SphincsOpts, hashOpts: SphincsHashOpts): SphincsSigner {
       }
       return equalBytes(root, pubRoot);
     },
-  };
-  return {
-    info: { type: 'slh-dsa' },
+  });
+  return Object.freeze({
+    info: Object.freeze({ type: 'slh-dsa' }),
     internal,
     securityLevel: securityLevel,
     lengths: internal.lengths,
     keygen: internal.keygen,
     getPublicKey: internal.getPublicKey,
-    sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts = {}) => {
+    sign: (msg: TArg<Uint8Array>, secretKey: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
       validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
       const res = internal.sign(M, secretKey, opts);
       cleanBytes(M);
-      return res;
+      return res as TRet<Uint8Array>;
     },
-    verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts: VerOpts = {}) => {
+    verify: (
+      sig: TArg<Uint8Array>,
+      msg: TArg<Uint8Array>,
+      publicKey: TArg<Uint8Array>,
+      opts: TArg<VerOpts> = {}
+    ) => {
       validateVerOpts(opts);
       return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
-    prehash: (hash: CHash) => {
-      checkHash(hash, securityLevel);
-      return {
-        info: { type: 'hashslh-dsa' },
+    prehash: (hash: TArg<CHash>): TRet<Signer> => {
+      checkHash(hash as CHash, securityLevel);
+      const rawHash = hash as CHash;
+      return Object.freeze({
+        info: Object.freeze({ type: 'hashslh-dsa' }),
         lengths: internal.lengths,
         keygen: internal.keygen,
         getPublicKey: internal.getPublicKey,
-        sign: (msg: Uint8Array, secretKey: Uint8Array, opts: SigOpts = {}) => {
+        sign: (msg: TArg<Uint8Array>, secretKey: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
           validateSigOpts(opts);
-          const M = getMessagePrehash(hash, msg, opts.context);
+          const M = getMessagePrehash(rawHash, msg, opts.context);
           const res = internal.sign(M, secretKey, opts);
           cleanBytes(M);
-          return res;
+          return res as TRet<Uint8Array>;
         },
-        verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts: VerOpts = {}) => {
+        verify: (
+          sig: TArg<Uint8Array>,
+          msg: TArg<Uint8Array>,
+          publicKey: TArg<Uint8Array>,
+          opts: TArg<VerOpts> = {}
+        ) => {
           validateVerOpts(opts);
-          return internal.verify(sig, getMessagePrehash(hash, msg, opts.context), publicKey);
+          return internal.verify(sig, getMessagePrehash(rawHash, msg, opts.context), publicKey);
         },
-      };
+      });
     },
-  };
+  });
 }
 
 // FIPS 205 §11.1 SHAKE instantiation: this path hashes the full uncompressed address bytes,
 // unlike the compressed 22-byte SHA2 path in §11.2.
 const genShake =
-  (): GetContext => (opts: SphincsOpts) => (pubSeed: Uint8Array, skSeed?: Uint8Array) => {
+  (): TRet<GetContext> =>
+  (opts: SphincsOpts) =>
+  (pubSeed: TArg<Uint8Array>, skSeed?: TArg<Uint8Array>): TRet<Context> => {
     const { N } = opts;
     const stats = { prf: 0, thash: 0, hmsg: 0, gen_message_random: 0 };
     // §11.1 prefixes PRF/F/H/T_l with `PK.seed`, so cache that absorbed prefix once and clone it
     // for each address-bound call instead of reabsorbing the same seed every time.
     const h0 = shake256.create({}).update(pubSeed);
     const h0tmp = h0.clone();
-    const thash = (blocks: number, input: Uint8Array, addr: ADRS) => {
+    const thash = (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
       stats.thash++;
       return h0
         ._cloneInto(h0tmp)
         .update(addr)
         .update(input.subarray(0, blocks * N))
-        .xof(N);
+        .xof(N) as TRet<Uint8Array>;
     };
     return {
-      PRFaddr: (addr: ADRS) => {
+      PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
         if (!skSeed) throw new Error('no sk seed');
         stats.prf++;
         const res = h0._cloneInto(h0tmp).update(addr).update(skSeed).xof(N);
-        return res;
+        return res as TRet<Uint8Array>;
       },
-      PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => {
+      PRFmsg: (
+        skPRF: TArg<Uint8Array>,
+        random: TArg<Uint8Array>,
+        msg: TArg<Uint8Array>
+      ): TRet<Uint8Array> => {
         stats.gen_message_random++;
-        return shake256.create({}).update(skPRF).update(random).update(msg).digest().subarray(0, N);
+        return shake256
+          .create({})
+          .update(skPRF)
+          .update(random)
+          .update(msg)
+          .digest()
+          .subarray(0, N) as TRet<Uint8Array>;
       },
-      Hmsg: (R: Uint8Array, pk: Uint8Array, m: Uint8Array, outLen) => {
+      Hmsg: (
+        R: TArg<Uint8Array>,
+        pk: TArg<Uint8Array>,
+        m: TArg<Uint8Array>,
+        outLen
+      ): TRet<Uint8Array> => {
         stats.hmsg++;
         return shake256.create({}).update(R.subarray(0, N)).update(pk).update(m).xof(outLen);
       },
@@ -724,7 +789,7 @@ const genShake =
         h0tmp.destroy();
         //console.log(stats);
       },
-    };
+    } as TRet<Context>;
   };
 
 const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ getContext: genShake() }))();
@@ -734,42 +799,42 @@ const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ getContext: genShake() }))();
  * lengths `publicKey=32`, `secretKey=64`, `signature=17088`, `seed=48`, `signRand=16`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_shake_128f: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_shake_128f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['128f'], SHAKE_SIMPLE))();
 /**
  * SLH-DSA-SHAKE-128s: Table 2 row `n=16, h=63, d=7, h'=9, a=12, k=14, lg w=4, m=30`;
  * lengths `publicKey=32`, `secretKey=64`, `signature=7856`, `seed=48`, `signRand=16`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_shake_128s: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_shake_128s: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['128s'], SHAKE_SIMPLE))();
 /**
  * SLH-DSA-SHAKE-192f: Table 2 row `n=24, h=66, d=22, h'=3, a=8, k=33, lg w=4, m=42`;
  * lengths `publicKey=48`, `secretKey=96`, `signature=35664`, `seed=72`, `signRand=24`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_shake_192f: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_shake_192f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['192f'], SHAKE_SIMPLE))();
 /**
  * SLH-DSA-SHAKE-192s: Table 2 row `n=24, h=63, d=7, h'=9, a=14, k=17, lg w=4, m=39`;
  * lengths `publicKey=48`, `secretKey=96`, `signature=16224`, `seed=72`, `signRand=24`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_shake_192s: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_shake_192s: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['192s'], SHAKE_SIMPLE))();
 /**
  * SLH-DSA-SHAKE-256f: Table 2 row `n=32, h=68, d=17, h'=4, a=9, k=35, lg w=4, m=49`;
  * lengths `publicKey=64`, `secretKey=128`, `signature=49856`, `seed=96`, `signRand=32`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_shake_256f: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_shake_256f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['256f'], SHAKE_SIMPLE))();
 /**
  * SLH-DSA-SHAKE-256s: Table 2 row `n=32, h=64, d=8, h'=8, a=14, k=22, lg w=4, m=47`;
  * lengths `publicKey=64`, `secretKey=128`, `signature=29792`, `seed=96`, `signRand=32`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_shake_256s: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_shake_256s: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['256s'], SHAKE_SIMPLE))();
 
 type ShaType = typeof sha256 | typeof sha512;
@@ -777,9 +842,9 @@ type ShaType = typeof sha256 | typeof sha512;
 // category-1 keeps everything on SHA-256, while category-3/5 keep `PRFaddr` / `thash1`
 // on SHA-256 but switch `PRFmsg`, `Hmsg`, and multi-block `thashN` to SHA-512.
 const genSha =
-  (h0: ShaType, h1: ShaType): GetContext =>
+  (h0: ShaType, h1: ShaType): TRet<GetContext> =>
   (opts) =>
-  (pub_seed, sk_seed?) => {
+  (pub_seed: TArg<Uint8Array>, sk_seed?: TArg<Uint8Array>): TRet<Context> => {
     const { N } = opts;
     /*
     Perf debug stats, how much hashes we call?
@@ -809,7 +874,7 @@ const genSha =
     // This local helper is intentionally stricter than generic MGF1 reuse: current SLH-DSA callers
     // only request tiny `m`-byte outputs, but the guard below rejects `length > 2^32` instead of
     // RFC 8017's broader `maskLen > 2^32 * hLen` bound.
-    function mgf1(seed: Uint8Array, length: number, hash: ShaType) {
+    function mgf1(seed: TArg<Uint8Array>, length: number, hash: ShaType): TRet<Uint8Array> {
       stats.mgf1++;
       const out = new Uint8Array(Math.ceil(length / hash.outputLen) * hash.outputLen);
       // NOT 2^32-1
@@ -820,22 +885,22 @@ const genSha =
         o = o.subarray(hash.outputLen);
       }
       cleanBytes(out.subarray(length));
-      return out.subarray(0, length);
+      return out.subarray(0, length) as TRet<Uint8Array>;
     }
 
     const thash =
       (_: ShaType, h: typeof h0ps, hTmp: typeof h0ps) =>
-      (blocks: number, input: Uint8Array, addr: ADRS) => {
+      (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
         stats.thash++;
         const d = h
           ._cloneInto(hTmp as any)
           .update(addr)
           .update(input.subarray(0, blocks * N))
           .digest();
-        return d.subarray(0, N);
+        return d.subarray(0, N) as TRet<Uint8Array>;
       };
     return {
-      PRFaddr: (addr: ADRS) => {
+      PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
         if (!sk_seed) throw new Error('No sk seed');
         stats.prf++;
         const res = h0ps
@@ -844,13 +909,27 @@ const genSha =
           .update(sk_seed)
           .digest()
           .subarray(0, N);
-        return res;
+        return res as TRet<Uint8Array>;
       },
-      PRFmsg: (skPRF: Uint8Array, random: Uint8Array, msg: Uint8Array) => {
+      PRFmsg: (
+        skPRF: TArg<Uint8Array>,
+        random: TArg<Uint8Array>,
+        msg: TArg<Uint8Array>
+      ): TRet<Uint8Array> => {
         stats.gen_message_random++;
-        return hmac.create(h1, skPRF).update(random).update(msg).digest().subarray(0, N);
+        return hmac
+          .create(h1, skPRF)
+          .update(random)
+          .update(msg)
+          .digest()
+          .subarray(0, N) as TRet<Uint8Array>;
       },
-      Hmsg: (R: Uint8Array, pk: Uint8Array, m: Uint8Array, outLen) => {
+      Hmsg: (
+        R: TArg<Uint8Array>,
+        pk: TArg<Uint8Array>,
+        m: TArg<Uint8Array>,
+        outLen
+      ): TRet<Uint8Array> => {
         stats.hmsg++;
         const seed = concatBytes(
           R.subarray(0, N),
@@ -868,7 +947,7 @@ const genSha =
         h1tmp.destroy();
         //console.log(stats);
       },
-    };
+    } as TRet<Context>;
   };
 
 const SHA256_SIMPLE = /* @__PURE__ */ (() => ({
@@ -885,40 +964,40 @@ const SHA512_SIMPLE = /* @__PURE__ */ (() => ({
  * lengths `publicKey=32`, `secretKey=64`, `signature=17088`, `seed=48`, `signRand=16`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_sha2_128f: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_sha2_128f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['128f'], SHA256_SIMPLE))();
 /**
  * SLH-DSA-SHA2-128s: Table 2 row `n=16, h=63, d=7, h'=9, a=12, k=14, lg w=4, m=30`;
  * lengths `publicKey=32`, `secretKey=64`, `signature=7856`, `seed=48`, `signRand=16`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_sha2_128s: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_sha2_128s: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['128s'], SHA256_SIMPLE))();
 /**
  * SLH-DSA-SHA2-192f: Table 2 row `n=24, h=66, d=22, h'=3, a=8, k=33, lg w=4, m=42`;
  * lengths `publicKey=48`, `secretKey=96`, `signature=35664`, `seed=72`, `signRand=24`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_sha2_192f: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_sha2_192f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['192f'], SHA512_SIMPLE))();
 /**
  * SLH-DSA-SHA2-192s: Table 2 row `n=24, h=63, d=7, h'=9, a=14, k=17, lg w=4, m=39`;
  * lengths `publicKey=48`, `secretKey=96`, `signature=16224`, `seed=72`, `signRand=24`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_sha2_192s: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_sha2_192s: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['192s'], SHA512_SIMPLE))();
 /**
  * SLH-DSA-SHA2-256f: Table 2 row `n=32, h=68, d=17, h'=4, a=9, k=35, lg w=4, m=49`;
  * lengths `publicKey=64`, `secretKey=128`, `signature=49856`, `seed=96`, `signRand=32`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_sha2_256f: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_sha2_256f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['256f'], SHA512_SIMPLE))();
 /**
  * SLH-DSA-SHA2-256s: Table 2 row `n=32, h=64, d=8, h'=8, a=14, k=22, lg w=4, m=47`;
  * lengths `publicKey=64`, `secretKey=128`, `signature=29792`, `seed=96`, `signRand=32`.
  * Also exposes `.prehash(...)`.
  */
-export const slh_dsa_sha2_256s: SphincsSigner = /* @__PURE__ */ (() =>
+export const slh_dsa_sha2_256s: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['256s'], SHA512_SIMPLE))();

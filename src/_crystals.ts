@@ -6,7 +6,14 @@
 import { FFTCore, reverseBits } from '@noble/curves/abstract/fft.js';
 import { shake128, shake256 } from '@noble/hashes/sha3.js';
 import type { TypedArray } from '@noble/hashes/utils.js';
-import { type BytesCoderLen, cleanBytes, type Coder, getMask } from './utils.ts';
+import {
+  type BytesCoderLen,
+  cleanBytes,
+  type Coder,
+  getMask,
+  type TArg,
+  type TRet,
+} from './utils.ts';
 
 /** Extendable-output reader used by the CRYSTALS implementations. */
 export type XOF = (
@@ -61,6 +68,19 @@ export type CrystalOpts<T extends TypedArray> = {
 /** Constructor function for typed polynomial containers. */
 export type TypedCons<T extends TypedArray> = (n: number) => T;
 
+type Crystals<T extends TypedArray> = {
+  mod: (a: number, modulo?: number) => number;
+  smod: (a: number, modulo?: number) => number;
+  nttZetas: T;
+  NTT: {
+    /** Forward transform in place. Mutates and returns `r`. */
+    encode: (r: T) => T;
+    /** Inverse transform in place. Mutates and returns `r`. */
+    decode: (r: T) => T;
+  };
+  bitsCoder: (d: number, c: Coder<number, number>) => BytesCoderLen<T>;
+};
+
 /**
  * Creates shared modular arithmetic, NTT, and packing helpers for CRYSTALS schemes.
  * @param opts - Polynomial and transform parameters. See {@link CrystalOpts}.
@@ -80,20 +100,7 @@ export type TypedCons<T extends TypedArray> = (n: number) => T;
  * const reduced = crystals.mod(-1);
  * ```
  */
-export const genCrystals = <T extends TypedArray>(
-  opts: CrystalOpts<T>
-): {
-  mod: (a: number, modulo?: number) => number;
-  smod: (a: number, modulo?: number) => number;
-  nttZetas: T;
-  NTT: {
-    /** Forward transform in place. Mutates and returns `r`. */
-    encode: (r: T) => T;
-    /** Inverse transform in place. Mutates and returns `r`. */
-    decode: (r: T) => T;
-  };
-  bitsCoder: (d: number, c: Coder<number, number>) => BytesCoderLen<T>;
-} => {
+export const genCrystals = <T extends TypedArray>(opts: CrystalOpts<T>): TRet<Crystals<T>> => {
   // isKyber: true means Kyber, false means Dilithium
   const { newPoly, N, Q, F, ROOT_OF_UNITY, brvBits, isKyber } = opts;
   // Normalize JS `%` into the canonical Z_m representative `[0, modulo-1]` expected by
@@ -160,38 +167,48 @@ export const genCrystals = <T extends TypedArray>(
   };
   // Pack one little-endian `d`-bit word per coefficient, matching FIPS 203 ByteEncode /
   // ByteDecode and the FIPS 204 BitsToBytes-based polynomial packing helpers.
-  const bitsCoder = (d: number, c: Coder<number, number>): BytesCoderLen<T> => {
+  const bitsCoder = (d: number, c: Coder<number, number>): TRet<BytesCoderLen<T>> => {
     const mask = getMask(d);
     const bytesLen = d * (N / 8);
     return {
       bytesLen,
-      encode: (poly: T): Uint8Array => {
+      encode: (poly_: TArg<T>): TRet<Uint8Array> => {
+        const poly = poly_ as T;
         const r = new Uint8Array(bytesLen);
         for (let i = 0, buf = 0, bufLen = 0, pos = 0; i < poly.length; i++) {
           buf |= (c.encode(poly[i]) & mask) << bufLen;
           bufLen += d;
           for (; bufLen >= 8; bufLen -= 8, buf >>= 8) r[pos++] = buf & getMask(bufLen);
         }
-        return r;
+        return r as TRet<Uint8Array>;
       },
-      decode: (bytes: Uint8Array): T => {
+      decode: (bytes: TArg<Uint8Array>): TRet<T> => {
         const r = newPoly(N);
         for (let i = 0, buf = 0, bufLen = 0, pos = 0; i < bytes.length; i++) {
           buf |= bytes[i] << bufLen;
           bufLen += 8;
           for (; bufLen >= d; bufLen -= d, buf >>= d) r[pos++] = c.decode(buf & mask);
         }
-        return r;
+        return r as TRet<T>;
       },
-    };
+    } as TRet<BytesCoderLen<T>>;
   };
 
-  return { mod, smod, nttZetas, NTT, bitsCoder };
+  return {
+    mod,
+    smod,
+    nttZetas: nttZetas as TRet<T>,
+    NTT: {
+      encode: (r: TArg<T>): TRet<T> => NTT.encode(r as T) as TRet<T>,
+      decode: (r: TArg<T>): TRet<T> => NTT.decode(r as T) as TRet<T>,
+    },
+    bitsCoder: bitsCoder as TRet<Crystals<T>>['bitsCoder'],
+  };
 };
 
 const createXofShake =
-  (shake: typeof shake128): XOF =>
-  (seed: Uint8Array, blockLen?: number) => {
+  (shake: typeof shake128): TRet<XOF> =>
+  (seed: TArg<Uint8Array>, blockLen?: number) => {
     if (!blockLen) blockLen = shake.blockLen;
     // Optimizations that won't mater:
     // - cached seed update (two .update(), on start and on the end)
@@ -217,7 +234,7 @@ const createXofShake =
         calls++;
         return () => {
           xofs++;
-          return h.xofInto(buf);
+          return h.xofInto(buf) as TRet<Uint8Array>;
         };
       },
       clean: () => {
@@ -243,7 +260,7 @@ const createXofShake =
  * const block = reader.get(0, 0)();
  * ```
  */
-export const XOF128: XOF = /* @__PURE__ */ createXofShake(shake128);
+export const XOF128: TRet<XOF> = /* @__PURE__ */ createXofShake(shake128);
 /**
  * SHAKE256-based extendable-output reader factory used by ML-DSA.
  * `get(x, y)` appends raw one-byte coordinates to the seed, invalidates previously returned
@@ -260,4 +277,4 @@ export const XOF128: XOF = /* @__PURE__ */ createXofShake(shake128);
  * const block = reader.get(0, 0)();
  * ```
  */
-export const XOF256: XOF = /* @__PURE__ */ createXofShake(shake256);
+export const XOF256: TRet<XOF> = /* @__PURE__ */ createXofShake(shake256);

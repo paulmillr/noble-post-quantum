@@ -13,6 +13,111 @@ import {
   randomBytes as randb,
 } from '@noble/hashes/utils.js';
 /**
+ * Bytes API type helpers for old + new TypeScript.
+ *
+ * TS 5.6 has `Uint8Array`, while TS 5.9+ made it generic `Uint8Array<ArrayBuffer>`.
+ * We can't use specific return type, because TS 5.6 will error.
+ * We can't use generic return type, because most TS 5.9 software will expect specific type.
+ *
+ * Maps typed-array input leaves to broad forms.
+ * These are compatibility adapters, not ownership guarantees.
+ *
+ * - `TArg` keeps byte inputs broad.
+ * - `TRet` marks byte outputs for TS 5.6 and TS 5.9+ compatibility.
+ */
+export type TypedArg<T> = T extends BigInt64Array
+  ? BigInt64Array
+  : T extends BigUint64Array
+    ? BigUint64Array
+    : T extends Float32Array
+      ? Float32Array
+      : T extends Float64Array
+        ? Float64Array
+        : T extends Int16Array
+          ? Int16Array
+          : T extends Int32Array
+            ? Int32Array
+            : T extends Int8Array
+              ? Int8Array
+              : T extends Uint16Array
+                ? Uint16Array
+                : T extends Uint32Array
+                  ? Uint32Array
+                  : T extends Uint8ClampedArray
+                    ? Uint8ClampedArray
+                    : T extends Uint8Array
+                      ? Uint8Array
+                      : never;
+/** Maps typed-array output leaves to narrow TS-compatible forms. */
+export type TypedRet<T> = T extends BigInt64Array
+  ? ReturnType<typeof BigInt64Array.of>
+  : T extends BigUint64Array
+    ? ReturnType<typeof BigUint64Array.of>
+    : T extends Float32Array
+      ? ReturnType<typeof Float32Array.of>
+      : T extends Float64Array
+        ? ReturnType<typeof Float64Array.of>
+        : T extends Int16Array
+          ? ReturnType<typeof Int16Array.of>
+          : T extends Int32Array
+            ? ReturnType<typeof Int32Array.of>
+            : T extends Int8Array
+              ? ReturnType<typeof Int8Array.of>
+              : T extends Uint16Array
+                ? ReturnType<typeof Uint16Array.of>
+                : T extends Uint32Array
+                  ? ReturnType<typeof Uint32Array.of>
+                  : T extends Uint8ClampedArray
+                    ? ReturnType<typeof Uint8ClampedArray.of>
+                    : T extends Uint8Array
+                      ? ReturnType<typeof Uint8Array.of>
+                      : never;
+/** Recursively adapts byte-carrying API input types. See {@link TypedArg}. */
+export type TArg<T> =
+  | T
+  | ([TypedArg<T>] extends [never]
+      ? T extends (...args: infer A) => infer R
+        ? ((...args: { [K in keyof A]: TRet<A[K]> }) => TArg<R>) & {
+            [K in keyof T]: T[K] extends (...args: any) => any ? T[K] : TArg<T[K]>;
+          }
+        : T extends [infer A, ...infer R]
+          ? [TArg<A>, ...{ [K in keyof R]: TArg<R[K]> }]
+          : T extends readonly [infer A, ...infer R]
+            ? readonly [TArg<A>, ...{ [K in keyof R]: TArg<R[K]> }]
+            : T extends (infer A)[]
+              ? TArg<A>[]
+              : T extends readonly (infer A)[]
+                ? readonly TArg<A>[]
+                : T extends Promise<infer A>
+                  ? Promise<TArg<A>>
+                  : T extends object
+                    ? { [K in keyof T]: TArg<T[K]> }
+                    : T
+      : TypedArg<T>);
+/** Recursively adapts byte-carrying API output types. See {@link TypedArg}. */
+export type TRet<T> = T extends unknown
+  ? T &
+      ([TypedRet<T>] extends [never]
+        ? T extends (...args: infer A) => infer R
+          ? ((...args: { [K in keyof A]: TArg<A[K]> }) => TRet<R>) & {
+              [K in keyof T]: T[K] extends (...args: any) => any ? T[K] : TRet<T[K]>;
+            }
+          : T extends [infer A, ...infer R]
+            ? [TRet<A>, ...{ [K in keyof R]: TRet<R[K]> }]
+            : T extends readonly [infer A, ...infer R]
+              ? readonly [TRet<A>, ...{ [K in keyof R]: TRet<R[K]> }]
+              : T extends (infer A)[]
+                ? TRet<A>[]
+                : T extends readonly (infer A)[]
+                  ? readonly TRet<A>[]
+                  : T extends Promise<infer A>
+                    ? Promise<TRet<A>>
+                    : T extends object
+                      ? { [K in keyof T]: TRet<T[K]> }
+                      : T
+        : TypedRet<T>)
+  : never;
+/**
  * Asserts that a value is a byte array and optionally checks its length.
  * Returns the original reference unchanged on success, and currently also accepts Node `Buffer`
  * values through the upstream validator.
@@ -43,6 +148,8 @@ export { concatBytesDoc as concatBytes };
  * Requires `globalThis.crypto.getRandomValues` and throws if that API is unavailable.
  * `bytesLength` is validated by the upstream helper as a non-negative integer before allocation,
  * so negative and fractional values both throw instead of truncating through JS `ToIndex`.
+ * @param bytesLength - Number of random bytes to generate.
+ * @returns Fresh random bytes.
  * @example
  * Generate a fresh random seed.
  * ```ts
@@ -63,7 +170,7 @@ export const randomBytes: typeof randb = randb;
  * equalBytes(new Uint8Array([1]), new Uint8Array([1]));
  * ```
  */
-export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+export function equalBytes(a: TArg<Uint8Array>, b: TArg<Uint8Array>): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
@@ -72,8 +179,7 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
 
 /**
  * Copies bytes into a fresh `Uint8Array`.
- * Returns a detached plain `Uint8Array`, and currently accepts broader array-like / iterable
- * inputs because it delegates directly to `Uint8Array.from(...)`.
+ * Returns a detached plain `Uint8Array` after validating that the input is real bytes.
  * @param bytes - Source bytes.
  * @returns Copy of the input bytes.
  * @example
@@ -82,8 +188,10 @@ export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
  * copyBytes(new Uint8Array([1, 2]));
  * ```
  */
-export function copyBytes(bytes: Uint8Array): Uint8Array {
-  return Uint8Array.from(bytes);
+export function copyBytes(bytes: TArg<Uint8Array>): TRet<Uint8Array> {
+  // `Uint8Array.from(...)` would also accept arrays / other typed arrays. Keep this helper strict
+  // because callers use it at byte-validation boundaries before mutating the detached copy.
+  return Uint8Array.from(abytes(bytes)) as TRet<Uint8Array>;
 }
 
 /**
@@ -92,6 +200,11 @@ export function copyBytes(bytes: Uint8Array): Uint8Array {
  * this boundary helper before aliasing them as host `Float64Array` lanes.
  * @param arr - Byte buffer whose length is a multiple of 8.
  * @returns The same buffer after in-place 64-bit lane byte swaps.
+ * @example
+ * Byte-swap one 64-bit lane in place.
+ * ```ts
+ * byteSwap64(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
+ * ```
  */
 export function byteSwap64<T extends ArrayBufferView>(arr: T): T {
   const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
@@ -111,6 +224,18 @@ export function byteSwap64<T extends ArrayBufferView>(arr: T): T {
   }
   return arr;
 }
+/**
+ * Byte-swaps 64-bit lanes on big-endian runtimes and returns the input unchanged on little-endian.
+ * This keeps Falcon's binary64 tables in canonical little-endian order before aliasing them as
+ * `Float64Array` lanes on the current host.
+ * @param arr - Buffer to pass through or swap in place.
+ * @returns The same buffer, normalized for Falcon's little-endian table layout.
+ * @example
+ * Normalize one host-endian buffer for Falcon's float tables.
+ * ```ts
+ * baswap64If(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]));
+ * ```
+ */
 export const baswap64If: <T extends ArrayBufferView>(arr: T) => T = isLE
   ? (arr) => arr
   : byteSwap64;
@@ -126,13 +251,16 @@ export type CryptoKeys = {
    * @param seed - Optional seed bytes for deterministic key generation.
    * @returns Fresh secret/public keypair.
    */
-  keygen: (seed?: Uint8Array) => { secretKey: Uint8Array; publicKey: Uint8Array };
+  keygen: (seed?: TArg<Uint8Array>) => {
+    secretKey: TRet<Uint8Array>;
+    publicKey: TRet<Uint8Array>;
+  };
   /**
    * Derive one public key from a secret key.
    * @param secretKey - Secret key bytes.
    * @returns Public key bytes.
    */
-  getPublicKey: (secretKey: Uint8Array) => Uint8Array;
+  getPublicKey: (secretKey: TArg<Uint8Array>) => TRet<Uint8Array>;
 };
 
 /** Verification options shared by the signature APIs. */
@@ -175,7 +303,7 @@ export function validateOpts(opts: object): void {
  * validateVerOpts({ context: new Uint8Array([1]) });
  * ```
  */
-export function validateVerOpts(opts: VerOpts): void {
+export function validateVerOpts(opts: TArg<VerOpts>): void {
   validateOpts(opts);
   if (opts.context !== undefined) abytes(opts.context, undefined, 'opts.context');
 }
@@ -192,7 +320,7 @@ export function validateVerOpts(opts: VerOpts): void {
  * validateSigOpts({ extraEntropy: new Uint8Array([1]) });
  * ```
  */
-export function validateSigOpts(opts: SigOpts): void {
+export function validateSigOpts(opts: TArg<SigOpts>): void {
   validateVerOpts(opts);
   if (opts.extraEntropy !== false && opts.extraEntropy !== undefined)
     abytes(opts.extraEntropy, undefined, 'opts.extraEntropy');
@@ -209,7 +337,11 @@ export type Signer = CryptoKeys & {
    * @param opts - Optional signing options.
    * @returns Signature bytes.
    */
-  sign: (msg: Uint8Array, secretKey: Uint8Array, opts?: SigOpts) => Uint8Array;
+  sign: (
+    msg: TArg<Uint8Array>,
+    secretKey: TArg<Uint8Array>,
+    opts?: TArg<SigOpts>
+  ) => TRet<Uint8Array>;
   /**
    * Verify one signature.
    * @param sig - Signature bytes.
@@ -221,7 +353,12 @@ export type Signer = CryptoKeys & {
    * a verification failure and return `false`.
    * @throws On malformed API arguments or unsupported verification options.
    */
-  verify: (sig: Uint8Array, msg: Uint8Array, publicKey: Uint8Array, opts?: VerOpts) => boolean;
+  verify: (
+    sig: TArg<Uint8Array>,
+    msg: TArg<Uint8Array>,
+    publicKey: TArg<Uint8Array>,
+    opts?: TArg<VerOpts>
+  ) => boolean;
 };
 
 /** Generic key encapsulation mechanism interface. */
@@ -235,11 +372,11 @@ export type KEM = CryptoKeys & {
    * @returns Ciphertext plus shared secret.
    */
   encapsulate: (
-    publicKey: Uint8Array,
-    msg?: Uint8Array
+    publicKey: TArg<Uint8Array>,
+    msg?: TArg<Uint8Array>
   ) => {
-    cipherText: Uint8Array;
-    sharedSecret: Uint8Array;
+    cipherText: TRet<Uint8Array>;
+    sharedSecret: TRet<Uint8Array>;
   };
   /**
    * Recover the shared secret from a ciphertext and recipient secret key.
@@ -247,7 +384,7 @@ export type KEM = CryptoKeys & {
    * @param secretKey - Recipient secret key bytes.
    * @returns Decapsulated shared secret.
    */
-  decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => Uint8Array;
+  decapsulate: (cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) => TRet<Uint8Array>;
 };
 
 /** Bidirectional encoder/decoder interface. */
@@ -308,8 +445,9 @@ type SplitOut<T extends (number | BytesCoderLen<any>)[]> = {
 export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
   label: string,
   ...lengths: T
-): BytesCoder<SplitOut<T>> & { bytesLen: number } {
-  const getLength = (c: number | BytesCoderLen<any>) => (typeof c === 'number' ? c : c.bytesLen);
+): TRet<BytesCoder<SplitOut<T>> & { bytesLen: number }> {
+  const getLength = (c: TArg<number | BytesCoderLen<any>>) =>
+    typeof c === 'number' ? c : (c as BytesCoderLen<any>).bytesLen;
   const bytesLen: number = lengths.reduce((sum: number, a) => sum + getLength(a), 0);
   return {
     bytesLen,
@@ -326,7 +464,7 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
       }
       return res;
     },
-    decode: (buf: Uint8Array) => {
+    decode: (buf: TArg<Uint8Array>) => {
       abytes_(buf, bytesLen, label);
       const res = [];
       for (const c of lengths) {
@@ -359,30 +497,31 @@ export function splitCoder<T extends (number | BytesCoderLen<any>)[]>(
  * ).encode([1, 2]);
  * ```
  */
-export function vecCoder<T>(c: BytesCoderLen<T>, vecLen: number): BytesCoderLen<T[]> {
-  const bytesLen = vecLen * c.bytesLen;
+export function vecCoder<T>(c: TArg<BytesCoderLen<T>>, vecLen: number): TRet<BytesCoderLen<T[]>> {
+  const coder = c as BytesCoderLen<T>;
+  const bytesLen = vecLen * coder.bytesLen;
   return {
     bytesLen,
-    encode: (u: T[]): Uint8Array => {
+    encode: (u: TArg<T[]>): TRet<Uint8Array> => {
       if (u.length !== vecLen)
         throw new RangeError(`vecCoder.encode: wrong length=${u.length}. Expected: ${vecLen}`);
       const res = new Uint8Array(bytesLen);
       for (let i = 0, pos = 0; i < u.length; i++) {
-        const b = c.encode(u[i]);
+        const b = coder.encode(u[i] as T);
         res.set(b, pos);
         b.fill(0); // clean
         pos += b.length;
       }
-      return res;
+      return res as TRet<Uint8Array>;
     },
-    decode: (a: Uint8Array): T[] => {
+    decode: (a: TArg<Uint8Array>): TRet<T[]> => {
       abytes_(a, bytesLen);
       const r: T[] = [];
-      for (let i = 0; i < a.length; i += c.bytesLen)
-        r.push(c.decode(a.subarray(i, i + c.bytesLen)));
-      return r;
+      for (let i = 0; i < a.length; i += coder.bytesLen)
+        r.push(coder.decode(a.subarray(i, i + coder.bytesLen)));
+      return r as TRet<T[]>;
     },
-  };
+  } as any;
 }
 
 /**
@@ -407,6 +546,7 @@ export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
  * Creates a 32-bit mask with the lowest `bits` bits set.
  * @param bits - Number of low bits to keep.
  * @returns Bit mask with `bits` ones.
+ * @throws On wrong argument ranges or values. {@link RangeError}
  * @example
  * Create a low-bit mask for packed-field operations.
  * ```ts
@@ -421,7 +561,7 @@ export function getMask(bits: number): number {
 }
 
 /** Shared empty byte array used as the default context. */
-export const EMPTY: Uint8Array = /* @__PURE__ */ Uint8Array.of();
+export const EMPTY: TRet<Uint8Array> = /* @__PURE__ */ Uint8Array.of();
 
 /**
  * Builds the domain-separated message payload for the pure sign/verify paths.
@@ -436,7 +576,7 @@ export const EMPTY: Uint8Array = /* @__PURE__ */ Uint8Array.of();
  * const payload = getMessage(new Uint8Array([1, 2]));
  * ```
  */
-export function getMessage(msg: Uint8Array, ctx: Uint8Array = EMPTY): Uint8Array {
+export function getMessage(msg: TArg<Uint8Array>, ctx: TArg<Uint8Array> = EMPTY): TRet<Uint8Array> {
   abytes_(msg);
   abytes_(ctx);
   if (ctx.length > 255) throw new RangeError('context should be 255 bytes or less');
@@ -503,9 +643,9 @@ export function checkHash(hash: CHash, requiredStrength: number = 0): void {
  */
 export function getMessagePrehash(
   hash: CHash,
-  msg: Uint8Array,
-  ctx: Uint8Array = EMPTY
-): Uint8Array {
+  msg: TArg<Uint8Array>,
+  ctx: TArg<Uint8Array> = EMPTY
+): TRet<Uint8Array> {
   abytes_(msg);
   abytes_(ctx);
   if (ctx.length > 255) throw new RangeError('context should be 255 bytes or less');
