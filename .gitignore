@@ -6,4 +6,3 @@ node_modules
 *.d.ts.map
 /test/build
 /test/compiled
-/test/vectors/wycheproof

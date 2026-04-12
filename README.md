@@ -252,7 +252,9 @@ For [hashes](https://github.com/paulmillr/noble-hashes), use SHA512 or SHA3-512 
 
 The library has not been independently audited yet.
 
-v0.6.0 (Mar 2026) has been undergone through a self-audit. All files were in scope.
+- at version 0.6.1, in Apr 2026, it was audited by ourselves (self-audited)
+  - Scope: everything
+  - [Changes since audit](https://github.com/paulmillr/noble-post-quantum/compare/0.6.1..main)
 
 If you see anything unusual: investigate and report.
 
@@ -287,49 +289,6 @@ which is considered a cryptographically secure PRNG.
 
 Browsers have had weaknesses in the past - and could again - but implementing a userspace CSPRNG is even worse, as there’s no reliable userspace source of high-quality entropy.
 
-## Speed
-
-> `npm run bench`
-
-Noble is the fastest JS implementation of post-quantum algorithms. WASM libraries can be faster.
-
-Benchmarks on Apple M4 (**higher is better**):
-
-| OPs/sec           | Keygen | Signing | Verification | Shared secret |
-| ----------------- | ------ | ------- | ------------ | ------------- |
-| ECC x/ed25519     | 14216  | 6849    | 1400         | 1981          |
-| ML-KEM-768        | 3778   |         |              | 3750          |
-| ML-DSA65          | 580    | 272     | 546          |               |
-| SLH-DSA-SHA2-192f | 245    | 8       | 169          |               |
-
-```
-# ML-KEM768
-keygen x 3,778 ops/sec @ 264μs/op
-encapsulate x 3,220 ops/sec @ 310μs/op
-decapsulate x 4,029 ops/sec @ 248μs/op
-# ML-DSA65
-keygen x 580 ops/sec @ 1ms/op
-sign x 272 ops/sec @ 3ms/op
-verify x 546 ops/sec @ 1ms/op
-# SLH-DSA SHA2 192f
-keygen x 245 ops/sec @ 4ms/op
-sign x 8 ops/sec @ 114ms/op
-verify x 169 ops/sec @ 5ms/op
-```
-
-SLH-DSA:
-
-|           | sig size | keygen | sign   | verify |
-| --------- | -------- | ------ | ------ | ------ |
-| sha2_128f | 18088    | 4ms    | 90ms   | 6ms    |
-| sha2_192f | 35664    | 6ms    | 160ms  | 9ms    |
-| sha2_256f | 49856    | 15ms   | 340ms  | 9ms    |
-| sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
-| sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
-| sha2_256s | 29792    | 250ms  | 3400ms | 4ms    |
-| shake_192f | 35664   | 21ms   | 553ms  | 29ms   |
-| shake_192s | 16224   | 260ms  | 2635ms | 2ms    |
-
 ## Contributing & testing
 
 - `npm install && npm run build && npm test` will build the code and run tests.
@@ -343,6 +302,60 @@ for general coding practices and rules.
 See [paulmillr.com/noble](https://paulmillr.com/noble/)
 for useful resources, articles, documentation and demos
 related to the library.
+
+## Speed
+
+> `npm run bench`
+
+Noble is the fastest JS implementation of post-quantum algorithms.
+
+Benchmarks on Apple M4 (**higher is better**):
+
+```
+# ML-KEM768
+keygen x 4,277 ops/sec @ 233μs/op
+encapsulate x 3,470 ops/sec @ 288μs/op
+decapsulate x 3,757 ops/sec @ 266μs/op
+# ML-DSA65
+keygen x 669 ops/sec @ 1ms/op
+sign x 271 ops/sec @ 3ms/op
+verify x 565 ops/sec @ 1ms/op
+# SLH-DSA SHA2 192f
+keygen x 235 ops/sec @ 4ms/op
+sign x 8 ops/sec @ 117ms/op
+verify x 159 ops/sec @ 6ms/op
+# Falcon512
+keygen x 14 ops/sec @ 66ms/op ± 11.01% (56ms..96ms)
+sign x 749 ops/sec @ 1ms/op
+verify x 2,160 ops/sec @ 462μs/op
+# Falcon1024
+keygen x 4 ops/sec @ 247ms/op ± 5.22% (234ms..266ms)
+sign x 343 ops/sec @ 2ms/op
+verify x 950 ops/sec @ 1ms/op
+```
+
+Compared with pre-quantum:
+
+| OPs/sec           | Keygen | Signing | Verification | Shared secret |
+| ----------------- | ------ | ------- | ------------ | ------------- |
+| ECC x/ed25519     | 12648  | 6157    | 1255         | 1981          |
+| ML-KEM-768        | 4277   |         |              | 3757          |
+| ML-DSA65          | 669    | 271     | 565          |               |
+| SLH-DSA-SHA2-192f | 235    | 8       | 159          |               |
+| Falcon512         | 14     | 749     | 950          |               |
+
+SLH-DSA:
+
+|           | sig size | keygen | sign   | verify |
+| --------- | -------- | ------ | ------ | ------ |
+| sha2_128f | 18088    | 4ms    | 90ms   | 6ms    |
+| sha2_192f | 35664    | 6ms    | 160ms  | 9ms    |
+| sha2_256f | 49856    | 15ms   | 340ms  | 9ms    |
+| sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
+| sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
+| sha2_256s | 29792    | 250ms  | 3400ms | 4ms    |
+| shake_192f | 35664   | 21ms   | 553ms  | 29ms   |
+| shake_192s | 16224   | 260ms  | 2635ms | 2ms    |
 
 ## License
 
