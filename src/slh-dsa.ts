@@ -27,16 +27,15 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { hmac } from '@noble/hashes/hmac.js';
-import { sha256, sha512 } from '@noble/hashes/sha2.js';
-import { shake256 } from '@noble/hashes/sha3.js';
+import { sha256, sha512, shake256 } from '@awasm/noble';
+import { hmac } from '@awasm/noble/hmac.js';
 import {
   bytesToHex,
   concatBytes,
   createView,
   hexToBytes,
   type CHash,
-} from '@noble/hashes/utils.js';
+} from '@awasm/noble/utils.js';
 import {
   abytes,
   checkHash,

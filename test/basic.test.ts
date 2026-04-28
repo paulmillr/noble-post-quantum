@@ -6,7 +6,7 @@ import {
   sha3_512,
   shake128,
   shake128_32,
-} from '@noble/hashes/sha3.js';
+} from '@awasm/noble';
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, throws } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';

@@ -10,9 +10,9 @@
     "src"
   ],
   "dependencies": {
+    "@awasm/noble": "0.1.2",
     "@noble/ciphers": "~2.2.0",
-    "@noble/curves": "~2.2.0",
-    "@noble/hashes": "~2.2.0"
+    "@noble/curves": "~2.2.0"
   },
   "devDependencies": {
     "@paulmillr/jsbt": "0.5.0",
@@ -25,7 +25,7 @@
     "bench": "node test/benchmark.ts",
     "build": "tsc",
     "build:release": "npx --no @paulmillr/jsbt esbuild test/build",
-    "check": "npm run check:readme && npm run check:treeshake && npm run check:jsdoc",
+    "check": "npx --no @paulmillr/jsbt check package.json",
     "check:readme": "npx --no @paulmillr/jsbt readme package.json",
     "check:treeshake": "npx --no @paulmillr/jsbt treeshake package.json test/build/out-treeshake",
     "check:jsdoc": "npx --no @paulmillr/jsbt tsdoc package.json",

@@ -20,8 +20,8 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3.js';
-import { type CHash, swap32IfBE, u32 } from '@noble/hashes/utils.js';
+import { sha3_256, sha3_512, shake256 } from '@awasm/noble';
+import { swap32IfBE, u32, type CHash } from '@awasm/noble/utils.js';
 import { genCrystals, type XOF, XOF128 } from './_crystals.ts';
 import {
   abytes,

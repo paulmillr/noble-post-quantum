@@ -1,5 +1,5 @@
 // Wycheproof test vectors from https://github.com/C2SP/wycheproof
-import { hexToBytes as hexx } from '@noble/hashes/utils.js';
+import { hexToBytes as hexx } from '@awasm/noble/utils.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';

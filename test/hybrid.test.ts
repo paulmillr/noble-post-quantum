@@ -1,8 +1,7 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { p256 } from '@noble/curves/nist.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { sha3_512, shake256 } from '@noble/hashes/sha3.js';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
+import { sha256, sha3_512, shake256 } from '@awasm/noble';
+import { bytesToHex, hexToBytes } from '@awasm/noble/utils.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, throws } from 'node:assert';
 import { randomBytes } from 'node:crypto';

@@ -9,8 +9,8 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { abool } from '@noble/curves/utils.js';
-import { shake256 } from '@noble/hashes/sha3.js';
-import type { CHash } from '@noble/hashes/utils.js';
+import { shake256 } from '@awasm/noble';
+import type { CHash } from '@awasm/noble/utils.js';
 import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.ts';
 import {
   abytes,

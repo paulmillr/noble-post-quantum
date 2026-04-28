@@ -1,6 +1,6 @@
 import { deepStrictEqual } from 'node:assert';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
+import { sha256 } from '@awasm/noble';
+import { concatBytes, utf8ToBytes } from '@awasm/noble/utils.js';
 import bench from '@paulmillr/jsbt/bench.js';
 import { falcon1024, falcon512 } from '../src/falcon.ts';
 import { ml_dsa65 } from '../src/ml-dsa.ts';

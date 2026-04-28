@@ -1,4 +1,18 @@
-import { concatBytes, hexToBytes as hexx } from '@noble/hashes/utils.js';
+import {
+  sha224,
+  sha256,
+  sha384,
+  sha512,
+  sha512_224,
+  sha512_256,
+  sha3_224,
+  sha3_256,
+  sha3_384,
+  sha3_512,
+  shake128_32,
+  shake256_64,
+} from '@awasm/noble';
+import { concatBytes, hexToBytes as hexx } from '@awasm/noble/utils.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
@@ -19,15 +33,6 @@ import {
 } from '../src/slh-dsa.ts';
 import { equalBytes } from '../src/utils.ts';
 
-import { sha224, sha256, sha384, sha512, sha512_224, sha512_256 } from '@noble/hashes/sha2.js';
-import {
-  sha3_224,
-  sha3_256,
-  sha3_384,
-  sha3_512,
-  shake128_32,
-  shake256_64,
-} from '@noble/hashes/sha3.js';
 import { jsonGZ } from './util.ts';
 
 const ignoreSlowTests = !['1', 'true'].includes(process.env.SLOW_TESTS);

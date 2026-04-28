@@ -8,7 +8,7 @@
  *   <crucible-repo>/target/debug/crucible node /abs/path/test/crucible.ts
  *   <crucible-repo>/target/debug/crucible node /abs/path/test/crucible.ts --battery ml-dsa
  */
-import { bytesToHex, hexToBytes, u8 } from '@noble/hashes/utils.js';
+import { bytesToHex, hexToBytes, u8 } from '@awasm/noble/utils.js';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';

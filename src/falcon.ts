@@ -5,12 +5,11 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { rngAesCtrDrbg256 } from '@noble/ciphers/aes.js';
-import { chacha20 } from '@noble/ciphers/chacha.js';
 import { FFTCore } from '@noble/curves/abstract/fft.js';
 import type { IField } from '@noble/curves/abstract/modular.js';
 import { invert } from '@noble/curves/abstract/modular.js';
 import { bytesToNumberLE, numberToHexUnpadded } from '@noble/curves/utils.js';
-import { shake256 } from '@noble/hashes/sha3.js';
+import { chacha20, shake256 } from '@awasm/noble';
 import {
   abytes,
   bytesToHex,
@@ -21,7 +20,7 @@ import {
   type TypedArray,
   u32,
   u8,
-} from '@noble/hashes/utils.js';
+} from '@awasm/noble/utils.js';
 import { genCrystals, type TypedCons } from './_crystals.ts';
 import {
   baswap64If,
@@ -1839,7 +1838,10 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         n[3] ^= Number(this.ctr >> 32n);
         // chacha20() takes raw nonce bytes; on BE the word-normalized temp must be swapped back.
         swap32IfBE(n.subarray(1));
-        chacha20(this.key, u8(n.subarray(1)), EMPTY_CHACHA20_BLOCK, this.curBlock, n[0]);
+        chacha20(this.key, u8(n.subarray(1)), { counter: n[0] }).encrypt(
+          EMPTY_CHACHA20_BLOCK,
+          this.curBlock
+        );
         // Interleave like Falcon's AVX2 layout (by u32 chunks from 8 parallel chacha20)
         const block32 = swap32IfBE(this.curBlock32);
         for (let j = 0; j < 16; j++) out32[i + j * 8] = block32[j];
