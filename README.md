@@ -12,8 +12,6 @@ Auditable & minimal JS implementation of post-quantum public-key cryptography.
 - 🍡 Hybrid algorithms, combining classic & post-quantum: Concrete, XWing, KitchenSink
 - 🪶 16KB (gzipped) for everything, including bundled hashes & curves
 
-Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-quantum/discussions) for questions and support.
-
 > [!IMPORTANT]
 > NIST published [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
 > prohibiting classical cryptography (RSA, DSA, ECDSA, ECDH) after 2035.
@@ -34,6 +32,7 @@ Take a glance at [GitHub Discussions](https://github.com/paulmillr/noble-post-qu
   [post-quantum](https://github.com/paulmillr/noble-post-quantum),
   5kb [secp256k1](https://github.com/paulmillr/noble-secp256k1) /
   [ed25519](https://github.com/paulmillr/noble-ed25519)
+- WASM version: [awasm-noble](https://github.com/paulmillr/awasm-noble)
 - [Check out the homepage](https://paulmillr.com/noble/)
   for reading resources, documentation, and apps built with noble
 
