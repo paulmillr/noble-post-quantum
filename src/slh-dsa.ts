@@ -28,15 +28,10 @@
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
 import { hmac } from '@noble/hashes/hmac.js';
+import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js';
 import { sha256, sha512 } from '@noble/hashes/sha2.js';
 import { shake256 } from '@noble/hashes/sha3.js';
-import {
-  bytesToHex,
-  concatBytes,
-  createView,
-  hexToBytes,
-  type CHash,
-} from '@noble/hashes/utils.js';
+import { concatBytes, createView, type CHash } from '@noble/hashes/utils.js';
 import {
   abytes,
   checkHash,
@@ -179,21 +174,6 @@ export type Context = {
 export type GetContext = (
   opts: SphincsOpts
 ) => (pub_seed: TArg<Uint8Array>, sk_seed?: TArg<Uint8Array>) => TRet<Context>;
-
-function hexToNumber(hex: string): bigint {
-  if (typeof hex !== 'string') throw new Error('hex string expected, got ' + typeof hex);
-  return BigInt(hex === '' ? '0' : '0x' + hex); // Big Endian
-}
-
-// BE: Big Endian, LE: Little Endian. This is the local FIPS 205 `toInt(...)` equivalent.
-function bytesToNumberBE(bytes: TArg<Uint8Array>): bigint {
-  return hexToNumber(bytesToHex(bytes));
-}
-
-// Local in-range FIPS 205 `toByte(x, n)` equivalent; callers must keep `n < 256^len`.
-function numberToBytesBE(n: number | bigint, len: number): TRet<Uint8Array> {
-  return hexToBytes(n.toString(16).padStart(len * 2, '0'));
-}
 
 // Local FIPS 205 Algorithm 4 `base_2^b(...)` implementation. Bits are consumed in big-endian
 // order within each input byte, and callers must provide at least `ceil(outLen * b / 8)` bytes;
