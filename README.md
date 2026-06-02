@@ -308,6 +308,11 @@ related to the library.
 
 Noble is the fastest JS implementation of post-quantum algorithms.
 
+There is experimental [awasm git branch](https://github.com/paulmillr/noble-post-quantum/tree/awasm),
+which uses WASM-based [awasm-noble](https://github.com/paulmillr/awasm-noble) for hashing.
+It has 80% faster ML-KEM, 30% faster ML-DSA, 2.3x faster SLH-DSA-SHA256, 15x faster SLH-DSA-SHAKE.
+The SHAKE-s version is much more usable in WASM variant. Try it out!
+
 Benchmarks on Apple M4 (**higher is better**):
 
 ```
