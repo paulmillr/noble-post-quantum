@@ -12,7 +12,8 @@
   "dependencies": {
     "@noble/ciphers": "~2.2.0",
     "@noble/curves": "~2.2.0",
-    "@noble/hashes": "~2.2.0"
+    "@noble/hashes": "~2.2.0",
+    "@awasm/noble": "0.1.4"
   },
   "devDependencies": {
     "@paulmillr/jsbt": "0.5.0",

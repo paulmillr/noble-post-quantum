@@ -27,16 +27,18 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { hmac } from '@noble/hashes/hmac.js';
+import { hmac } from '@awasm/noble/hmac.js';
+import * as noble from '@awasm/noble/noble.js';
+import { sha256, sha512, shake256 } from '@awasm/noble/stub.js';
+import { copyFast, copyFast32, u32, type CHash, type HashState } from '@awasm/noble/utils.js';
 import { bytesToNumberBE, numberToBytesBE } from '@noble/curves/utils.js';
-import { sha256, sha512 } from '@noble/hashes/sha2.js';
-import { shake256 } from '@noble/hashes/sha3.js';
-import { concatBytes, createView, type CHash } from '@noble/hashes/utils.js';
+import { createView } from '@noble/hashes/utils.js';
 import {
   abytes,
   checkHash,
   cleanBytes,
   copyBytes,
+  EMPTY,
   equalBytes,
   getMask,
   getMessage,
@@ -52,6 +54,11 @@ import {
   type TRet,
   type VerOpts,
 } from './utils.ts';
+
+// Install noble version to stubs for backward compatibility. Could be removed on next major release.
+sha256.install(noble.sha256, { onlyMissing: true });
+sha512.install(noble.sha512, { onlyMissing: true });
+shake256.install(noble.shake256, { onlyMissing: true });
 
 /**
  * * N: Security parameter (in bytes). W: Winternitz parameter
@@ -117,6 +124,33 @@ const AddressType = {
 
 /** Address byte array of size `ADDR_BYTES`. */
 export type ADRS = Uint8Array;
+type AddrPatch = (msg: Uint8Array, pos: number, i: number, view: DataView) => void;
+type WotsPatch = (hash: number) => AddrPatch;
+type ParallelOut = Uint8Array[];
+type HashPrefix = { bytes: Uint8Array; state?: TArg<HashState> };
+/** Parameters for one batched WOTS tree walk using operation-owned scratch buffers. */
+type WotsJob = {
+  /** Base address copied into each lane before the patch callback writes lane-specific fields. */
+  baseAddr: Uint8Array;
+  /** Number of chain lanes, usually `leafCount * WOTS_LEN`. */
+  count: number;
+  /** Global leaf offset for the current subtree. */
+  idxOffset: number;
+  /** Leaf being signed; outside the subtree means keygen should not capture a WOTS signature. */
+  leafIdx: number;
+  /** Target chain step for each WOTS chain when a signature leaf is present. */
+  steps: Uint32Array;
+  /** Destination for the one WOTS signature captured from the target leaf. */
+  sig: Uint8Array;
+  /** One output view per XMSS leaf; these become the first reduction level input. */
+  out: Uint8Array[];
+  /** Writes lane-specific WOTS-PRF address fields into the packed PRF batch. */
+  prfPatch: AddrPatch;
+  /** Creates the patcher for a WOTS hash-chain step address. */
+  hashPatch: WotsPatch;
+  /** Writes lane-specific WOTSPK address fields for the public-key-to-leaf hash. */
+  pkPatch: AddrPatch;
+};
 
 /** Hash and tweakable-hash callbacks bound to one SLH-DSA keypair context. */
 export type Context = {
@@ -156,24 +190,91 @@ export type Context = {
    * Tweakable hash over one input block.
    * @param input - Input block.
    * @param addr - Address bytes.
-   * @returns Hash output bytes.
+   * @param out - Optional destination for the `N`-byte output.
+   * @returns Hash output bytes, aliasing `out` when a destination is provided.
    */
-  thash1: (input: TArg<Uint8Array>, addr: TArg<ADRS>) => TRet<Uint8Array>;
+  thash1: (input: TArg<Uint8Array>, addr: TArg<ADRS>, out?: TArg<Uint8Array>) => TRet<Uint8Array>;
   /**
    * Tweakable hash over multiple input blocks.
    * @param blocks - Number of input blocks.
    * @param input - Concatenated input bytes.
    * @param addr - Address bytes.
-   * @returns Hash output bytes.
+   * @param out - Optional destination for the `N`-byte output.
+   * @returns Hash output bytes, aliasing `out` when a destination is provided.
    */
-  thashN: (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>) => TRet<Uint8Array>;
+  thashN: (
+    blocks: number,
+    input: TArg<Uint8Array>,
+    addr: TArg<ADRS>,
+    out?: TArg<Uint8Array>
+  ) => TRet<Uint8Array>;
+  /**
+   * Batched multi-block tweakable hash for tree reductions.
+   *
+   * Each lane hashes `prefix || patched(baseAddr, lane) || input[lane]`, where each input lane is
+   * `blocks * N` bytes. Callers pass slices of the operation pair buffer as `input` and may pass
+   * output views into the same operation scratch, allowing one reduction level to feed the next
+   * without materializing `Uint8Array[]` results elsewhere.
+   *
+   * Returned views are caller-owned when `out` is supplied; otherwise they are scratch-owned and
+   * valid only until the next batched context call that reuses the same scratch shape.
+   *
+   * @param blocks - Number of `N`-byte input blocks per lane.
+   * @param input - Flat input buffer with `blocks * N` bytes per lane.
+   * @param baseAddr - Address template bytes copied into each packed lane before patching.
+   * @param count - Number of lanes to hash.
+   * @param patch - Per-lane mutator that writes the address words that vary by lane.
+   * @param out - Optional one-view-per-lane output destinations.
+   * @returns One hash output view per lane.
+   */
+  thashNFill: (
+    blocks: number,
+    input: TArg<Uint8Array>,
+    baseAddr: TArg<Uint8Array>,
+    count: number,
+    patch: AddrPatch,
+    out?: TArg<ParallelOut>
+  ) => TRet<Uint8Array[]>;
+  /**
+   * Build the first FORS tree level without a temporary PRF buffer.
+   *
+   * The PRF stage writes into scratch input views for the same lane shape. The leaf stage then
+   * repatches those lanes from `FORSPRF` addresses to `FORSTREE` addresses and hashes the PRF bytes
+   * directly into `out`, which is normally the first reduction `pairBuf` view list. Selected PRF
+   * values must be copied into the signature before another scratch call reuses the PRF views.
+   *
+   * @param baseAddr - Address template bytes copied into each FORS lane before patching.
+   * @param count - Number of FORS leaf lanes.
+   * @param prfPatch - Per-lane mutator for the `FORSPRF` address.
+   * @param leafPatch - Per-lane mutator for the matching `FORSTREE` address.
+   * @param out - One leaf-output destination per lane, usually views over `pairBuf`.
+   * @returns Scratch-owned PRF views and leaf output views.
+   */
+  forsLeavesFill: (
+    baseAddr: TArg<Uint8Array>,
+    count: number,
+    prfPatch: AddrPatch,
+    leafPatch: AddrPatch,
+    out: TArg<ParallelOut>
+  ) => TRet<{ prfs: Uint8Array[]; leaves: Uint8Array[] }>;
+  /**
+   * Compute all WOTS+ chains for one XMSS tree in batched dependency steps.
+   *
+   * The job describes one tree walk. The context runs the PRF batch for every chain lane, advances
+   * all chains step by step with `hash.parallel(...)`, copies only the target signature chain
+   * values into `job.sig`, and writes each WOTS public key leaf into `job.out`. `job.out` is then
+   * consumed immediately by the XMSS reduction code.
+   *
+   * @param job - Address patchers, target signature metadata, and output views for one WOTS tree.
+   */
+  wotsFill: (job: TArg<WotsJob>) => void;
   /** Wipe any buffered hash state for the current context. */
   clean: () => void;
 };
 /** Factory that creates a context generator for one SLH-DSA parameter set. */
 export type GetContext = (
   opts: SphincsOpts
-) => (pub_seed: TArg<Uint8Array>, sk_seed?: TArg<Uint8Array>) => TRet<Context>;
+) => (pub_seed: TArg<Uint8Array>, sk_seed?: TArg<Uint8Array>, sign?: boolean) => TRet<Context>;
 
 // Local FIPS 205 Algorithm 4 `base_2^b(...)` implementation. Bits are consumed in big-endian
 // order within each input byte, and callers must provide at least `ceil(outLen * b / 8)` bytes;
@@ -241,7 +342,6 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     OFFSET_TREE_INDEX += 10;
     OFFSET_HASH_ADDR += 10;
   }
-
   // Mutates and returns `addr` in place. For the built-in parameter sets, the layer / chain /
   // hash / height / keypair values fit in the low byte(s), and the tree value fits in 64 bits,
   // so the untouched leading bytes in the wider FIPS 205 ADRS / ADRS_c fields stay zero.
@@ -272,19 +372,49 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     if (chain !== undefined) addr[OFFSET_CHAIN_ADDR] = chain;
     if (hash !== undefined) addr[OFFSET_HASH_ADDR] = hash;
     if (index !== undefined) v.setUint32(OFFSET_TREE_INDEX, index, false);
-    if (subtreeAddr) addr.set(subtreeAddr.subarray(0, OFFSET_TREE + 8));
+    if (subtreeAddr) copyFast(addr, 0, subtreeAddr, 0, OFFSET_TREE + 8);
     if (tree !== undefined) v.setBigUint64(OFFSET_TREE, tree, false);
     if (keypair !== undefined) {
       addr[OFFSET_KP_ADDR1] = keypair;
       if (TREE_HEIGHT > 8) addr[OFFSET_KP_ADDR2] = keypair >>> 8;
     }
     if (keypairAddr) {
-      addr.set(keypairAddr.subarray(0, OFFSET_TREE + 8));
+      copyFast(addr, 0, keypairAddr, 0, OFFSET_TREE + 8);
       addr[OFFSET_KP_ADDR1] = keypairAddr[OFFSET_KP_ADDR1];
       if (TREE_HEIGHT > 8) addr[OFFSET_KP_ADDR2] = keypairAddr[OFFSET_KP_ADDR2];
     }
     return addr;
   };
+  const writeKeypair = (addr: Uint8Array, pos: number, keypair: number) => {
+    addr[pos + OFFSET_KP_ADDR1] = keypair;
+    if (TREE_HEIGHT > 8) addr[pos + OFFSET_KP_ADDR2] = keypair >>> 8;
+  };
+  const writeIndexSlot = (
+    dst: Uint8Array,
+    pos: number,
+    type: (typeof AddressType)[keyof typeof AddressType],
+    index: number,
+    height: number | undefined,
+    view: DataView
+  ) => {
+    dst[pos + OFFSET_TYPE] = type;
+    if (height !== undefined) dst[pos + OFFSET_CHAIN_ADDR] = height;
+    view.setUint32(pos + OFFSET_TREE_INDEX, index, false);
+  };
+  const writeWotsSlot = (
+    dst: Uint8Array,
+    pos: number,
+    keypair: number,
+    type: (typeof AddressType)[keyof typeof AddressType],
+    chain: number,
+    hash: number
+  ) => {
+    writeKeypair(dst, pos, keypair);
+    dst[pos + OFFSET_TYPE] = type;
+    dst[pos + OFFSET_CHAIN_ADDR] = chain;
+    dst[pos + OFFSET_HASH_ADDR] = hash;
+  };
+  const isAligned4 = (buf: Uint8Array) => (buf.byteOffset & 3) === 0;
 
   const chainCoder = base2b(WOTS_LEN2, WOTS_LOGW);
   const chainLengths = (msg: TArg<Uint8Array>) => {
@@ -328,95 +458,44 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     return { tree, leafIdx, md };
   };
 
-  // Iterative `xmss_node` / `xmss_sign` core: mutate `treeAddr` in place, collapse completed
-  // sibling pairs on `stack`, and record the sibling whenever the current subtree is the auth-path
-  // neighbor of the target leaf at that height.
-  const treehash = <T>(
-    height: number,
-    fn: TArg<(leafIdx: number, addrOffset: number, context: Context, info: T) => Uint8Array>
-  ) =>
-    function treehash_i(
-      context: TArg<Context>,
-      leafIdx: number,
-      idxOffset: number,
-      treeAddr: TArg<ADRS>,
-      info: T
-    ) {
-      const rawContext = context as Context;
-      const leafFn = fn as (
-        leafIdx: number,
-        addrOffset: number,
-        context: Context,
-        info: T
-      ) => Uint8Array;
-      const maxIdx = (1 << height) - 1;
-      const stack = new Uint8Array(height * N);
-      const authPath = new Uint8Array(height * N);
-      for (let idx = 0; ; idx++) {
-        const current = new Uint8Array(2 * N);
-        const cur0 = current.subarray(0, N);
-        const cur1 = current.subarray(N);
-        const addrOffset = idx + idxOffset;
-        cur1.set(leafFn(leafIdx, addrOffset, rawContext, info));
-        let h = 0;
-        for (let i = idx, o = idxOffset, l = leafIdx; ; h++, i >>>= 1, l >>>= 1, o >>>= 1) {
-          if (h === height) return { root: cur1, authPath }; // Returns from here
-          if ((i ^ l) === 1) authPath.subarray(h * N).set(cur1); // authPath.push(cur1)
-          if ((i & 1) === 0 && idx < maxIdx) break;
-          setAddr({ height: h + 1, index: (i >> 1) + (o >> 1) }, treeAddr);
-          cur0.set(stack.subarray(h * N).subarray(0, N));
-          cur1.set(rawContext.thashN(2, current, treeAddr));
-        }
-        stack.subarray(h * N).set(cur1); // stack.push(cur1)
-      }
-      // @ts-ignore
-      throw new Error('Unreachable code path reached, report this error');
-    };
-
-  type LeafInfo = {
-    wotsSig: Uint8Array;
-    wotsSteps: Uint32Array;
-    leafAddr: ADRS;
-    pkAddr: ADRS;
+  const splitViews = (buf: Uint8Array, count: number, len: number) => {
+    const out = new Array<Uint8Array>(count);
+    for (let i = 0; i < count; i++) out[i] = buf.subarray(i * len, (i + 1) * len);
+    return out;
   };
-  const wotsTreehash = treehash(
-    TREE_HEIGHT,
-    (leafIdx: number, addrOffset: number, context: TArg<Context>, info: TArg<LeafInfo>) => {
-      const rawContext = context as Context;
-      const wotsPk = new Uint8Array(WOTS_LEN * N);
-      // `keygen()` passes `leafIdx = ~0 >>> 0`, so no real XMSS leaf matches and this suppresses
-      // WOTS signature capture while still hashing every chain to its public-key endpoint.
-      const wotsKmask = addrOffset === leafIdx ? 0 : ~0 >>> 0;
-      setAddr({ keypair: addrOffset }, info.leafAddr);
-      setAddr({ keypair: addrOffset }, info.pkAddr);
-      for (let i = 0; i < WOTS_LEN; i++) {
-        const wotsK = info.wotsSteps[i] | wotsKmask;
-        const pk = wotsPk.subarray(i * N, (i + 1) * N);
-        setAddr({ chain: i, hash: 0, type: AddressType.WOTSPRF }, info.leafAddr);
-        pk.set(rawContext.PRFaddr(info.leafAddr));
-        setAddr({ type: AddressType.WOTS }, info.leafAddr);
-        for (let k = 0; ; k++) {
-          if (k === wotsK) info.wotsSig.subarray(i * N).set(pk); //wotsSig.push()
-          if (k === W - 1) break;
-          setAddr({ hash: k }, info.leafAddr);
-          pk.set(rawContext.thash1(pk, info.leafAddr));
-        }
-      }
-      return rawContext.thashN(WOTS_LEN, wotsPk, info.pkAddr);
-    }
-  );
-
-  const forsTreehash = treehash(
-    A,
-    (_: number, addrOffset: number, context: TArg<Context>, forsLeafAddr: TArg<ForsLeafInfo>) => {
-      const rawContext = context as Context;
-      setAddr({ type: AddressType.FORSPRF, index: addrOffset }, forsLeafAddr);
-      const prf = rawContext.PRFaddr(forsLeafAddr);
-      setAddr({ type: AddressType.FORSTREE }, forsLeafAddr);
-      return rawContext.thash1(prf, forsLeafAddr);
-    }
-  );
-
+  // Reused across hypertree layers; rebuilding these views dominates smaller awasm hash batches.
+  const createWotsBatch = (reducePairs = (1 << TREE_HEIGHT) >>> 1) => {
+    const leafCount = 1 << TREE_HEIGHT;
+    const pairBuf = new Uint8Array(reducePairs * 2 * N);
+    const leafViews = splitViews(pairBuf, leafCount, N);
+    return {
+      leafViews,
+      pairBuf,
+      clean: () => {
+        cleanBytes(pairBuf);
+        leafViews.fill(EMPTY);
+      },
+    };
+  };
+  const createSignBatch = () => {
+    const forsLeafCount = 1 << A;
+    const total = K * forsLeafCount;
+    const reducePairs = Math.max((1 << TREE_HEIGHT) >>> 1, total >>> 1);
+    const wots = createWotsBatch(reducePairs);
+    const forsLeafViews = splitViews(wots.pairBuf, total, N);
+    const idxs = new Uint32Array(K);
+    const clean = wots.clean;
+    return {
+      ...wots,
+      forsLeafViews,
+      idxs,
+      clean: () => {
+        clean();
+        cleanBytes(idxs);
+        forsLeafViews.fill(EMPTY);
+      },
+    };
+  };
   // Fuse `xmss_sign` with the subtree-root computation needed by `ht_sign`, so one tree walk
   // yields both the WOTS/auth-path signature and the root that the next hypertree layer signs.
   const merkleSign = (
@@ -424,25 +503,67 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     wotsAddr: TArg<ADRS>,
     treeAddr: TArg<ADRS>,
     leafIdx: number,
-    prevRoot: TArg<Uint8Array> = new Uint8Array(N)
+    prevRoot: TArg<Uint8Array>,
+    batch: ReturnType<typeof createWotsBatch>
   ): TRet<{ root: Uint8Array; sigWots: Uint8Array; sigAuth: Uint8Array }> => {
     setAddr({ type: AddressType.HASHTREE }, treeAddr);
-    // State variables
-    const info = {
-      wotsSig: new Uint8Array(wotsCoder.bytesLen),
-      wotsSteps: chainLengths(prevRoot),
-      leafAddr: setAddr({ subtreeAddr: wotsAddr }),
-      pkAddr: setAddr({ type: AddressType.WOTSPK, subtreeAddr: wotsAddr }),
+    const wotsSig = new Uint8Array(WOTS_LEN * N);
+    const wotsSteps = chainLengths(prevRoot);
+    const leafAddr = setAddr({ subtreeAddr: wotsAddr });
+    const rawContext = context as Context;
+    const leafCount = 1 << TREE_HEIGHT;
+    const work = batch;
+    const { leafViews } = work;
+    const chainCount = leafCount * WOTS_LEN;
+    const job: WotsJob = {
+      baseAddr: leafAddr,
+      count: chainCount,
+      idxOffset: 0,
+      leafIdx,
+      steps: wotsSteps,
+      sig: wotsSig,
+      out: leafViews,
+      prfPatch: (msg, pos, i) => {
+        const leaf = (i / WOTS_LEN) | 0;
+        writeWotsSlot(msg, pos, leaf, AddressType.WOTSPRF, i - leaf * WOTS_LEN, 0);
+      },
+      hashPatch: (k) => (msg, pos, i) => {
+        const leaf = (i / WOTS_LEN) | 0;
+        writeWotsSlot(msg, pos, leaf, AddressType.WOTS, i - leaf * WOTS_LEN, k);
+      },
+      pkPatch: (msg, pos, i) => {
+        msg[pos + OFFSET_TYPE] = AddressType.WOTSPK;
+        writeKeypair(msg, pos, i);
+      },
     };
-    const { root, authPath } = wotsTreehash(context, leafIdx, 0, treeAddr, info);
+    rawContext.wotsFill(job);
+    let nodes = leafViews;
+    const authPath = new Uint8Array(TREE_HEIGHT * N);
+    const needAuth = leafIdx < 1 << TREE_HEIGHT;
+    for (let h = 0, idx = needAuth ? leafIdx : 0; h < TREE_HEIGHT; h++, idx >>>= 1) {
+      if (needAuth) copyFast(authPath, h * N, nodes[idx ^ 1], 0, N);
+      const pairs = nodes.length >>> 1;
+      // Pack one tree level as parallel lanes: lane i is left-node || right-node.
+      // Level 0 already lives in `pairBuf`, so only higher levels need repacking.
+      const packed = work.pairBuf.subarray(0, pairs * 2 * N);
+      if (h !== 0)
+        for (let i = 0; i < nodes.length; i += 2) {
+          const pos = (i >>> 1) * 2 * N;
+          copyFast(packed, pos, nodes[i], 0, N);
+          copyFast(packed, pos + N, nodes[i + 1], 0, N);
+        }
+      nodes = rawContext.thashNFill(2, packed, treeAddr, pairs, (msg, pos, i, view) =>
+        writeIndexSlot(msg, pos, AddressType.HASHTREE, i, h + 1, view)
+      );
+    }
+    const root = nodes[0];
+    cleanBytes(wotsSteps, leafAddr);
     return {
       root,
-      sigWots: info.wotsSig.subarray(0, WOTS_LEN * N),
+      sigWots: wotsSig,
       sigAuth: authPath,
     } as TRet<{ root: Uint8Array; sigWots: Uint8Array; sigAuth: Uint8Array }>;
   };
-
-  type ForsLeafInfo = ADRS;
 
   const computeRoot = (
     leaf: TArg<Uint8Array>,
@@ -451,41 +572,55 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     authPath: TArg<Uint8Array>,
     treeHeight: number,
     context: TArg<Context>,
-    addr: TArg<ADRS>
+    addr: TArg<ADRS>,
+    out?: TArg<Uint8Array>,
+    work?: TArg<Uint8Array>
   ) => {
     const rawContext = context as Context;
-    const buffer = new Uint8Array(2 * N);
+    const buffer = work ? (work as Uint8Array).subarray(0, 2 * N) : new Uint8Array(2 * N);
     const b0 = buffer.subarray(0, N);
     const b1 = buffer.subarray(N, 2 * N);
+    const words = N >>> 2;
+    const buffer32 = u32(buffer);
+    const leaf32 = isAligned4(leaf as Uint8Array) ? u32(leaf) : undefined;
+    const authPath32 = isAligned4(authPath as Uint8Array) ? u32(authPath) : undefined;
+    const copyLeaf = (pos: number) => {
+      if (leaf32) copyFast32(buffer32, pos, leaf32, 0, words);
+      else copyFast(buffer, pos * 4, leaf as Uint8Array, 0, N);
+    };
+    const copyAuth = (pos: number, authPos: number) => {
+      if (authPath32) copyFast32(buffer32, pos, authPath32, authPos, words);
+      else copyFast(buffer, pos * 4, authPath as Uint8Array, authPos * 4, N);
+    };
     // Algorithm 11 hashes `node || AUTH[k]` for even nodes and `AUTH[k] || node` for odd ones,
     // so reuse one `2N` buffer and just swap which half receives the sibling at each level.
     // `idxOffset` carries the subtree base for the shared FORS path, so `leafIdx + idxOffset`
     // tracks the same tree-global index updates that Algorithms 11 and 17 apply to ADRS.
     // First iter
     if ((leafIdx & 1) !== 0) {
-      b1.set(leaf.subarray(0, N));
-      b0.set(authPath.subarray(0, N));
+      copyLeaf(words);
+      copyAuth(0, 0);
     } else {
-      b0.set(leaf.subarray(0, N));
-      b1.set(authPath.subarray(0, N));
+      copyLeaf(0);
+      copyAuth(words, 0);
     }
     leafIdx >>>= 1;
     idxOffset >>>= 1;
     // Rest
     for (let i = 0; i < treeHeight - 1; i++, leafIdx >>= 1, idxOffset >>= 1) {
       setAddr({ height: i + 1, index: leafIdx + idxOffset }, addr);
-      const a = authPath.subarray((i + 1) * N, (i + 2) * N);
+      const authPos = (i + 1) * words;
       if ((leafIdx & 1) !== 0) {
-        b1.set(rawContext.thashN(2, buffer, addr));
-        b0.set(a);
+        rawContext.thashN(2, buffer, addr, b1);
+        copyAuth(0, authPos);
       } else {
-        buffer.set(rawContext.thashN(2, buffer, addr));
-        b1.set(a);
+        rawContext.thashN(2, buffer, addr, b0);
+        copyAuth(words, authPos);
       }
     }
     // Root
     setAddr({ height: treeHeight, index: leafIdx + idxOffset }, addr);
-    return rawContext.thashN(2, buffer, addr);
+    return rawContext.thashN(2, buffer, addr, out);
   };
 
   const seedCoder = splitCoder('seed', N, N, N);
@@ -509,19 +644,31 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       // Set SK.seed, SK.prf, and PK.seed to random n-byte
       const [secretSeed, secretPRF, publicSeed] = seedCoder.decode(seed);
       const context = getContext(publicSeed, secretSeed);
-      // ADRS.setLayerAddress(d − 1)
-      const topTreeAddr = setAddr({ layer: D - 1 });
-      const wotsAddr = setAddr({ layer: D - 1 });
-      //PK.root ←_xmss node(SK.seed, 0, h′, PK.seed, ADRS)
-      const { root } = merkleSign(context, wotsAddr, topTreeAddr, ~0 >>> 0);
-      const publicKey = publicCoder.encode([publicSeed, root]);
-      const secretKey = secretCoder.encode([secretSeed, secretPRF, publicKey]);
-      context.clean();
-      cleanBytes(secretSeed, secretPRF, root, wotsAddr, topTreeAddr);
-      return {
-        publicKey: publicKey as TRet<Uint8Array>,
-        secretKey: secretKey as TRet<Uint8Array>,
-      };
+      const batch = createWotsBatch();
+      try {
+        // ADRS.setLayerAddress(d − 1)
+        const topTreeAddr = setAddr({ layer: D - 1 });
+        const wotsAddr = setAddr({ layer: D - 1 });
+        //PK.root ←_xmss node(SK.seed, 0, h′, PK.seed, ADRS)
+        const { root, sigWots, sigAuth } = merkleSign(
+          context,
+          wotsAddr,
+          topTreeAddr,
+          ~0 >>> 0,
+          new Uint8Array(N),
+          batch
+        );
+        const publicKey = publicCoder.encode([publicSeed, root]);
+        const secretKey = secretCoder.encode([secretSeed, secretPRF, publicKey]);
+        cleanBytes(secretSeed, secretPRF, root, sigWots, sigAuth, wotsAddr, topTreeAddr);
+        return {
+          publicKey: publicKey as TRet<Uint8Array>,
+          secretKey: secretKey as TRet<Uint8Array>,
+        };
+      } finally {
+        batch.clean();
+        context.clean();
+      }
     },
     getPublicKey: (secretKey: TArg<Uint8Array>): TRet<Uint8Array> => {
       const [_skSeed, _skPRF, pk] = secretCoder.decode(secretKey);
@@ -537,68 +684,139 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       else if (random === undefined) random = randomBytes(N);
       else random = copyBytes(random);
       abytes(random, N);
-      const context = getContext(pkSeed, skSeed);
-      // Generate randomizer
-      const R = context.PRFmsg(skPRF, random, msg); // R ← PRFmsg(SK.prf, opt_rand, M)
-      let { tree, leafIdx, md } = hashMessage(R, pk, msg, context);
-      // Create FORS signatures
-      const wotsAddr = setAddr({
-        type: AddressType.WOTS,
-        tree,
-        keypair: leafIdx,
-      });
-      const roots = [];
-      const forsLeaf = setAddr({ keypairAddr: wotsAddr });
-      const forsTreeAddr = setAddr({ keypairAddr: wotsAddr });
-      const indices = messageToIndices(md);
-      const fors: [Uint8Array, Uint8Array][] = [];
-      for (let i = 0; i < indices.length; i++) {
-        const idxOffset = i << A;
-        setAddr(
-          {
-            type: AddressType.FORSPRF,
-            height: 0,
-            index: indices[i] + idxOffset,
+      const context = getContext(pkSeed, skSeed, true);
+      let R: Uint8Array | undefined;
+      let treeAddr: Uint8Array | undefined;
+      let wotsAddr: Uint8Array | undefined;
+      let forsLeaf: Uint8Array | undefined;
+      let forsPkAddr: Uint8Array | undefined;
+      let indices: Uint32Array | undefined;
+      let roots: Uint8Array[] | undefined;
+      let batch: ReturnType<typeof createSignBatch> | undefined;
+      try {
+        // Generate randomizer
+        R = context.PRFmsg(skPRF, random, msg) as Uint8Array; // R ← PRFmsg(SK.prf, opt_rand, M)
+        let { tree, leafIdx, md } = hashMessage(R, pk, msg, context);
+        // Create FORS signatures
+        wotsAddr = setAddr({
+          type: AddressType.WOTS,
+          tree,
+          keypair: leafIdx,
+        });
+        forsLeaf = setAddr({ keypairAddr: wotsAddr });
+        indices = messageToIndices(md);
+        batch = createSignBatch();
+        let root: Uint8Array | undefined;
+        let fors: [Uint8Array, Uint8Array][] | undefined;
+        let wots: [Uint8Array, Uint8Array][] | undefined;
+        const rawContext = context as Context;
+        const leafCount = 1 << A;
+        const total = K * leafCount;
+        const addr = setAddr({ keypairAddr: wotsAddr }, forsLeaf);
+        // First FORS level is PRF output followed by one-block thash, both over the same lane count.
+        // `forsLeavesFill` writes leaves directly into the sign batch pair buffer.
+        const { prfs, leaves } = rawContext.forsLeavesFill(
+          addr,
+          total,
+          (buf, pos, lane, view) => {
+            const tree = (lane / leafCount) | 0;
+            const leaf = lane - tree * leafCount;
+            writeIndexSlot(buf, pos, AddressType.FORSPRF, leaf + (tree << A), undefined, view);
           },
-          forsTreeAddr
+          (buf, pos, lane, view) => {
+            const tree = (lane / leafCount) | 0;
+            const leaf = lane - tree * leafCount;
+            writeIndexSlot(buf, pos, AddressType.FORSTREE, leaf + (tree << A), undefined, view);
+          },
+          batch.forsLeafViews
+        ) as { prfs: Uint8Array[]; leaves: Uint8Array[] };
+        let nodes = leaves;
+        fors = new Array<[Uint8Array, Uint8Array]>(K);
+        batch.idxs.set(indices);
+        for (let tree = 0; tree < K; tree++) {
+          const authPath = new Uint8Array(A * N);
+          fors[tree] = [copyBytes(prfs[tree * leafCount + indices[tree]]), authPath];
+        }
+        for (let h = 0, nodesPerTree = leafCount; h < A; h++, nodesPerTree >>>= 1) {
+          const pairsPerTree = nodesPerTree >>> 1;
+          const pairCount = K * pairsPerTree;
+          for (let tree = 0; tree < K; tree++) {
+            const nodeBase = tree * nodesPerTree;
+            copyFast(fors[tree][1], h * N, nodes[nodeBase + (batch.idxs[tree] ^ 1)], 0, N);
+            batch.idxs[tree] >>>= 1;
+            if (h !== 0)
+              for (let pair = 0; pair < pairsPerTree; pair++) {
+                const out = tree * pairsPerTree + pair;
+                const pos = out * 2 * N;
+                copyFast(batch.pairBuf, pos, nodes[nodeBase + pair * 2], 0, N);
+                copyFast(batch.pairBuf, pos + N, nodes[nodeBase + pair * 2 + 1], 0, N);
+              }
+          }
+          nodes = rawContext.thashNFill(
+            2,
+            batch.pairBuf.subarray(0, pairCount * 2 * N),
+            addr,
+            pairCount,
+            (buf, pos, lane, view) => {
+              const tree = (lane / pairsPerTree) | 0;
+              const pair = lane - tree * pairsPerTree;
+              writeIndexSlot(
+                buf,
+                pos,
+                AddressType.FORSTREE,
+                pair + ((tree << A) >>> (h + 1)),
+                h + 1,
+                view
+              );
+            }
+          ) as Uint8Array[];
+        }
+        roots = nodes as Uint8Array[];
+        forsPkAddr = setAddr({
+          type: AddressType.FORSPK,
+          keypairAddr: wotsAddr,
+        });
+        root = context.thashN(
+          K,
+          new Uint8Array(nodes[0].buffer, nodes[0].byteOffset, K * N),
+          forsPkAddr
         );
-        const prf = context.PRFaddr(forsTreeAddr);
-        setAddr({ type: AddressType.FORSTREE }, forsTreeAddr);
-        const { root, authPath } = forsTreehash(
-          context,
-          indices[i],
-          idxOffset,
-          forsTreeAddr,
-          forsLeaf
-        );
-        roots.push(root);
-        fors.push([prf, authPath]);
+        let cleanRoot = true;
+        // WOTS signatures
+        treeAddr = setAddr({ type: AddressType.HASHTREE });
+        wots = [];
+        for (let i = 0; i < D; i++, tree >>= BigInt(TREE_HEIGHT)) {
+          setAddr({ tree, layer: i }, treeAddr);
+          setAddr({ subtreeAddr: treeAddr, keypair: leafIdx }, wotsAddr);
+          const {
+            sigWots,
+            sigAuth,
+            root: r,
+          } = merkleSign(context, wotsAddr, treeAddr, leafIdx, root, batch);
+          if (cleanRoot) cleanBytes(root);
+          cleanRoot = false;
+          root = r;
+          wots.push([sigWots, sigAuth]);
+          leafIdx = Number(tree & getMaskBig(TREE_HEIGHT));
+        }
+        const SIG = sigCoder.encode([R, fors, wots]);
+        for (const [prf, auth] of fors) cleanBytes(prf, auth);
+        for (const [sigWots, sigAuth] of wots) cleanBytes(sigWots, sigAuth);
+        cleanBytes(root);
+        return SIG as TRet<Uint8Array>;
+      } finally {
+        // Signing can throw after R/opt_rand exist; keep owned scratch wiping on the error path too.
+        cleanBytes(random as Uint8Array);
+        if (R) cleanBytes(R);
+        if (treeAddr) cleanBytes(treeAddr);
+        if (wotsAddr) cleanBytes(wotsAddr);
+        if (forsLeaf) cleanBytes(forsLeaf);
+        if (forsPkAddr) cleanBytes(forsPkAddr);
+        if (indices) cleanBytes(indices);
+        if (roots) cleanBytes(roots);
+        if (batch) batch.clean();
+        context.clean();
       }
-      const forsPkAddr = setAddr({
-        type: AddressType.FORSPK,
-        keypairAddr: wotsAddr,
-      });
-      const root = context.thashN(K, concatBytes(...roots), forsPkAddr);
-      // WOTS signatures
-      const treeAddr = setAddr({ type: AddressType.HASHTREE });
-      const wots: [Uint8Array, Uint8Array][] = [];
-      for (let i = 0; i < D; i++, tree >>= BigInt(TREE_HEIGHT)) {
-        setAddr({ tree, layer: i }, treeAddr);
-        setAddr({ subtreeAddr: treeAddr, keypair: leafIdx }, wotsAddr);
-        const {
-          sigWots,
-          sigAuth,
-          root: r,
-        } = merkleSign(context, wotsAddr, treeAddr, leafIdx, root);
-        root.set(r);
-        cleanBytes(r);
-        wots.push([sigWots, sigAuth]);
-        leafIdx = Number(tree & getMaskBig(TREE_HEIGHT));
-      }
-      context.clean();
-      const SIG = sigCoder.encode([R, fors, wots]);
-      cleanBytes(R, random, treeAddr, wotsAddr, forsLeaf, forsTreeAddr, indices, roots);
-      return SIG as TRet<Uint8Array>;
     },
     verify: (sig: TArg<Uint8Array>, msg: TArg<Uint8Array>, publicKey: TArg<Uint8Array>) => {
       const [pkSeed, pubRoot] = publicCoder.decode(publicKey);
@@ -606,58 +824,89 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       const pk = publicKey;
       if (sig.length !== sigCoder.bytesLen) return false;
       const context = getContext(pkSeed);
-      let { tree, leafIdx, md } = hashMessage(random, pk, msg, context);
-      const wotsAddr = setAddr({
-        type: AddressType.WOTS,
-        tree,
-        keypair: leafIdx,
-      });
-      // FORS signature
-      const roots = [];
-      const forsTreeAddr = setAddr({
-        type: AddressType.FORSTREE,
-        keypairAddr: wotsAddr,
-      });
-      const indices = messageToIndices(md);
-      for (let i = 0; i < forsVec.length; i++) {
-        const [prf, authPath] = forsVec[i];
-        const idxOffset = i << A;
-        setAddr({ height: 0, index: indices[i] + idxOffset }, forsTreeAddr);
-        const leaf = context.thash1(prf, forsTreeAddr);
-        // Compute inplace, because we need all roots in same byte array
-        roots.push(computeRoot(leaf, indices[i], idxOffset, authPath, A, context, forsTreeAddr));
-      }
-      const forsPkAddr = setAddr({
-        type: AddressType.FORSPK,
-        keypairAddr: wotsAddr,
-      });
-      let root = context.thashN(K, concatBytes(...roots), forsPkAddr); // root = thash()
-      // WOTS signature
-      const treeAddr = setAddr({ type: AddressType.HASHTREE });
-      const wotsPkAddr = setAddr({ type: AddressType.WOTSPK });
-      const wotsPk = new Uint8Array(WOTS_LEN * N);
-      for (let i = 0; i < wotsVec.length; i++, tree >>= BigInt(TREE_HEIGHT)) {
-        const [wots, sigAuth] = wotsVec[i];
-        setAddr({ tree, layer: i }, treeAddr);
-        setAddr({ subtreeAddr: treeAddr, keypair: leafIdx }, wotsAddr);
-        setAddr({ keypairAddr: wotsAddr }, wotsPkAddr);
-        const lengths = chainLengths(root);
-        for (let i = 0; i < WOTS_LEN; i++) {
-          setAddr({ chain: i }, wotsAddr);
-          const steps = W - 1 - lengths[i];
-          const start = lengths[i];
-          const out = wotsPk.subarray(i * N);
-          out.set(wots.subarray(i * N, (i + 1) * N));
-          for (let j = start; j < start + steps && j < W; j++) {
-            setAddr({ hash: j }, wotsAddr);
-            out.set(context.thash1(out, wotsAddr));
-          }
+      try {
+        let { tree, leafIdx, md } = hashMessage(random, pk, msg, context);
+        const wotsAddr = setAddr({
+          type: AddressType.WOTS,
+          tree,
+          keypair: leafIdx,
+        });
+        // FORS signature
+        const rootInput = new Uint8Array(K * N);
+        const leafBuf = new Uint8Array(N);
+        const nodeBuf = new Uint8Array(2 * N);
+        const forsTreeAddr = setAddr({
+          type: AddressType.FORSTREE,
+          keypairAddr: wotsAddr,
+        });
+        const indices = messageToIndices(md);
+        for (let i = 0; i < forsVec.length; i++) {
+          const [prf, authPath] = forsVec[i];
+          const idxOffset = i << A;
+          setAddr({ height: 0, index: indices[i] + idxOffset }, forsTreeAddr);
+          context.thash1(prf, forsTreeAddr, leafBuf);
+          computeRoot(
+            leafBuf,
+            indices[i],
+            idxOffset,
+            authPath,
+            A,
+            context,
+            forsTreeAddr,
+            rootInput.subarray(i * N, (i + 1) * N),
+            nodeBuf
+          );
         }
-        const leaf = context.thashN(WOTS_LEN, wotsPk, wotsPkAddr);
-        root = computeRoot(leaf, leafIdx, 0, sigAuth, TREE_HEIGHT, context, treeAddr);
-        leafIdx = Number(tree & getMaskBig(TREE_HEIGHT));
+        const forsPkAddr = setAddr({
+          type: AddressType.FORSPK,
+          keypairAddr: wotsAddr,
+        });
+        let root = context.thashN(K, rootInput, forsPkAddr); // root = thash()
+        cleanBytes(rootInput);
+        // WOTS signature
+        const treeAddr = setAddr({ type: AddressType.HASHTREE });
+        const wotsPkAddr = setAddr({ type: AddressType.WOTSPK });
+        const wotsPk = new Uint8Array(WOTS_LEN * N);
+        const wotsPkWords = u32(wotsPk);
+        const wotsPkViews = splitViews(wotsPk, WOTS_LEN, N);
+        const nWords = N >>> 2;
+        for (let i = 0; i < wotsVec.length; i++, tree >>= BigInt(TREE_HEIGHT)) {
+          const [wots, sigAuth] = wotsVec[i];
+          const sigWords = isAligned4(wots) ? u32(wots) : undefined;
+          setAddr({ tree, layer: i }, treeAddr);
+          setAddr({ subtreeAddr: treeAddr, keypair: leafIdx }, wotsAddr);
+          setAddr({ keypairAddr: wotsAddr }, wotsPkAddr);
+          const lengths = chainLengths(root);
+          for (let j = 0; j < WOTS_LEN; j++) {
+            setAddr({ chain: j }, wotsAddr);
+            const steps = W - 1 - lengths[j];
+            const start = lengths[j];
+            const out = wotsPkViews[j];
+            if (sigWords) copyFast32(wotsPkWords, j * nWords, sigWords, j * nWords, nWords);
+            else copyFast(wotsPk, j * N, wots, j * N, N);
+            for (let k = start; k < start + steps && k < W; k++) {
+              setAddr({ hash: k }, wotsAddr);
+              context.thash1(out, wotsAddr, out);
+            }
+          }
+          const leaf = context.thashN(WOTS_LEN, wotsPk, wotsPkAddr, leafBuf);
+          root = computeRoot(
+            leaf,
+            leafIdx,
+            0,
+            sigAuth,
+            TREE_HEIGHT,
+            context,
+            treeAddr,
+            root,
+            nodeBuf
+          );
+          leafIdx = Number(tree & getMaskBig(TREE_HEIGHT));
+        }
+        return equalBytes(root, pubRoot);
+      } finally {
+        context.clean();
       }
-      return equalBytes(root, pubRoot);
     },
   });
   return Object.freeze({
@@ -712,25 +961,510 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
   });
 }
 
+type ChunkEntry = {
+  count: number;
+  prefixLen: number;
+  addrLen: number;
+  inputLen: number;
+  msgLen: number;
+  msg: Uint8Array;
+  first: Uint8Array;
+  view: DataView;
+  chunks: Uint8Array[];
+  inputs: Uint8Array[];
+  partLen?: number;
+  parts: Uint8Array[];
+};
+type OutEntry = { count: number; buf: Uint8Array; out: Uint8Array[] };
+type ScratchOpts = SphincsOpts & {
+  WOTS_LEN: number;
+  TREE_HEIGHT: number;
+  addrLen: number;
+  prefixLen: number;
+  outLen: number;
+  chains?: boolean;
+  trees?: boolean;
+  fors?: boolean;
+};
+/** Operation-scoped packed hash buffers and cached lane views for SLH parallel calls. */
+type ParallelScratch = {
+  /**
+   * Return input-field views for a cached lane shape.
+   *
+   * These views point into the scratch message buffer after the prefix/address header. They are
+   * used when a hash output should become the next call's input, for example FORS PRF bytes that
+   * are immediately rehashed as FORS leaves. The views are scratch-owned and overwritten by later
+   * calls using the same shape.
+   *
+   * @param count - Number of lanes in the cached shape.
+   * @param inputLen - Input bytes per lane.
+   * @returns One mutable input view per lane.
+   */
+  inputs: (count: number, inputLen: number) => Uint8Array[];
+  /**
+   * Return fixed-size pieces inside each lane input field.
+   *
+   * WOTS public-key-to-leaf hashing needs one lane per leaf, where the lane input is
+   * `WOTS_LEN * N` bytes. This method exposes that input as `WOTS_LEN` adjacent `N`-byte pieces so
+   * earlier chain hashes can write directly into the future WOTSPK lane input.
+   *
+   * @param count - Number of lanes in the cached shape.
+   * @param inputLen - Input bytes per lane.
+   * @param partLen - Size of each returned piece.
+   * @returns Input-piece views ordered by lane, then part.
+   */
+  parts: (count: number, inputLen: number, partLen: number) => Uint8Array[];
+  /**
+   * Return reusable output views for a cached lane count.
+   *
+   * This is used by the SHAKE WOTS path, where keeping the chain state in a flat output buffer is
+   * faster than writing strided chain outputs directly into future WOTSPK input lanes.
+   *
+   * @param count - Number of output lanes.
+   * @returns The backing output buffer and one `outLen`-byte view per lane.
+   */
+  output: (count: number) => OutEntry;
+  /**
+   * Fill a complete packed `hash.parallel` message batch and run it.
+   *
+   * Lane `i` is `prefix || patched(baseAddr, i) || input[i]`. When `inputStride` is zero, every
+   * lane reuses the first `inputLen` bytes from `input`; otherwise lane `i` reads from
+   * `input.subarray(i * inputStride, i * inputStride + inputLen)`. Passing `out` writes results
+   * directly into caller-provided lane views.
+   *
+   * @param count - Number of lanes.
+   * @param prefix - Per-lane bytes before the address, empty when `prefixState` supplies them.
+   * @param baseAddr - Address template copied into each lane.
+   * @param patch - Per-lane address mutator.
+   * @param input - Shared or strided source input bytes.
+   * @param inputLen - Number of input bytes per lane.
+   * @param inputStride - Distance between lane inputs, or zero to reuse one input.
+   * @param out - Optional one-view-per-lane output destinations.
+   * @param prefixState - Optional backend prefix state matching `prefix`.
+   * @returns One hash output view per lane.
+   */
+  direct: (
+    count: number,
+    prefix: Uint8Array,
+    baseAddr: Uint8Array,
+    patch: AddrPatch,
+    input: Uint8Array,
+    inputLen: number,
+    inputStride: number,
+    out?: TArg<ParallelOut>,
+    prefixState?: TArg<HashState>
+  ) => TRet<Uint8Array[]>;
+  /**
+   * Fill only the prefix/address header for lanes whose input bytes are already in scratch.
+   *
+   * WOTS chain batching writes final chain outputs into the future WOTSPK input area before the
+   * public-key-to-leaf hash runs. `header()` completes those lanes by writing `prefix` and patched
+   * addresses, then hashes the already-populated input fields.
+   *
+   * @param count - Number of lanes.
+   * @param prefix - Per-lane bytes before the address, empty when `prefixState` supplies them.
+   * @param baseAddr - Address template copied into each lane.
+   * @param patch - Per-lane address mutator.
+   * @param inputLen - Number of existing input bytes per lane.
+   * @param out - Optional one-view-per-lane output destinations.
+   * @param prefixState - Optional backend prefix state matching `prefix`.
+   * @returns One hash output view per lane.
+   */
+  header: (
+    count: number,
+    prefix: Uint8Array,
+    baseAddr: Uint8Array,
+    patch: AddrPatch,
+    inputLen: number,
+    out?: TArg<ParallelOut>,
+    prefixState?: TArg<HashState>
+  ) => TRet<Uint8Array[]>;
+  /**
+   * Repatch addresses for lanes whose input bytes are already in scratch, then run the batch.
+   *
+   * This is the cheap dependency-step path for WOTS and FORS: prior hash outputs already sit in the
+   * lane input fields, so only the address words that encode the next hash step or tree type need
+   * to change before the next `hash.parallel(...)` call.
+   *
+   * @param count - Number of lanes.
+   * @param inputLen - Number of existing input bytes per lane.
+   * @param patch - Per-lane address mutator.
+   * @param out - Optional one-view-per-lane output destinations.
+   * @param prefixState - Optional backend prefix state for the hash.
+   * @returns One hash output view per lane.
+   */
+  patch: (
+    count: number,
+    inputLen: number,
+    patch: AddrPatch,
+    out?: TArg<ParallelOut>,
+    prefixState?: TArg<HashState>
+  ) => TRet<Uint8Array[]>;
+  /** Wipe the scratch backing buffer; cached views are invalid after this operation context ends. */
+  clean: () => void;
+};
+/**
+ * Create fixed packed-message scratch for the SLH shapes selected by `opts`.
+ *
+ * The scratch owns one message buffer split into shape-specific lanes plus one reusable output
+ * buffer per lane count. It does not grow or allocate fallback shapes after construction; a missing
+ * shape is a bug in the caller's plan.
+ */
+const createParallelScratch = (hash: TArg<CHash>, opts: ScratchOpts): ParallelScratch => {
+  const rawHash = hash as CHash;
+  const { N, WOTS_LEN, TREE_HEIGHT, K, A, addrLen, prefixLen, outLen } = opts;
+  const leafCount = 1 << TREE_HEIGHT;
+  const forsLeafCount = 1 << A;
+  const eachShape = (
+    add: (count: number, inputLen: number, partLen?: number, group?: number) => void
+  ) => {
+    if (opts.chains) {
+      add(leafCount * WOTS_LEN, N); // WOTS PRF/thash1 chains
+      if (opts.fors) add(K * forsLeafCount, N); // FORS PRF/thash1 leaves
+    }
+    if (opts.trees) {
+      add(leafCount, WOTS_LEN * N, N, 1); // WOTS public-key-to-leaf thash
+      for (let pairs = leafCount >>> 1; pairs > 0; pairs >>>= 1) add(pairs, 2 * N);
+      if (opts.fors)
+        for (let pairs = forsLeafCount >>> 1; pairs > 0; pairs >>>= 1) add(K * pairs, 2 * N);
+    }
+  };
+  // Only WOTS chain input and WOTSPK input must be live together; other shapes reuse group 0.
+  const groupBytes: number[] = [];
+  let outCount = 0;
+  eachShape((count, inputLen, _partLen, group = 0) => {
+    groupBytes[group] = Math.max(groupBytes[group] || 0, count * (prefixLen + addrLen + inputLen));
+    outCount = Math.max(outCount, count);
+  });
+  let msgBytes = 0;
+  const groupPos = new Array<number>(groupBytes.length);
+  for (let i = 0; i < groupBytes.length; i++) {
+    groupPos[i] = msgBytes;
+    msgBytes += groupBytes[i] || 0;
+  }
+  const buf = new Uint8Array(msgBytes + outCount * outLen);
+  const out = buf.subarray(msgBytes);
+  const chunks: ChunkEntry[] = [];
+  const outs: OutEntry[] = [];
+  const outCounts = new Set<number>();
+  const seen = new Set<string>();
+  eachShape((count, inputLen, partLen, group = 0) => {
+    const key = `${count}:${prefixLen}:${addrLen}:${inputLen}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const msgLen = prefixLen + addrLen + inputLen;
+    const inputPos = prefixLen + addrLen;
+    const off = groupPos[group];
+    const msg = buf.subarray(off, off + count * msgLen);
+    const view = createView(msg);
+    const cs = new Array<Uint8Array>(count);
+    const inputs = new Array<Uint8Array>(count);
+    for (let i = 0; i < count; i++) cs[i] = msg.subarray(i * msgLen, (i + 1) * msgLen);
+    for (let i = 0; i < count; i++) {
+      const pos = i * msgLen + inputPos;
+      inputs[i] = msg.subarray(pos, pos + inputLen);
+    }
+    const parts: Uint8Array[] = [];
+    if (partLen) {
+      const partsPerLane = inputLen / partLen;
+      for (let lane = 0; lane < count; lane++) {
+        const base = lane * msgLen + inputPos;
+        for (let part = 0; part < partsPerLane; part++) {
+          const pos = base + part * partLen;
+          parts.push(msg.subarray(pos, pos + partLen));
+        }
+      }
+    }
+    chunks.push({
+      count,
+      prefixLen,
+      addrLen,
+      inputLen,
+      msgLen,
+      msg,
+      first: cs[0],
+      view,
+      chunks: cs,
+      inputs,
+      partLen,
+      parts,
+    });
+    outCounts.add(count);
+  });
+  for (const count of outCounts) {
+    const buf = out.subarray(0, count * outLen);
+    const os = new Array<Uint8Array>(count);
+    for (let i = 0; i < count; i++) os[i] = buf.subarray(i * outLen, (i + 1) * outLen);
+    outs.push({ count, buf, out: os });
+  }
+  const getChunks = (count: number, prefixLen: number, addrLen: number, inputLen: number) => {
+    for (const c of chunks)
+      if (
+        c.count === count &&
+        c.prefixLen === prefixLen &&
+        c.addrLen === addrLen &&
+        c.inputLen === inputLen
+      )
+        return c;
+    throw new Error(
+      `missing SLH parallel input shape count=${count} prefix=${prefixLen} addr=${addrLen} input=${inputLen}`
+    );
+  };
+  const getOut = (count: number, dst?: TArg<ParallelOut>) => {
+    if (Array.isArray(dst)) return dst as Uint8Array[];
+    for (const o of outs) if (o.count === count) return o.out;
+    throw new Error(`missing SLH parallel output shape count=${count}`);
+  };
+  const run = (entry: ChunkEntry, out?: TArg<ParallelOut>, prefixState?: TArg<HashState>) =>
+    rawHash.parallel(entry.chunks, {
+      dkLen: outLen,
+      out: getOut(entry.count, out),
+      prefixState,
+    });
+  const api: ParallelScratch = {
+    inputs(count: number, inputLen: number) {
+      return getChunks(count, prefixLen, addrLen, inputLen).inputs;
+    },
+    parts(count: number, inputLen: number, partLen: number) {
+      const entry = getChunks(count, prefixLen, addrLen, inputLen);
+      if (entry.partLen !== partLen)
+        throw new Error(`missing SLH parallel input parts count=${count} part=${partLen}`);
+      return entry.parts;
+    },
+    output(count: number) {
+      for (const o of outs) if (o.count === count) return o;
+      throw new Error(`missing SLH parallel output shape count=${count}`);
+    },
+    direct(
+      count: number,
+      prefix: Uint8Array,
+      baseAddr: Uint8Array,
+      patch: AddrPatch,
+      input: Uint8Array,
+      inputLen: number,
+      inputStride: number,
+      out?: TArg<ParallelOut>,
+      prefixState?: TArg<HashState>
+    ) {
+      const entry = getChunks(count, prefix.length, baseAddr.length, inputLen);
+      const { msg, msgLen, first, view } = entry;
+      // Fill packed hash.parallel input. Lane i is `prefix || patched baseAddr || input`.
+      // Lane 0 is copied across first because most bytes are shared between lanes.
+      let pos = 0;
+      first.set(prefix, pos);
+      pos += prefix.length;
+      copyFast(first, pos, baseAddr, 0, addrLen);
+      patch(first, pos, 0, view);
+      pos += addrLen;
+      copyFast(first, pos, input, 0, inputLen);
+      for (let done = 1; done < count; ) {
+        const take = Math.min(done, count - done);
+        msg.copyWithin(done * msgLen, 0, take * msgLen);
+        done += take;
+      }
+      for (let i = 1; i < count; i++) {
+        const base = i * msgLen + prefix.length;
+        patch(msg, base, i, view);
+        if (inputStride) copyFast(msg, base + addrLen, input, i * inputStride, inputLen);
+      }
+      return run(entry, out, prefixState);
+    },
+    header(
+      count: number,
+      prefix: Uint8Array,
+      baseAddr: Uint8Array,
+      patch: AddrPatch,
+      inputLen: number,
+      out?: TArg<ParallelOut>,
+      prefixState?: TArg<HashState>
+    ) {
+      const entry = getChunks(count, prefix.length, baseAddr.length, inputLen);
+      const { msg, msgLen, view } = entry;
+      for (let i = 0; i < count; i++) {
+        const base = i * msgLen;
+        if (prefixLen) copyFast(msg, base, prefix, 0, prefixLen);
+        copyFast(msg, base + prefixLen, baseAddr, 0, addrLen);
+        patch(msg, base + prefixLen, i, view);
+      }
+      return run(entry, out, prefixState);
+    },
+    patch(
+      count: number,
+      inputLen: number,
+      patch: AddrPatch,
+      out?: TArg<ParallelOut>,
+      prefixState?: TArg<HashState>
+    ) {
+      const entry = getChunks(count, prefixLen, addrLen, inputLen);
+      const { msg, msgLen, view } = entry;
+      for (let i = 0; i < count; i++) patch(msg, i * msgLen + prefixLen, i, view);
+      return run(entry, out, prefixState);
+    },
+    clean() {
+      cleanBytes(buf);
+    },
+  };
+  return api;
+};
+const createWotsScratch = (
+  opts: ScratchOpts,
+  chain: ParallelScratch,
+  pk: ParallelScratch = chain
+) => {
+  const { N, W, WOTS_LEN } = opts;
+  return {
+    /**
+     * Run the SHA2-style WOTS path with chain outputs written into future WOTSPK input pieces.
+     *
+     * The chain scratch and WOTSPK scratch may be different hashes for SHA2 parameter sets, so this
+     * method uses `chain` for PRF/thash1 steps and `pk` for the final WOTSPK-to-leaf hash. Final
+     * chain outputs are written into `pk.parts(...)`, avoiding an intermediate WOTS public-key copy.
+     *
+     * @param prefix - Prefix bytes/state for PRF and chain hashes.
+     * @param pkPrefix - Prefix bytes/state for the WOTSPK hash.
+     * @param skSeed - Secret seed used by the WOTS PRF lanes.
+     * @param job - One WOTS tree batch description.
+     */
+    chains(prefix: HashPrefix, pkPrefix: HashPrefix, skSeed: Uint8Array, job: WotsJob) {
+      const { baseAddr, count, idxOffset, leafIdx, steps, sig, out, prfPatch, hashPatch, pkPatch } =
+        job;
+      const leafCount = count / WOTS_LEN;
+      const state = chain.inputs(count, N);
+      const pkInput = pk.parts(leafCount, WOTS_LEN * N, N);
+      const target = leafIdx - idxOffset;
+      const hasTarget = target >= 0 && target < leafCount;
+      const targetBase = target * WOTS_LEN;
+      chain.direct(
+        count,
+        prefix.bytes,
+        baseAddr,
+        prfPatch,
+        skSeed,
+        skSeed.length,
+        0,
+        state,
+        prefix.state
+      );
+      for (let k = 0; k < W - 1; k++) {
+        if (hasTarget) {
+          for (let chainIdx = 0; chainIdx < WOTS_LEN; chainIdx++)
+            if (k === steps[chainIdx])
+              copyFast(sig, chainIdx * N, state[targetBase + chainIdx], 0, N);
+        }
+        chain.patch(count, N, hashPatch(k), k === W - 2 ? pkInput : state, prefix.state);
+      }
+      if (hasTarget) {
+        for (let chainIdx = 0; chainIdx < WOTS_LEN; chainIdx++)
+          if (W - 1 === steps[chainIdx])
+            copyFast(sig, chainIdx * N, pkInput[targetBase + chainIdx], 0, N);
+      }
+      pk.header(leafCount, pkPrefix.bytes, baseAddr, pkPatch, WOTS_LEN * N, out, pkPrefix.state);
+    },
+    /**
+     * Run the SHAKE WOTS path with chain state kept in one flat output buffer.
+     *
+     * SHAKE was slower when final chain outputs were written strided into WOTSPK input pieces, so
+     * this path keeps the WOTS chain state in the scratch output buffer and uses one final direct
+     * batch to hash `WOTS_LEN * N` bytes per leaf into `job.out`.
+     *
+     * @param prefix - Prefix bytes/state used by all WOTS hash calls.
+     * @param skSeed - Secret seed used by the WOTS PRF lanes.
+     * @param job - One WOTS tree batch description.
+     */
+    flat(prefix: HashPrefix, skSeed: Uint8Array, job: WotsJob) {
+      const { baseAddr, count, idxOffset, leafIdx, steps, sig, out, prfPatch, hashPatch, pkPatch } =
+        job;
+      const leafCount = count / WOTS_LEN;
+      const state = chain.inputs(count, N);
+      const flat = chain.output(count);
+      const target = leafIdx - idxOffset;
+      const hasTarget = target >= 0 && target < leafCount;
+      const targetBase = target * WOTS_LEN;
+      chain.direct(
+        count,
+        prefix.bytes,
+        baseAddr,
+        prfPatch,
+        skSeed,
+        skSeed.length,
+        0,
+        state,
+        prefix.state
+      );
+      if (hasTarget) {
+        for (let chainIdx = 0; chainIdx < WOTS_LEN; chainIdx++)
+          if (steps[chainIdx] === 0)
+            copyFast(sig, chainIdx * N, state[targetBase + chainIdx], 0, N);
+      }
+      for (let k = 0; k < W - 1; k++) {
+        chain.patch(count, N, hashPatch(k), state, prefix.state);
+        if (hasTarget) {
+          const step = k + 1;
+          for (let chainIdx = 0; chainIdx < WOTS_LEN; chainIdx++)
+            if (step === steps[chainIdx])
+              copyFast(sig, chainIdx * N, state[targetBase + chainIdx], 0, N);
+        }
+      }
+      for (let i = 0; i < count; i++) copyFast(flat.buf, i * N, state[i], 0, N);
+      chain.direct(
+        leafCount,
+        prefix.bytes,
+        baseAddr,
+        pkPatch,
+        flat.buf,
+        WOTS_LEN * N,
+        WOTS_LEN * N,
+        out,
+        prefix.state
+      );
+    },
+  };
+};
 // FIPS 205 §11.1 SHAKE instantiation: this path hashes the full uncompressed address bytes,
 // unlike the compressed 22-byte SHA2 path in §11.2.
-const genShake =
-  (): TRet<GetContext> =>
-  (opts: SphincsOpts) =>
-  (pubSeed: TArg<Uint8Array>, skSeed?: TArg<Uint8Array>): TRet<Context> => {
-    const { N } = opts;
+const genShake = (): TRet<GetContext> => (opts: SphincsOpts) => {
+  const { N, W, H, D } = opts;
+  const WOTS_LEN = Math.floor((8 * N) / 4) + (N <= 8 ? 2 : N <= 136 ? 3 : 4);
+  const TREE_HEIGHT = Math.floor(H / D);
+  const scratchOpts = {
+    ...opts,
+    WOTS_LEN,
+    TREE_HEIGHT,
+    addrLen: 32,
+    prefixLen: N,
+    outLen: N,
+    chains: true,
+    trees: true,
+  };
+  return (pubSeed: TArg<Uint8Array>, skSeed?: TArg<Uint8Array>, sign = false): TRet<Context> => {
     const stats = { prf: 0, thash: 0, hmsg: 0, gen_message_random: 0 };
+    // Keygen only walks WOTS/XMSS; FORS scratch is large and only needed while signing.
+    const scratch = skSeed
+      ? createParallelScratch(shake256, { ...scratchOpts, fors: sign })
+      : undefined;
+    const wotsScratch = scratch ? createWotsScratch(scratchOpts, scratch) : undefined;
     // §11.1 prefixes PRF/F/H/T_l with `PK.seed`, so cache that absorbed prefix once and clone it
     // for each address-bound call instead of reabsorbing the same seed every time.
-    const h0 = shake256.create({}).update(pubSeed);
+    const rawPubSeed = pubSeed as Uint8Array;
+    const h0 = shake256.create({}).update(rawPubSeed);
+    // Prefix-state only saves work when the common prefix has already filled a backend block.
+    // SHAKE's `PK.seed` is a short tail, so keep it in the packed message to avoid two copies/lane.
+    const h0State = rawPubSeed.length === h0.blockLen ? h0.exportState() : undefined;
+    const h0Prefix = h0State ? EMPTY : rawPubSeed;
     const h0tmp = h0.clone();
-    const thash = (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
+    const thash = (
+      blocks: number,
+      input: TArg<Uint8Array>,
+      addr: TArg<ADRS>,
+      out?: TArg<Uint8Array>
+    ): TRet<Uint8Array> => {
       stats.thash++;
-      return h0
+      const h = h0
         ._cloneInto(h0tmp)
         .update(addr)
-        .update(input.subarray(0, blocks * N))
-        .xof(N) as TRet<Uint8Array>;
+        .update(input.subarray(0, blocks * N));
+      if (out) return h.xofInto((out as Uint8Array).subarray(0, N)) as TRet<Uint8Array>;
+      return h.xof(N) as TRet<Uint8Array>;
     };
     return {
       PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
@@ -739,19 +1473,41 @@ const genShake =
         const res = h0._cloneInto(h0tmp).update(addr).update(skSeed).xof(N);
         return res as TRet<Uint8Array>;
       },
+      forsLeavesFill: (
+        baseAddr: TArg<Uint8Array>,
+        count: number,
+        prfPatch: AddrPatch,
+        leafPatch: AddrPatch,
+        out: TArg<ParallelOut>
+      ) => {
+        if (!skSeed) throw new Error('no sk seed');
+        if (!scratch) throw new Error('no scratch');
+        const rawSkSeed = skSeed as Uint8Array;
+        const rawAddr = baseAddr as Uint8Array;
+        const prfs = scratch.inputs(count, N);
+        stats.prf += count;
+        stats.thash += count;
+        scratch.direct(
+          count,
+          h0Prefix,
+          rawAddr,
+          prfPatch,
+          rawSkSeed,
+          rawSkSeed.length,
+          0,
+          prfs,
+          h0State
+        );
+        const leaves = scratch.patch(count, N, leafPatch, out, h0State);
+        return { prfs, leaves };
+      },
       PRFmsg: (
         skPRF: TArg<Uint8Array>,
         random: TArg<Uint8Array>,
         msg: TArg<Uint8Array>
       ): TRet<Uint8Array> => {
         stats.gen_message_random++;
-        return shake256
-          .create({})
-          .update(skPRF)
-          .update(random)
-          .update(msg)
-          .digest()
-          .subarray(0, N) as TRet<Uint8Array>;
+        return shake256.chunks([skPRF, random, msg], { dkLen: N });
       },
       Hmsg: (
         R: TArg<Uint8Array>,
@@ -760,17 +1516,54 @@ const genShake =
         outLen
       ): TRet<Uint8Array> => {
         stats.hmsg++;
-        return shake256.create({}).update(R.subarray(0, N)).update(pk).update(m).xof(outLen);
+        return shake256.chunks([R.subarray(0, N), pk, m], { dkLen: outLen });
       },
       thash1: thash.bind(null, 1),
       thashN: thash,
+      thashNFill: (
+        blocks: number,
+        input: TArg<Uint8Array>,
+        baseAddr: TArg<Uint8Array>,
+        count: number,
+        patch: AddrPatch,
+        out?: TArg<ParallelOut>
+      ): TRet<Uint8Array[]> => {
+        if (!scratch) throw new Error('no scratch');
+        const inputLen = blocks * N;
+        stats.thash += count;
+        // SHAKE keeps `PK.seed` in each packed lane unless it was exported as `prefixState`.
+        // Each lane hashed here is `PK.seed || ADRS || input`.
+        return scratch.direct(
+          count,
+          h0Prefix,
+          baseAddr as Uint8Array,
+          patch,
+          input as Uint8Array,
+          inputLen,
+          inputLen,
+          out,
+          h0State
+        );
+      },
+      wotsFill: (job: TArg<WotsJob>) => {
+        if (!skSeed) throw new Error('no sk seed');
+        if (!wotsScratch) throw new Error('no scratch');
+        const rawJob = job as WotsJob;
+        stats.prf += rawJob.count;
+        stats.thash += rawJob.count * (W - 1) + rawJob.count / WOTS_LEN;
+        wotsScratch.flat({ bytes: h0Prefix, state: h0State }, skSeed as Uint8Array, rawJob);
+      },
       clean: () => {
         h0.destroy();
         h0tmp.destroy();
+        if (scratch) scratch.clean();
+        // Prefix states are opaque and must be destroyed by the hash that exported them.
+        if (h0State) shake256.cleanState(h0State);
         //console.log(stats);
       },
     } as TRet<Context>;
   };
+};
 
 const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ getContext: genShake() }))();
 
@@ -823,111 +1616,221 @@ type ShaType = typeof sha256 | typeof sha512;
 // on SHA-256 but switch `PRFmsg`, `Hmsg`, and multi-block `thashN` to SHA-512.
 const genSha =
   (h0: ShaType, h1: ShaType): TRet<GetContext> =>
-  (opts) =>
-  (pub_seed: TArg<Uint8Array>, sk_seed?: TArg<Uint8Array>): TRet<Context> => {
-    const { N } = opts;
-    /*
+  (opts) => {
+    const { N, W, H, D } = opts;
+    const WOTS_LEN = Math.floor((8 * N) / 4) + (N <= 8 ? 2 : N <= 136 ? 3 : 4);
+    const TREE_HEIGHT = Math.floor(H / D);
+    const scratchOpts = {
+      ...opts,
+      WOTS_LEN,
+      TREE_HEIGHT,
+      addrLen: 22,
+      prefixLen: 0,
+      outLen: N,
+    };
+    return (
+      pub_seed: TArg<Uint8Array>,
+      sk_seed?: TArg<Uint8Array>,
+      sign = false
+    ): TRet<Context> => {
+      const h0Scratch = sk_seed
+        ? createParallelScratch(h0, {
+            ...scratchOpts,
+            chains: true,
+            trees: h0 === h1,
+            fors: sign,
+          })
+        : undefined;
+      const h1Scratch =
+        !sk_seed || h0 === h1
+          ? h0Scratch
+          : createParallelScratch(h1, {
+              ...scratchOpts,
+              trees: true,
+              fors: sign,
+            });
+      const wotsScratch =
+        h0Scratch && h1Scratch ? createWotsScratch(scratchOpts, h0Scratch, h1Scratch) : undefined;
+      /*
     Perf debug stats, how much hashes we call?
     128f_simple: { prf: 8305, thash: 96_922, hmsg: 1, gen_message_random: 1, mgf1: 2 }
     256s_robust: { prf: 497_686, thash: 2_783_203, hmsg: 1, gen_message_random: 1, mgf1: 2_783_205}
     256f_simple: { prf: 36_179, thash: 309_693, hmsg: 1, gen_message_random: 1, mgf1: 2 }
     */
-    const stats = { prf: 0, thash: 0, hmsg: 0, gen_message_random: 0, mgf1: 0 };
+      const stats = { prf: 0, thash: 0, hmsg: 0, gen_message_random: 0, mgf1: 0 };
 
-    const counterB = new Uint8Array(4);
-    const counterV = createView(counterB);
-    // §11.2 prefixes SHA2 PRF/F/H/T_l with `PK.seed || toByte(0, blockLen-N)`, so cache the
-    // zero-padded seed block once for the SHA-256 lane and once for the SHA-512 lane.
-    const h0ps = h0
-      .create()
-      .update(pub_seed)
-      .update(new Uint8Array(h0.blockLen - N));
-    const h1ps = h1
-      .create()
-      .update(pub_seed)
-      .update(new Uint8Array(h1.blockLen - N));
+      const counterB = new Uint8Array(4);
+      const counterV = createView(counterB);
+      // §11.2 prefixes SHA2 PRF/F/H/T_l with `PK.seed || toByte(0, blockLen-N)`, so cache the
+      // zero-padded seed block once for the SHA-256 lane and once for the SHA-512 lane.
+      const rawPubSeed = pub_seed as Uint8Array;
+      const h0Prefix = new Uint8Array(h0.blockLen);
+      h0Prefix.set(rawPubSeed);
+      const h1Prefix =
+        h0 === h1 && h0.blockLen === h1.blockLen ? h0Prefix : new Uint8Array(h1.blockLen);
+      if (h1Prefix !== h0Prefix) h1Prefix.set(rawPubSeed);
+      const h0ps = h0.create().update(h0Prefix);
+      const h1ps = h1.create().update(h1Prefix);
+      const h0State = h0ps.exportState();
+      const h1State = h1ps.exportState();
 
-    const h0tmp = h0ps.clone();
-    const h1tmp = h1ps.clone();
+      const h0tmp = h0ps.clone();
+      const h1tmp = h1ps.clone();
 
-    // https://www.rfc-editor.org/rfc/rfc8017.html#appendix-B.2.1
-    // This local helper is intentionally stricter than generic MGF1 reuse: current SLH-DSA callers
-    // only request tiny `m`-byte outputs, but the guard below rejects `length > 2^32` instead of
-    // RFC 8017's broader `maskLen > 2^32 * hLen` bound.
-    function mgf1(seed: TArg<Uint8Array>, length: number, hash: ShaType): TRet<Uint8Array> {
-      stats.mgf1++;
-      const out = new Uint8Array(Math.ceil(length / hash.outputLen) * hash.outputLen);
-      // NOT 2^32-1
-      if (length > 2 ** 32) throw new Error('mask too long');
-      for (let counter = 0, o = out; o.length; counter++) {
-        counterV.setUint32(0, counter, false);
-        hash.create().update(seed).update(counterB).digestInto(o);
-        o = o.subarray(hash.outputLen);
+      // https://www.rfc-editor.org/rfc/rfc8017.html#appendix-B.2.1
+      // This local helper is intentionally stricter than generic MGF1 reuse: current SLH-DSA callers
+      // only request tiny `m`-byte outputs, but the guard below rejects `length > 2^32` instead of
+      // RFC 8017's broader `maskLen > 2^32 * hLen` bound.
+      function mgf1(seed: TArg<Uint8Array>, length: number, hash: ShaType): TRet<Uint8Array> {
+        stats.mgf1++;
+        const out = new Uint8Array(Math.ceil(length / hash.outputLen) * hash.outputLen);
+        // NOT 2^32-1
+        if (length > 2 ** 32) throw new Error('mask too long');
+        for (let counter = 0, pos = 0; pos < out.length; counter++, pos += hash.outputLen) {
+          counterV.setUint32(0, counter, false);
+          hash.chunks([seed, counterB], { out, outPos: pos });
+        }
+        cleanBytes(out.subarray(length));
+        return out.subarray(0, length) as TRet<Uint8Array>;
       }
-      cleanBytes(out.subarray(length));
-      return out.subarray(0, length) as TRet<Uint8Array>;
-    }
 
-    const thash =
-      (_: ShaType, h: typeof h0ps, hTmp: typeof h0ps) =>
-      (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
-        stats.thash++;
-        const d = h
-          ._cloneInto(hTmp as any)
-          .update(addr)
-          .update(input.subarray(0, blocks * N))
-          .digest();
-        return d.subarray(0, N) as TRet<Uint8Array>;
-      };
-    return {
-      PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
-        if (!sk_seed) throw new Error('No sk seed');
-        stats.prf++;
-        const res = h0ps
-          ._cloneInto(h0tmp as any)
-          .update(addr)
-          .update(sk_seed)
-          .digest()
-          .subarray(0, N);
-        return res as TRet<Uint8Array>;
-      },
-      PRFmsg: (
-        skPRF: TArg<Uint8Array>,
-        random: TArg<Uint8Array>,
-        msg: TArg<Uint8Array>
-      ): TRet<Uint8Array> => {
-        stats.gen_message_random++;
-        return hmac
-          .create(h1, skPRF)
-          .update(random)
-          .update(msg)
-          .digest()
-          .subarray(0, N) as TRet<Uint8Array>;
-      },
-      Hmsg: (
-        R: TArg<Uint8Array>,
-        pk: TArg<Uint8Array>,
-        m: TArg<Uint8Array>,
-        outLen
-      ): TRet<Uint8Array> => {
-        stats.hmsg++;
-        const seed = concatBytes(
-          R.subarray(0, N),
-          pk.subarray(0, N),
-          h1.create().update(R.subarray(0, N)).update(pk).update(m).digest()
-        );
-        return mgf1(seed, outLen, h1);
-      },
-      thash1: thash(h0, h0ps, h0tmp).bind(null, 1),
-      thashN: thash(h1, h1ps, h1tmp),
-      clean: () => {
-        h0ps.destroy();
-        h1ps.destroy();
-        h0tmp.destroy();
-        h1tmp.destroy();
-        //console.log(stats);
-      },
-    } as TRet<Context>;
+      const thash =
+        (hash: ShaType, h: typeof h0ps, hTmp: typeof h0ps, prefixState: TArg<HashState>) =>
+        (
+          blocks: number,
+          input: TArg<Uint8Array>,
+          addr: TArg<ADRS>,
+          out?: TArg<Uint8Array>
+        ): TRet<Uint8Array> => {
+          stats.thash++;
+          const msg = input.subarray(0, blocks * N);
+          if (out)
+            return hash.chunks([addr, msg], {
+              dkLen: N,
+              out: (out as Uint8Array).subarray(0, N),
+              prefixState,
+            });
+          const d = h._cloneInto(hTmp).update(addr).update(msg).digest();
+          return d.subarray(0, N) as TRet<Uint8Array>;
+        };
+      return {
+        PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
+          if (!sk_seed) throw new Error('No sk seed');
+          stats.prf++;
+          const res = h0ps._cloneInto(h0tmp).update(addr).update(sk_seed).digest().subarray(0, N);
+          return res as TRet<Uint8Array>;
+        },
+        forsLeavesFill: (
+          baseAddr: TArg<Uint8Array>,
+          count: number,
+          prfPatch: AddrPatch,
+          leafPatch: AddrPatch,
+          out: TArg<ParallelOut>
+        ) => {
+          if (!sk_seed) throw new Error('No sk seed');
+          if (!h0Scratch) throw new Error('no scratch');
+          const rawSkSeed = sk_seed as Uint8Array;
+          const rawAddr = baseAddr as Uint8Array;
+          const prfs = h0Scratch.inputs(count, N);
+          stats.prf += count;
+          stats.thash += count;
+          h0Scratch.direct(
+            count,
+            EMPTY,
+            rawAddr,
+            prfPatch,
+            rawSkSeed,
+            rawSkSeed.length,
+            0,
+            prfs,
+            h0State
+          );
+          const leaves = h0Scratch.patch(count, N, leafPatch, out, h0State);
+          return { prfs, leaves };
+        },
+        PRFmsg: (
+          skPRF: TArg<Uint8Array>,
+          random: TArg<Uint8Array>,
+          msg: TArg<Uint8Array>
+        ): TRet<Uint8Array> => {
+          stats.gen_message_random++;
+          return hmac
+            .create(h1, skPRF)
+            .update(random)
+            .update(msg)
+            .digest()
+            .subarray(0, N) as TRet<Uint8Array>;
+        },
+        Hmsg: (
+          R: TArg<Uint8Array>,
+          pk: TArg<Uint8Array>,
+          m: TArg<Uint8Array>,
+          outLen
+        ): TRet<Uint8Array> => {
+          stats.hmsg++;
+          const r = R.subarray(0, N);
+          const digest = h1.chunks([r, pk, m]);
+          const seed = new Uint8Array(2 * N + digest.length);
+          seed.set(r);
+          copyFast(seed, N, pk, 0, N);
+          seed.set(digest, 2 * N);
+          const out = mgf1(seed, outLen, h1);
+          cleanBytes(seed, digest);
+          return out;
+        },
+        thash1: thash(h0, h0ps, h0tmp, h0State).bind(null, 1),
+        thashN: thash(h1, h1ps, h1tmp, h1State),
+        thashNFill: (
+          blocks: number,
+          input: TArg<Uint8Array>,
+          baseAddr: TArg<Uint8Array>,
+          count: number,
+          patch: AddrPatch,
+          out?: TArg<ParallelOut>
+        ) => {
+          if (!h1Scratch) throw new Error('no scratch');
+          const inputLen = blocks * N;
+          stats.thash += count;
+          // SHA2 resumes from `PK.seed || zero-pad`, so packed lanes only hold `ADRS || input`.
+          return h1Scratch.direct(
+            count,
+            EMPTY,
+            baseAddr as Uint8Array,
+            patch,
+            input as Uint8Array,
+            inputLen,
+            inputLen,
+            out,
+            h1State
+          );
+        },
+        wotsFill: (job: TArg<WotsJob>) => {
+          if (!sk_seed) throw new Error('No sk seed');
+          if (!wotsScratch) throw new Error('no scratch');
+          const rawJob = job as WotsJob;
+          stats.prf += rawJob.count;
+          stats.thash += rawJob.count * (W - 1) + rawJob.count / WOTS_LEN;
+          wotsScratch.chains(
+            { bytes: EMPTY, state: h0State },
+            { bytes: EMPTY, state: h1State },
+            sk_seed as Uint8Array,
+            rawJob
+          );
+        },
+        clean: () => {
+          h0ps.destroy();
+          h1ps.destroy();
+          h0tmp.destroy();
+          h1tmp.destroy();
+          if (h0Scratch) h0Scratch.clean();
+          if (h1Scratch && h1Scratch !== h0Scratch) h1Scratch.clean();
+          h0.cleanState(h0State);
+          h1.cleanState(h1State);
+          cleanBytes(h0Prefix, h1Prefix);
+          //console.log(stats);
+        },
+      } as TRet<Context>;
+    };
   };
 
 const SHA256_SIMPLE = /* @__PURE__ */ (() => ({

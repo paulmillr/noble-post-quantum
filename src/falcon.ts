@@ -4,13 +4,13 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import * as noble from '@awasm/noble/noble.js';
+import { chacha20, shake256 } from '@awasm/noble/stub.js';
 import { rngAesCtrDrbg256 } from '@noble/ciphers/aes.js';
-import { chacha20 } from '@noble/ciphers/chacha.js';
 import { FFTCore } from '@noble/curves/abstract/fft.js';
 import type { IField } from '@noble/curves/abstract/modular.js';
 import { invert } from '@noble/curves/abstract/modular.js';
 import { bytesToNumberLE, numberToHexUnpadded } from '@noble/curves/utils.js';
-import { shake256 } from '@noble/hashes/sha3.js';
 import {
   abytes,
   bytesToHex,
@@ -39,6 +39,10 @@ import {
   validateVerOpts,
   type VerOpts,
 } from './utils.ts';
+
+// Install noble version to stubs for backward compatibility. Could be removed on next major release.
+chacha20.install(noble.chacha20, { onlyMissing: true });
+shake256.install(noble.shake256, { onlyMissing: true });
 /*
 FIPS-206 would likely improve the situation with spec.
 
@@ -1769,11 +1773,19 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     // Round-3 Falcon keeps 16-bit draws only in 0..61444, i.e. below 61445 = 5*q, the largest
     // 16-bit multiple of q below 2^16; a literal ceil(2^16/q)*q would accept every sample.
     const kQ = 5 * Q;
+    const bufLen = Math.ceil((2 * N + (N >>> 3)) / shake256.blockLen) * shake256.blockLen;
+    const buf = new Uint8Array(bufLen);
+    let pos = buf.length;
     for (let i = 0; i < N; ) {
-      const tmp = h.xof(2); // 6:     t ← SHAKE-256-Extract(ctx, 16)
-      let w = (tmp[0] << 8) | tmp[1];
+      if (pos >= buf.length) {
+        // Squeeze candidates in blocks; tiny xof(2) calls dominate awasm stream backends.
+        h.xofInto(buf);
+        pos = 0;
+      }
+      let w = (buf[pos++] << 8) | buf[pos++];
       if (w < kQ) c[i++] = w % Q; // 8:         cᵢ ← t mod q
     }
+    cleanBytes(buf);
     return c as TRet<IPoly>;
   }
   // This is basically one sampling routine,
@@ -1839,7 +1851,10 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         n[3] ^= Number(this.ctr >> 32n);
         // chacha20() takes raw nonce bytes; on BE the word-normalized temp must be swapped back.
         swap32IfBE(n.subarray(1));
-        chacha20(this.key, u8(n.subarray(1)), EMPTY_CHACHA20_BLOCK, this.curBlock, n[0]);
+        chacha20(this.key, u8(n.subarray(1)), { counter: n[0] }).encrypt(
+          EMPTY_CHACHA20_BLOCK,
+          this.curBlock
+        );
         // Interleave like Falcon's AVX2 layout (by u32 chunks from 8 parallel chacha20)
         const block32 = swap32IfBE(this.curBlock32);
         for (let j = 0; j < 16; j++) out32[i + j * 8] = block32[j];

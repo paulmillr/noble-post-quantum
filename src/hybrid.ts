@@ -74,11 +74,15 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import { expand, extract } from '@awasm/noble/hkdf.js';
+import * as noble from '@awasm/noble/noble.js';
+import { type HashInstance, sha256, sha3_256, shake256 } from '@awasm/noble/stub.js';
 import { type EdDSA } from '@noble/curves/abstract/edwards.js';
 import { type MontgomeryECDH } from '@noble/curves/abstract/montgomery.js';
 import { type ECDSA } from '@noble/curves/abstract/weierstrass.js';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { p256, p384 } from '@noble/curves/nist.js';
+import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@awasm/noble/utils.js';
 import {
   asciiToBytes,
   bytesToNumberBE,
@@ -86,10 +90,6 @@ import {
   concatBytes,
   numberToBytesBE,
 } from '@noble/curves/utils.js';
-import { expand, extract } from '@noble/hashes/hkdf.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
-import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
   cleanBytes,
@@ -104,6 +104,11 @@ import {
   type TArg,
   type TRet,
 } from './utils.ts';
+
+// Install noble version to stubs for backward compatibility. Could be removed on next major release.
+sha256.install(noble.sha256, { onlyMissing: true });
+sha3_256.install(noble.sha3_256, { onlyMissing: true });
+shake256.install(noble.shake256, { onlyMissing: true });
 
 type CurveAll = ECDSA | EdDSA | MontgomeryECDH;
 type CurveECDH = ECDSA | MontgomeryECDH;
@@ -289,7 +294,7 @@ type XOF = CHashXOF<any, { dkLen: number }>;
  * @example
  * Adapt an XOF into a seed expander.
  * ```ts
- * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { shake256 } from '@awasm/noble/stub.js';
  * import { expandSeedXof } from '@noble/post-quantum/hybrid.js';
  * const expandSeed = expandSeedXof(shake256);
  * const seed = expandSeed(new Uint8Array([1]), 4);
@@ -395,7 +400,7 @@ function combineKeys(
  * @example
  * Combine multiple KEMs into one composite KEM.
  * ```ts
- * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { shake256 } from '@awasm/noble/stub.js';
  * import { combineKEMS, expandSeedXof } from '@noble/post-quantum/hybrid.js';
  * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
  * const hybrid = combineKEMS(
@@ -487,7 +492,7 @@ export function combineKEMS(
  * @example
  * Combine multiple signers into one composite signer.
  * ```ts
- * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { shake256 } from '@awasm/noble/stub.js';
  * import { combineSigners, expandSeedXof } from '@noble/post-quantum/hybrid.js';
  * import { ml_dsa44 } from '@noble/post-quantum/ml-dsa.js';
  * const hybrid = combineSigners(32, expandSeedXof(shake256), ml_dsa44, ml_dsa44);
@@ -567,7 +572,7 @@ export function combineSigners(
  * Build a QSF hybrid KEM preset from a PQ KEM and an elliptic-curve KEM.
  * ```ts
  * import { p256 } from '@noble/curves/nist.js';
- * import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
+ * import { sha3_256, shake256 } from '@awasm/noble/stub.js';
  * import { QSF, ecdhKem } from '@noble/post-quantum/hybrid.js';
  * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
  * const kem = QSF('example', ml_kem768, ecdhKem(p256, true), shake256, sha3_256);
@@ -630,8 +635,7 @@ export const QSF_ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
  * @example
  * Build the "KitchenSink" hybrid KEM combiner.
  * ```ts
- * import { sha256 } from '@noble/hashes/sha2.js';
- * import { shake256 } from '@noble/hashes/sha3.js';
+ * import { sha256, shake256 } from '@awasm/noble/stub.js';
  * import { createKitchenSink, ecdhKem } from '@noble/post-quantum/hybrid.js';
  * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
  * import { x25519 } from '@noble/curves/ed25519.js';
@@ -644,7 +648,7 @@ export function createKitchenSink(
   pqc: TArg<KEM>,
   curveKEM: TArg<KEM>,
   xof: TArg<XOF>,
-  hash: CHash
+  hash: TArg<HashInstance<any>>
 ): TRet<KEM> {
   ahash(xof);
   ahash(hash);

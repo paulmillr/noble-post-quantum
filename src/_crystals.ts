@@ -3,8 +3,10 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import * as noble from '@awasm/noble/noble.js';
+import { shake128, shake256 } from '@awasm/noble/stub.js';
+import type { CHash } from '@awasm/noble/utils.js';
 import { FFTCore, reverseBits } from '@noble/curves/abstract/fft.js';
-import { shake128, shake256 } from '@noble/hashes/sha3.js';
 import type { TypedArray } from '@noble/hashes/utils.js';
 import {
   type BytesCoderLen,
@@ -14,6 +16,10 @@ import {
   type TArg,
   type TRet,
 } from './utils.ts';
+
+// Install noble version to stubs for backward compatibility. Could be removed on next major release.
+shake128.install(noble.shake128, { onlyMissing: true });
+shake256.install(noble.shake256, { onlyMissing: true });
 
 /** Extendable-output reader used by the CRYSTALS implementations. */
 export type XOF = (
@@ -36,6 +42,18 @@ export type XOF = (
    * @returns Lazy block reader for that coordinate pair.
    */
   get: (x: number, y: number) => () => Uint8Array; // return block aligned to blockLen and 3
+  /**
+   * Select several `(x, y)` coordinate pairs at once and precompute fixed initial blocks.
+   * Readers may still fall back to scalar squeezing if rejection sampling needs extra blocks.
+   * Call `clean()` after consuming the readers; parent XOF cleanup only handles forgotten batches.
+   * @param coords - Coordinate pairs.
+   * @param blocks - Number of initial blocks to precompute for each coordinate.
+   * @returns Lazy block readers for each coordinate pair plus batch cleanup.
+   */
+  getBatch: (
+    coords: TArg<[number, number][]>,
+    blocks?: number
+  ) => { readers: (() => Uint8Array)[]; clean: () => void };
   /** Wipe any buffered state once the reader is no longer needed. */
   clean: () => void;
 };
@@ -207,9 +225,10 @@ export const genCrystals = <T extends TypedArray>(opts: CrystalOpts<T>): TRet<Cr
 };
 
 const createXofShake =
-  (shake: typeof shake128): TRet<XOF> =>
+  (shake: TArg<CHash>): TRet<XOF> =>
   (seed: TArg<Uint8Array>, blockLen?: number) => {
-    if (!blockLen) blockLen = shake.blockLen;
+    const rawShake = shake as CHash;
+    if (!blockLen) blockLen = rawShake.blockLen;
     // Optimizations that won't mater:
     // - cached seed update (two .update(), on start and on the end)
     // - another cache which cloned into working copy
@@ -219,9 +238,10 @@ const createXofShake =
     _seed.set(seed);
     const seedLen = seed.length;
     const buf = new Uint8Array(blockLen); // == shake128.blockLen
-    let h = shake.create({});
+    let h = rawShake.create({});
     let calls = 0;
     let xofs = 0;
+    const batches: (() => void)[] = [];
     return {
       stats: () => ({ calls, xofs }),
       get: (x: number, y: number) => {
@@ -230,18 +250,66 @@ const createXofShake =
         _seed[seedLen + 0] = x;
         _seed[seedLen + 1] = y;
         h.destroy();
-        h = shake.create({}).update(_seed);
+        h = rawShake.create({}).update(_seed);
         calls++;
         return () => {
           xofs++;
           return h.xofInto(buf) as TRet<Uint8Array>;
         };
       },
+      getBatch: (coords: TArg<[number, number][]>, blocks = 1) => {
+        const rawCoords = coords as [number, number][];
+        const msg = new Array<Uint8Array>(rawCoords.length);
+        const packed = new Uint8Array(rawCoords.length * _seed.length);
+        for (let i = 0; i < rawCoords.length; i++) {
+          const [x, y] = rawCoords[i];
+          const s = packed.subarray(i * _seed.length, (i + 1) * _seed.length);
+          s.set(seed);
+          s[seedLen + 0] = x;
+          s[seedLen + 1] = y;
+          msg[i] = s;
+        }
+        const out = new Uint8Array(rawCoords.length * blocks * blockLen);
+        const pre = rawShake.parallel(msg, { dkLen: blocks * blockLen, out }) as Uint8Array[];
+        cleanBytes(packed);
+        calls += rawCoords.length;
+        xofs += rawCoords.length * blocks;
+        const extraStates: ReturnType<typeof rawShake.create>[] = [];
+        let cleaned = false;
+        const clean = () => {
+          if (cleaned) return;
+          cleaned = true;
+          for (const extra of extraStates) extra.destroy();
+          cleanBytes(out);
+          const i = batches.indexOf(clean);
+          if (i >= 0) batches.splice(i, 1);
+        };
+        batches.push(clean);
+        const readers = pre.map((out, idx) => {
+          let pos = 0;
+          let extra: ReturnType<typeof rawShake.create> | undefined;
+          return () => {
+            if (pos < blocks) return out.subarray(pos++ * blockLen, pos * blockLen);
+            if (!extra) {
+              const [x, y] = rawCoords[idx];
+              _seed[seedLen + 0] = x;
+              _seed[seedLen + 1] = y;
+              extra = rawShake.create({}).update(_seed);
+              extraStates.push(extra);
+              for (let i = 0; i < blocks; i++) extra.xofInto(buf);
+            }
+            xofs++;
+            return extra.xofInto(buf) as TRet<Uint8Array>;
+          };
+        });
+        return { readers, clean };
+      },
       clean: () => {
         h.destroy();
+        while (batches.length) batches.pop()!();
         cleanBytes(buf, _seed);
       },
-    };
+    } as TRet<ReturnType<XOF>>;
   };
 
 /**

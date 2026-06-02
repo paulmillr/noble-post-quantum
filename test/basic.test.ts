@@ -7,6 +7,10 @@ import {
   shake128,
   shake128_32,
 } from '@noble/hashes/sha3.js';
+import * as noblePlatform from '@awasm/noble/noble.js';
+import * as stubs from '@awasm/noble/stub.js';
+import * as wasmPlatform from '@awasm/noble/wasm.js';
+import * as wasmThreadsPlatform from '@awasm/noble/wasm_threads.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, throws } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
@@ -51,6 +55,67 @@ describe('Basic', () => {
   should('getMask wide 32-bit edges', () => {
     eql(getMask(31), 0x7fffffff);
     eql(getMask(32), 0xffffffff);
+  });
+  should('awasm stubs switch platform without changing deterministic output', () => {
+    const install = (platform: any) => {
+      for (const name of [
+        'sha256',
+        'sha512',
+        'sha3_256',
+        'sha3_512',
+        'shake128',
+        'shake256',
+      ] as const)
+        stubs[name].install(platform[name]);
+    };
+    const seed = Uint8Array.from({ length: 64 }, (_, i) => i);
+    install(noblePlatform);
+    const exp = ml_kem512.keygen(seed);
+    install(wasmPlatform);
+    try {
+      eql(stubs.sha256.getPlatform(), 'wasm');
+      eql(stubs.shake256.getPlatform(), 'wasm');
+      eql(ml_kem512.keygen(seed), exp);
+    } finally {
+      install(noblePlatform);
+    }
+  });
+  should('awasm SLH-DSA parallel backends match noble output', () => {
+    const install = (platform: any) => {
+      for (const name of ['sha256', 'sha512', 'shake256'] as const)
+        stubs[name].install(platform[name]);
+    };
+    const seed = Uint8Array.from({ length: slh_dsa_sha2_128f.lengths.seed }, (_, i) => i);
+    const msg = Uint8Array.from([1, 2, 3]);
+    const rand = Uint8Array.from({ length: slh_dsa_sha2_128f.lengths.signRand }, (_, i) => 255 - i);
+    install(noblePlatform);
+    const keys = slh_dsa_sha2_128f.keygen(seed);
+    const sig = slh_dsa_sha2_128f.sign(msg, keys.secretKey, { extraEntropy: rand });
+    try {
+      for (const platform of [wasmPlatform, wasmThreadsPlatform]) {
+        install(platform);
+        const gotKeys = slh_dsa_sha2_128f.keygen(seed);
+        const gotSig = slh_dsa_sha2_128f.sign(msg, gotKeys.secretKey, { extraEntropy: rand });
+        eql(gotKeys, keys);
+        eql(gotSig, sig);
+        eql(slh_dsa_sha2_128f.verify(gotSig, msg, gotKeys.publicKey), true);
+      }
+    } finally {
+      install(noblePlatform);
+    }
+  });
+  should('SLH-DSA verify accepts unaligned byte views', () => {
+    const seed = Uint8Array.from({ length: slh_dsa_sha2_128f.lengths.seed }, (_, i) => i);
+    const msg = Uint8Array.from([1, 2, 3]);
+    const rand = Uint8Array.from({ length: slh_dsa_sha2_128f.lengths.signRand }, (_, i) => 255 - i);
+    const keys = slh_dsa_sha2_128f.keygen(seed);
+    const sig = slh_dsa_sha2_128f.sign(msg, keys.secretKey, { extraEntropy: rand });
+    const unaligned = (buf: Uint8Array) => {
+      const out = new Uint8Array(buf.length + 1);
+      out.set(buf, 1);
+      return out.subarray(1);
+    };
+    eql(slh_dsa_sha2_128f.verify(unaligned(sig), unaligned(msg), unaligned(keys.publicKey)), true);
   });
   describe('Immutability', () => {
     should('ML-KEM', () => {
