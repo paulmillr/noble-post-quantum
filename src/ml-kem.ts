@@ -20,8 +20,10 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
-import { sha3_256, sha3_512, shake256 } from '@noble/hashes/sha3.js';
-import { type CHash, swap32IfBE, u32 } from '@noble/hashes/utils.js';
+import * as noble from '@awasm/noble/noble.js';
+import { sha3_256, sha3_512, shake256 } from '@awasm/noble/stub.js';
+import type { CHash } from '@awasm/noble/utils.js';
+import { swap32IfBE, u32 } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128 } from './_crystals.ts';
 import {
   abytes,
@@ -37,6 +39,11 @@ import {
   type TRet,
   vecCoder,
 } from './utils.ts';
+
+// Install noble version to stubs for backward compatibility. Could be removed on next major release.
+sha3_256.install(noble.sha3_256, { onlyMissing: true });
+sha3_512.install(noble.sha3_512, { onlyMissing: true });
+shake256.install(noble.shake256, { onlyMissing: true });
 
 /** Key encapsulation mechanism interface */
 
@@ -206,6 +213,7 @@ export type KEMPrepared = {
 /** KEM with prepared-key support. */
 export type MLKEM = KEM & { prepare: (publicKey: Uint8Array) => KEMPrepared };
 
+type XofReader = ReturnType<XOF>;
 type XofGet = ReturnType<ReturnType<XOF>['get']>;
 
 type KyberOpts = KEMParam & {
@@ -234,6 +242,13 @@ function SampleNTT(xof_: TArg<XofGet>): TRet<Poly> {
   }
   return r as TRet<Poly>;
 }
+const SampleNTTBatch = (xof: TArg<XofReader>, coords: [number, number][]): TRet<Poly[]> => {
+  const rawXof = xof as XofReader;
+  const batch = rawXof.getBatch(coords, 3);
+  const out = batch.readers.map((read) => SampleNTT(read));
+  batch.clean();
+  return out as TRet<Poly[]>;
+};
 
 // Sampling from the centered binomial distribution
 // Returns poly with small coefficients (noise/errors) stored modulo q in ordinary coefficient form.
@@ -290,6 +305,15 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
   const secretCoder = vecCoder(polyCoder(12), K);
   const cipherCoder = splitCoder('ciphertext', vecCoder(polyU, K), polyV);
   const seedCoder = splitCoder('seed', 32, 32);
+  const keygenCoords: [number, number][] = [];
+  const encryptCoords: [number, number][] = [];
+  // Matrix coordinates depend only on the parameter set, so allocate them once per K-PKE flavor.
+  for (let i = 0; i < K; i++) {
+    for (let j = 0; j < K; j++) {
+      keygenCoords.push([j, i]);
+      encryptCoords.push([i, j]);
+    }
+  }
   // Algorithm 14 (K-PKE.Encrypt) core, after ek parsing. `tHat` and every poly returned by
   // `getA(i, j)` are treated as disposable scratch: they are mutated in place and wiped/dropped,
   // so callers holding cached copies must pass fresh copies.
@@ -344,20 +368,21 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
       const tHat: Poly[] = [];
       for (let i = 0; i < K; i++) sHat.push(crystals.NTT.encode(sampleCBD(PRF, sigma, i, ETA1)));
       const x = XOF(rho);
+      const a = SampleNTTBatch(x, keygenCoords);
+      x.clean();
       for (let i = 0; i < K; i++) {
         const e = crystals.NTT.encode(sampleCBD(PRF, sigma, K + i, ETA1));
         for (let j = 0; j < K; j++) {
-          const aji = SampleNTT(x.get(j, i)); // A[i][j], inplace
+          const aji = a[i * K + j]; // A[i][j], inplace
           polyAdd(e, MultiplyNTTs(aji, sHat[j]));
         }
         tHat.push(e); // t ← A ◦ s + e
       }
-      x.clean();
       const res = {
         publicKey: publicCoder.encode([tHat, rho]),
         secretKey: secretCoder.encode(sHat),
       };
-      cleanBytes(rho, sigma, sHat, tHat, seedDst, seedHash);
+      cleanBytes(a, rho, sigma, sHat, tHat, seedDst, seedHash);
       return res;
     },
     encrypt: (
@@ -367,8 +392,10 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
     ): TRet<Uint8Array> => {
       const [tHat, rho] = publicCoder.decode(publicKey);
       const x = XOF(rho);
-      const res = encryptCore(tHat as Poly[], (i, j) => SampleNTT(x.get(i, j)) as Poly, msg, seed);
+      const a = SampleNTTBatch(x, encryptCoords) as Poly[];
       x.clean();
+      const res = encryptCore(tHat as Poly[], (i, j) => a[i * K + j], msg, seed);
+      cleanBytes(a);
       return res;
     },
     // Expands the full Â matrix (public data derived from rho) once, so repeated encryptions
@@ -377,9 +404,7 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
     prepare: (publicKey: TArg<Uint8Array>) => {
       const [tHat, rho] = publicCoder.decode(publicKey);
       const x = XOF(rho);
-      const A: Poly[] = [];
-      for (let i = 0; i < K; i++)
-        for (let j = 0; j < K; j++) A.push(SampleNTT(x.get(i, j)) as Poly);
+      const A = SampleNTTBatch(x, encryptCoords) as Poly[];
       x.clean();
       return {
         encrypt: (msg: TArg<Uint8Array>, seed: TArg<Uint8Array>): TRet<Uint8Array> =>
@@ -464,7 +489,9 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
       abytes(msg, msgLen, 'message');
       validateModulus(publicKey, 'encapsulate');
       // derive randomness
-      const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest();
+      const publicKeyHash = HASH256(publicKey);
+      const kr = HASH512.chunks([msg, publicKeyHash]);
+      cleanBytes(publicKeyHash);
       const cipherText = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
       cleanBytes(kr.subarray(32));
       return {
@@ -485,13 +512,13 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
       const [sk, publicKey, publicKeyHash, z] = secretCoder.decode(secretKey);
       const msg = KPKE.decrypt(cipherText, sk);
       // derive randomness, Khat, rHat = G(mHat || h)
-      const kr = HASH512.create().update(msg).update(publicKeyHash).digest();
+      const kr = HASH512.chunks([msg, publicKeyHash]);
       const Khat = kr.subarray(0, 32);
       // re-encrypt using the derived randomness
       const cipherText2 = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
       // if ciphertexts do not match, “implicitly reject”
       const isValid = equalBytes(cipherText, cipherText2);
-      const Kbar = KDF.create({ dkLen: 32 }).update(z).update(cipherText).digest();
+      const Kbar = KDF.chunks([z, cipherText], { dkLen: 32 });
       // kr[32:64] is the derived K-PKE encryption randomness: wipe it like encapsulate() does.
       cleanBytes(msg, cipherText2, kr.subarray(32), !isValid ? Khat : Kbar);
       return (isValid ? Khat : Kbar) as TRet<Uint8Array>;
@@ -552,11 +579,7 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
 // FIPS 203's PRF_eta binding: current callers use only 32-byte keys, one-byte nonces,
 // and dkLen values {128, 192}; out-of-range nonce numbers still wrap modulo 256 here.
 function shakePRF(dkLen: number, key: TArg<Uint8Array>, nonce: number): TRet<Uint8Array> {
-  return shake256
-    .create({ dkLen })
-    .update(key)
-    .update(new Uint8Array([nonce]))
-    .digest() as TRet<Uint8Array>;
+  return shake256.chunks([key, new Uint8Array([nonce])], { dkLen }) as TRet<Uint8Array>;
 }
 
 // Fixed ML-KEM hash/XOF bindings. `KDF` here is the spec's fixed 32-byte `J` call,

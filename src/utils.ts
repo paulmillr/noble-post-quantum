@@ -3,14 +3,13 @@
  * @module
  */
 /*! noble-post-quantum - MIT License (c) 2024 Paul Miller (paulmillr.com) */
+import { concatBytes, type CHash } from '@awasm/noble/utils.js';
 import {
-  type CHash,
   type TypedArray,
   abytes,
   abytes as abytes_,
   ahash as ahash_,
   anumber,
-  concatBytes,
   isBytes,
   isLE,
   randomBytes as randb,
@@ -120,6 +119,7 @@ export type TRet<T> = T extends unknown
                       : T
         : TypedRet<T>)
   : never;
+
 /**
  * Asserts that a value is a byte array and optionally checks its length.
  * Returns the original reference unchanged on success, and currently also accepts Node `Buffer`
@@ -633,7 +633,7 @@ const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x6
  * @example
  * Validate that a hash exposes a NIST hash OID and enough collision resistance.
  * ```ts
- * import { sha256 } from '@noble/hashes/sha2.js';
+ * import { sha256 } from '@awasm/noble/noble.js';
  * import { checkHash } from '@noble/post-quantum/utils.js';
  * checkHash(sha256, 128);
  * ```
@@ -674,7 +674,7 @@ export function checkHash(hash: CHash, requiredStrength: number = 0): void {
  * @example
  * Build the domain-separated prehash payload for external hashing.
  * ```ts
- * import { sha256 } from '@noble/hashes/sha2.js';
+ * import { sha256 } from '@awasm/noble/noble.js';
  * import { getMessagePrehash } from '@noble/post-quantum/utils.js';
  * getMessagePrehash(sha256, new Uint8Array([1, 2]));
  * ```
