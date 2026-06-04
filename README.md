@@ -313,53 +313,52 @@ which uses WASM-based [awasm-noble](https://github.com/paulmillr/awasm-noble) fo
 It has 80% faster ML-KEM, 30% faster ML-DSA, 2.3x faster SLH-DSA-SHA256, 15x faster SLH-DSA-SHAKE.
 The SHAKE-s version is much more usable in WASM variant. Try it out!
 
-Benchmarks on Apple M4 (**higher is better**):
+Benchmarks on Apple M4 (operations/sec, **higher is better**):
 
-```
-# ML-KEM768
-keygen x 4,277 ops/sec @ 233μs/op
-encapsulate x 3,470 ops/sec @ 288μs/op
-decapsulate x 3,757 ops/sec @ 266μs/op
-# ML-DSA65
-keygen x 669 ops/sec @ 1ms/op
-sign x 271 ops/sec @ 3ms/op
-verify x 565 ops/sec @ 1ms/op
-# SLH-DSA SHA2 192f
-keygen x 235 ops/sec @ 4ms/op
-sign x 8 ops/sec @ 117ms/op
-verify x 159 ops/sec @ 6ms/op
-# Falcon512
-keygen x 14 ops/sec @ 66ms/op ± 11.01% (56ms..96ms)
-sign x 749 ops/sec @ 1ms/op
-verify x 2,160 ops/sec @ 462μs/op
-# Falcon1024
-keygen x 4 ops/sec @ 247ms/op ± 5.22% (234ms..266ms)
-sign x 343 ops/sec @ 2ms/op
-verify x 950 ops/sec @ 1ms/op
-```
-
-Compared with pre-quantum:
-
-| OPs/sec           | Keygen | Signing | Verification | Shared secret |
+| Primitive         | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
-| ECC x/ed25519     | 12648  | 6157    | 1255         | 1981          |
-| ML-KEM-768        | 4277   |         |              | 3757          |
+| ML-KEM-768        | 4661   |         |              | 4089          |
 | ML-DSA65          | 669    | 271     | 565          |               |
+| Falcon512         | 14     | 749     | 2160         |               |
 | SLH-DSA-SHA2-192f | 235    | 8       | 159          |               |
-| Falcon512         | 14     | 749     | 950          |               |
+| Pre-quantum x/ed25519     | 12648  | 6157    | 1255         | 1981          |
 
-SLH-DSA:
+SLH-DSA (s has 2x shorter signatures; SHAKE is very slow):
 
-|           | sig size | keygen | sign   | verify |
-| --------- | -------- | ------ | ------ | ------ |
-| sha2_128f | 18088    | 4ms    | 90ms   | 6ms    |
-| sha2_192f | 35664    | 6ms    | 160ms  | 9ms    |
-| sha2_256f | 49856    | 15ms   | 340ms  | 9ms    |
-| sha2_128s | 7856     | 260ms  | 2000ms | 2ms    |
-| sha2_192s | 16224    | 380ms  | 3800ms | 3ms    |
-| sha2_256s | 29792    | 250ms  | 3400ms | 4ms    |
-| shake_192f | 35664   | 21ms   | 553ms  | 29ms   |
-| shake_192s | 16224   | 260ms  | 2635ms | 2ms    |
+|            | keygen | sign   | verify |
+| ---------- | ------ | ------ | ------ |
+| sha2_128f  | 2ms    | 65ms   | 4ms    |
+| shake_128f | 10ms   | 248ms  | 15ms   |
+| sha2_192f  | 4ms    | 117ms  | 6ms    |
+| shake_192f | 15ms   | 407ms  | 22ms   |
+| sha2_256f  | 11ms   | 250ms  | 6ms    |
+| shake_256f | 42ms   | 840ms  | 22ms   |
+| sha2_128s  | 190ms  | 1350ms | 1ms    |
+| shake_128s | 700ms  | 5264ms | 5ms    |
+| sha2_192s  | 272ms  | 2900ms | 2ms    |
+| shake_192s | 1000ms | 9100ms | 7ms    |
+| sha2_256s  | 190ms  | 2600ms | 3ms    |
+| shake_256s | 672ms  | 8070ms | 3ms    |
+
+Key and signature sizes:
+
+| Variant | Public key | Secret key | Signature / Ciphertext |
+|---|---:|---:|---:|
+| ML-KEM-512 | 800 | 1632 | 768 |
+| ML-KEM-768 | 1184 | 2400 | 1088 |
+| ML-KEM-1024 | 1568 | 3168 | 1568 |
+| ML-DSA-44 | 1312 | 2560 | 2420 |
+| ML-DSA-65 | 1952 | 4032 | 3309 |
+| ML-DSA-87 | 2592 | 4896 | 4627 |
+| Falcon512 | 897 | 1281 | 666 |
+| Falcon1024 | 1793 | 2305 | 1280 |
+| SLH-DSA-128f | 32 | 64 | 17088 |
+| SLH-DSA-128s | 32 | 64 | 7856 |
+| SLH-DSA-192f | 48 | 96 | 35664 |
+| SLH-DSA-192s | 48 | 96 | 16224 |
+| SLH-DSA-256f | 64 | 128 | 49856 |
+| SLH-DSA-256s | 64 | 128 | 29792 |
+
 
 ## License
 
