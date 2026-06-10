@@ -458,6 +458,17 @@ const mk = (params: KEMParam) =>
 /**
  * ML-KEM-512: Table 2 row `k=2, η1=3, η2=2, du=10, dv=4`; Table 3 sizes `800/1632/768/32`.
  * The ASD lifecycle note here is external policy guidance, not a FIPS 203 requirement.
+ * @example
+ * Generate deterministic ML-KEM-512 keys, encapsulate a shared secret, and decapsulate it.
+ * ```ts
+ * import { ml_kem512 } from '@noble/post-quantum/ml-kem.js';
+ * const seed = new Uint8Array(ml_kem512.lengths.seed!);
+ * const { secretKey, publicKey } = ml_kem512.keygen(seed);
+ * const msg = new Uint8Array(ml_kem512.lengths.msgRand!);
+ * const { cipherText, sharedSecret } = ml_kem512.encapsulate(publicKey, msg);
+ * const recovered = ml_kem512.decapsulate(cipherText, secretKey);
+ * const publicKey2 = ml_kem512.getPublicKey(secretKey);
+ * ```
  */
 export const ml_kem512: TRet<KEM> = /* @__PURE__ */ (() => mk(PARAMS[512]))();
 /**

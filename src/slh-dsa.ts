@@ -943,6 +943,23 @@ const SHA512_SIMPLE = /* @__PURE__ */ (() => ({
  * SLH-DSA-SHA2-128f: Table 2 row `n=16, h=66, d=22, h'=3, a=6, k=33, lg w=4, m=34`;
  * lengths `publicKey=32`, `secretKey=64`, `signature=17088`, `seed=48`, `signRand=16`.
  * Also exposes `.prehash(...)`.
+ * @example
+ * Generate deterministic SLH-DSA keys, sign one message, and verify the signature.
+ * ```ts
+ * import { sha256 } from '@noble/hashes/sha2.js';
+ * import { slh_dsa_sha2_128f } from '@noble/post-quantum/slh-dsa.js';
+ * const seed = new Uint8Array(slh_dsa_sha2_128f.lengths.seed!);
+ * const { secretKey, publicKey } = slh_dsa_sha2_128f.keygen(seed);
+ * const msg = new TextEncoder().encode('hello noble');
+ * const sig = slh_dsa_sha2_128f.sign(msg, secretKey);
+ * const isValid = slh_dsa_sha2_128f.verify(sig, msg, publicKey);
+ * const recovered = slh_dsa_sha2_128f.getPublicKey(secretKey);
+ * const context = new Uint8Array([1, 2, 3]);
+ * const prehash = slh_dsa_sha2_128f.prehash(sha256);
+ * const preSig = prehash.sign(msg, secretKey, { context });
+ * const preValid = prehash.verify(preSig, msg, publicKey, { context });
+ * const internalSig = slh_dsa_sha2_128f.internal.sign(msg, secretKey);
+ * ```
  */
 export const slh_dsa_sha2_128f: TRet<SphincsSigner> = /* @__PURE__ */ (() =>
   gen(PARAMS['128f'], SHA256_SIMPLE))();

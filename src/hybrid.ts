@@ -80,6 +80,7 @@ import { type ECDSA } from '@noble/curves/abstract/weierstrass.js';
 import { x25519 } from '@noble/curves/ed25519.js';
 import { p256, p384 } from '@noble/curves/nist.js';
 import {
+  abool,
   asciiToBytes,
   bytesToNumberBE,
   bytesToNumberLE,
@@ -92,10 +93,12 @@ import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
 import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
+  astring,
   cleanBytes,
   copyBytes,
   randomBytes,
   splitCoder,
+  validateObject,
   validateSigOpts,
   validateVerOpts,
   type CryptoKeys,
@@ -108,9 +111,31 @@ import {
 type CurveAll = ECDSA | EdDSA | MontgomeryECDH;
 type CurveECDH = ECDSA | MontgomeryECDH;
 type CurveSign = ECDSA | EdDSA;
+const KEM_FIELDS = {
+  lengths: 'object',
+  keygen: 'function',
+  getPublicKey: 'function',
+  encapsulate: 'function',
+  decapsulate: 'function',
+};
+const SIGNER_FIELDS = {
+  lengths: 'object',
+  keygen: 'function',
+  getPublicKey: 'function',
+  sign: 'function',
+  verify: 'function',
+};
 
 // Can re-use if decide to signatures support, on other hand getSecretKey is specific and ugly
 function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
+  validateObject(
+    curve as any,
+    { lengths: 'object', keygen: 'function', getPublicKey: 'function' },
+    {},
+    'curve'
+  );
+  abool(allowZeroKey, 'allowZeroKey');
+  validateObject((curve as any).lengths, {}, {}, 'curve.lengths');
   const lengths = curve.lengths;
   let keygen = curve.keygen;
   if (allowZeroKey) {
@@ -416,14 +441,25 @@ export function combineKEMS(
   combiner: TArg<Combiner>,
   ...kems: TArg<KEM[]>
 ): TRet<KEM> {
+  if (realSeedLen !== undefined) anumber(realSeedLen, 'realSeedLen');
+  if (realMsgLen !== undefined) anumber(realMsgLen, 'realMsgLen');
+  if (typeof expandSeed !== 'function')
+    throw new TypeError('"expandSeed" expected function, got type=' + typeof expandSeed);
+  if (typeof combiner !== 'function')
+    throw new TypeError('"combiner" expected function, got type=' + typeof combiner);
   const rawCombiner = combiner as Combiner;
   const rawKems = kems as KEM[];
+  for (let i = 0; i < rawKems.length; i++) {
+    const kem = rawKems[i];
+    validateObject(kem as any, KEM_FIELDS, {}, `kems[${i}]`);
+    validateObject((kem as any).lengths, {}, {}, `kems[${i}].lengths`);
+  }
   const keys = combineKeys(realSeedLen, expandSeed, ...rawKems);
   const ctCoder = splitLengths(rawKems, 'cipherText');
   const pkCoder = splitLengths(rawKems, 'publicKey');
   const msgCoder = splitLengths(rawKems, 'msg');
   if (realMsgLen === undefined) realMsgLen = msgCoder.bytesLen;
-  anumber(realMsgLen);
+  anumber(realMsgLen, 'realMsgLen');
   const lengths = Object.freeze({
     ...keys.info.lengths,
     msg: realMsgLen,
@@ -491,7 +527,11 @@ export function combineKEMS(
  * import { combineSigners, expandSeedXof } from '@noble/post-quantum/hybrid.js';
  * import { ml_dsa44 } from '@noble/post-quantum/ml-dsa.js';
  * const hybrid = combineSigners(32, expandSeedXof(shake256), ml_dsa44, ml_dsa44);
- * const { publicKey } = hybrid.keygen();
+ * const seed = new Uint8Array(hybrid.lengths.seed!).fill(1);
+ * const { secretKey, publicKey } = hybrid.keygen(seed);
+ * const msg = new TextEncoder().encode('hello noble');
+ * const sig = hybrid.sign(msg, secretKey);
+ * const isValid = hybrid.verify(sig, msg, publicKey);
  * ```
  */
 export function combineSigners(
@@ -499,7 +539,15 @@ export function combineSigners(
   expandSeed: TArg<ExpandSeed>,
   ...signers: TArg<Signer[]>
 ): TRet<Signer> {
+  if (realSeedLen !== undefined) anumber(realSeedLen, 'realSeedLen');
+  if (typeof expandSeed !== 'function')
+    throw new TypeError('"expandSeed" expected function, got type=' + typeof expandSeed);
   const rawSigners = signers as Signer[];
+  for (let i = 0; i < rawSigners.length; i++) {
+    const signer = rawSigners[i];
+    validateObject(signer as any, SIGNER_FIELDS, {}, `signers[${i}]`);
+    validateObject((signer as any).lengths, {}, {}, `signers[${i}].lengths`);
+  }
   const keys = combineKeys(realSeedLen, expandSeed, ...rawSigners);
   const sigCoder = splitLengths(rawSigners, 'signature');
   const pkCoder = splitLengths(rawSigners, 'publicKey');
@@ -581,7 +629,16 @@ export function QSF(
   xof: TArg<XOF>,
   kdf: CHash
 ): TRet<KEM> {
+  astring(label, 'label');
+  validateObject(pqc as any, KEM_FIELDS, {}, 'pqc');
+  validateObject((pqc as any).lengths, {}, {}, 'pqc.lengths');
+  validateObject(curveKEM as any, KEM_FIELDS, {}, 'curveKEM');
+  validateObject((curveKEM as any).lengths, {}, {}, 'curveKEM.lengths');
+  if (typeof xof !== 'function' || typeof (xof as any).create !== 'function')
+    throw new TypeError('"xof" expected hash function, got type=' + typeof xof);
   ahash(xof);
+  if (typeof kdf !== 'function' || typeof (kdf as any).create !== 'function')
+    throw new TypeError('"kdf" expected hash function, got type=' + typeof kdf);
   ahash(kdf);
   return combineKEMS(
     32,
@@ -646,7 +703,16 @@ export function createKitchenSink(
   xof: TArg<XOF>,
   hash: CHash
 ): TRet<KEM> {
+  astring(label, 'label');
+  validateObject(pqc as any, KEM_FIELDS, {}, 'pqc');
+  validateObject((pqc as any).lengths, {}, {}, 'pqc.lengths');
+  validateObject(curveKEM as any, KEM_FIELDS, {}, 'curveKEM');
+  validateObject((curveKEM as any).lengths, {}, {}, 'curveKEM.lengths');
+  if (typeof xof !== 'function' || typeof (xof as any).create !== 'function')
+    throw new TypeError('"xof" expected hash function, got type=' + typeof xof);
   ahash(xof);
+  if (typeof hash !== 'function' || typeof (hash as any).create !== 'function')
+    throw new TypeError('"hash" expected hash function, got type=' + typeof hash);
   ahash(hash);
   return combineKEMS(
     32,
@@ -824,7 +890,20 @@ export const MLKEM768X25519: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_x25519
 export const MLKEM768P256: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_p256)();
 /** Legacy alias for `ml_kem1024_p384`. */
 export const MLKEM1024P384: TRet<KEM> = /* @__PURE__ */ (() => ml_kem1024_p384)();
-/** Legacy alias for `QSF_ml_kem768_p256`. */
+/**
+ * Legacy alias for `QSF_ml_kem768_p256`.
+ * @example
+ * Use the QSF ML-KEM-768 + P-256 preset with caller-provided encapsulation randomness.
+ * ```ts
+ * import { QSFMLKEM768P256 } from '@noble/post-quantum/hybrid.js';
+ * const seed = new Uint8Array(QSFMLKEM768P256.lengths.seed!).fill(1);
+ * const { secretKey, publicKey } = QSFMLKEM768P256.keygen(seed);
+ * const msg = new Uint8Array(QSFMLKEM768P256.lengths.msgRand!).fill(7);
+ * const { cipherText, sharedSecret } = QSFMLKEM768P256.encapsulate(publicKey, msg);
+ * const recovered = QSFMLKEM768P256.decapsulate(cipherText, secretKey);
+ * const publicKey2 = QSFMLKEM768P256.getPublicKey(secretKey);
+ * ```
+ */
 export const QSFMLKEM768P256: TRet<KEM> = /* @__PURE__ */ (() => QSF_ml_kem768_p256)();
 /** Legacy alias for `QSF_ml_kem1024_p384`. */
 export const QSFMLKEM1024P384: TRet<KEM> = /* @__PURE__ */ (() => QSF_ml_kem1024_p384)();

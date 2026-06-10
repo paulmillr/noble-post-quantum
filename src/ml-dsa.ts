@@ -712,6 +712,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       opts: TArg<VerOpts> = {}
     ) => {
       validateVerOpts(opts);
+      abytes(sig, undefined, 'signature');
       return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
     prehash: (hash: CHash) => {
@@ -740,6 +741,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           opts: TArg<VerOpts> = {}
         ) => {
           validateVerOpts(opts);
+          abytes(sig, undefined, 'signature');
           return internal.verify(sig, getMessagePrehash(hash, msg, opts.context), publicKey);
         },
       });
@@ -747,7 +749,26 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
   });
 }
 
-/** ML-DSA-44 for 128-bit security level. Not recommended after 2030, as per ASD. */
+/**
+ * ML-DSA-44 for 128-bit security level. Not recommended after 2030, as per ASD.
+ * @example
+ * Generate deterministic ML-DSA-44 keys, sign one message, and verify the signature.
+ * ```ts
+ * import { sha256 } from '@noble/hashes/sha2.js';
+ * import { ml_dsa44 } from '@noble/post-quantum/ml-dsa.js';
+ * const seed = new Uint8Array(ml_dsa44.lengths.seed!);
+ * const { secretKey, publicKey } = ml_dsa44.keygen(seed);
+ * const msg = new TextEncoder().encode('hello noble');
+ * const sig = ml_dsa44.sign(msg, secretKey);
+ * const isValid = ml_dsa44.verify(sig, msg, publicKey);
+ * const recovered = ml_dsa44.getPublicKey(secretKey);
+ * const context = new Uint8Array([1, 2, 3]);
+ * const prehash = ml_dsa44.prehash(sha256);
+ * const preSig = prehash.sign(msg, secretKey, { context });
+ * const preValid = prehash.verify(preSig, msg, publicKey, { context });
+ * const internalSig = ml_dsa44.internal.sign(msg, secretKey);
+ * ```
+ */
 export const ml_dsa44: TRet<DSA> = /* @__PURE__ */ (() =>
   getDilithium({
     ...PARAMS[2],

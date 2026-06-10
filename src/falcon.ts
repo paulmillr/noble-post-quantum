@@ -2181,7 +2181,8 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     //         ▷ Remove 1 byte for the header, and 40 bytes for r
     // 11: while (s = ⊥)
     // 12: return sig = (r, s)
-    abytes(msg);
+    abytes(msg, undefined, 'msg');
+    abytes(sk, secretKeyCoder.bytesLen, 'secretKey');
     // One RNG stream drives both the public 40-byte nonce and the 48-byte sampler seed, so
     // deterministic rnd hooks make signatures deterministic for fixed secretKey/message inputs.
     const nonce = rnd(40);
@@ -2289,6 +2290,8 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
   const getRnd = (opts: TArg<FalconSigOpts> = {}): TRet<FalconRandom> => {
     validateSigOpts(opts);
     if (opts.context !== undefined) throw new Error('context is not supported');
+    if (opts.random !== undefined && typeof opts.random !== 'function')
+      throw new TypeError('"opts.random" expected function, got type=' + typeof opts.random);
     if (opts.random !== undefined) return opts.random as TRet<FalconRandom>;
     if (opts.extraEntropy === undefined) return randomBytes;
     const seed = opts.extraEntropy === false ? new Uint8Array(48) : opts.extraEntropy;
@@ -2328,6 +2331,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     }>;
   };
   const getPublicKey = (sk: TArg<Uint8Array>): TRet<Uint8Array> => {
+    abytes(sk, secretKeyCoder.bytesLen, 'secretKey');
     const [f, g, F] = secretKeyCoder.decode(sk);
     try {
       const h = computePublic(f, g);
@@ -2358,9 +2362,10 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     verOpts: TArg<VerOpts> = {}
   ) => {
     checkVerOpts(verOpts);
-    abytes(sig);
-    abytes(msg);
-    abytes(pk);
+    abytes(sig, undefined, 'signature');
+    abytes(msg, undefined, 'msg');
+    // Length/canonical public-key failures are decoded below and return false; only type is fatal.
+    abytes(pk, undefined, 'publicKey');
     try {
       const { s2, nonce } = SignatureCoderDetached(logn).decode(sig);
       return verifyRaw(pk, s2, nonce, msg);

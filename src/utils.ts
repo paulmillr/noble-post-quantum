@@ -8,7 +8,10 @@ import {
   type TypedArray,
   abytes,
   abytes as abytes_,
+  ahash as ahash_,
+  anumber,
   concatBytes,
+  isBytes,
   isLE,
   randomBytes as randb,
 } from '@noble/hashes/utils.js';
@@ -158,6 +161,17 @@ export { concatBytesDoc as concatBytes };
  */
 export const randomBytes: typeof randb = randb;
 
+export function aarray<T>(
+  item: unknown,
+  title: string,
+  inner: (elm: T, title: string) => void = () => {}
+): T[] {
+  if (!Array.isArray(item))
+    throw new TypeError(`"${title}" expected array, got type=${typeof item}`);
+  for (let i = 0; i < item.length; i++) inner(item[i], `${title}[${i}]`);
+  return item;
+}
+
 /**
  * Compares two byte arrays in a length-constant way for equal lengths.
  * Unequal lengths return `false` immediately, and there is no runtime type validation.
@@ -287,8 +301,8 @@ export type SigOpts = VerOpts & {
  */
 export function validateOpts(opts: object): void {
   // Arrays silently passed here before, but these call sites expect named option-bag fields.
-  if (Object.prototype.toString.call(opts) !== '[object Object]')
-    throw new TypeError('expected valid options object');
+  if (isBytes(opts)) throw new TypeError('"opts" expected object, got Uint8Array');
+  validateObject(opts as any, {}, {}, 'opts');
 }
 
 /**
@@ -503,11 +517,12 @@ export function vecCoder<T>(c: TArg<BytesCoderLen<T>>, vecLen: number): TRet<Byt
   return {
     bytesLen,
     encode: (u: TArg<T[]>): TRet<Uint8Array> => {
-      if (u.length !== vecLen)
-        throw new RangeError(`vecCoder.encode: wrong length=${u.length}. Expected: ${vecLen}`);
+      const uArr = aarray<T>(u, 'u');
+      if (uArr.length !== vecLen)
+        throw new RangeError(`vecCoder.encode: wrong length=${uArr.length}. Expected: ${vecLen}`);
       const res = new Uint8Array(bytesLen);
-      for (let i = 0, pos = 0; i < u.length; i++) {
-        const b = coder.encode(u[i] as T);
+      for (let i = 0, pos = 0; i < uArr.length; i++) {
+        const b = coder.encode(uArr[i] as T);
         res.set(b, pos);
         b.fill(0); // clean
         pos += b.length;
@@ -546,6 +561,7 @@ export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
  * Creates a 32-bit mask with the lowest `bits` bits set.
  * @param bits - Number of low bits to keep.
  * @returns Bit mask with `bits` ones.
+ * @throws On wrong argument types. {@link TypeError}
  * @throws On wrong argument ranges or values. {@link RangeError}
  * @example
  * Create a low-bit mask for packed-field operations.
@@ -554,8 +570,8 @@ export function cleanBytes(...list: (TypedArray | TypedArray[])[]): void {
  * ```
  */
 export function getMask(bits: number): number {
-  if (!Number.isSafeInteger(bits) || bits < 0 || bits > 32)
-    throw new RangeError(`expected bits in [0..32], got ${bits}`);
+  anumber(bits, 'bits');
+  if (bits > 32) throw new RangeError('"bits" expected <= 32, got ' + bits);
   // JS shifts are modulo 32, so bit 32 needs an explicit full-width mask.
   return bits === 32 ? 0xffffffff : ~(-1 << bits) >>> 0;
 }
@@ -577,8 +593,8 @@ export const EMPTY: TRet<Uint8Array> = /* @__PURE__ */ Uint8Array.of();
  * ```
  */
 export function getMessage(msg: TArg<Uint8Array>, ctx: TArg<Uint8Array> = EMPTY): TRet<Uint8Array> {
-  abytes_(msg);
-  abytes_(ctx);
+  abytes_(msg, undefined, 'msg');
+  abytes_(ctx, undefined, 'ctx');
   if (ctx.length > 255) throw new RangeError('context should be 255 bytes or less');
   return concatBytes(new Uint8Array([0, ctx.length]), ctx, msg);
 }
@@ -607,8 +623,14 @@ const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x6
  * ```
  */
 export function checkHash(hash: CHash, requiredStrength: number = 0): void {
-  if (!hash.oid || !equalBytes(hash.oid.subarray(0, 10), oidNistP))
-    throw new Error('hash.oid is invalid: expected NIST hash');
+  if (typeof hash !== 'function' || typeof (hash as any).create !== 'function')
+    throw new TypeError('"hash" expected hash function, got type=' + typeof hash);
+  ahash_(hash);
+  anumber(requiredStrength, 'requiredStrength');
+  const oid = hash.oid as unknown as TArg<Uint8Array>;
+  abytes_(oid, undefined, 'hash.oid');
+  if (!equalBytes(oid.subarray(0, 10), oidNistP))
+    throw new Error('"hash.oid" is invalid: expected NIST hash');
   // FIPS 204 / FIPS 205 require both collision and second-preimage strength; for approved NIST
   // hashes/XOFs under this OID subtree, the collision bound from the configured digest length is
   // the tighter runtime check, so enforce that lower bound here.
@@ -646,9 +668,89 @@ export function getMessagePrehash(
   msg: TArg<Uint8Array>,
   ctx: TArg<Uint8Array> = EMPTY
 ): TRet<Uint8Array> {
-  abytes_(msg);
-  abytes_(ctx);
+  checkHash(hash);
+  abytes_(msg, undefined, 'msg');
+  abytes_(ctx, undefined, 'ctx');
   if (ctx.length > 255) throw new RangeError('context should be 255 bytes or less');
   const hashed = hash(msg);
   return concatBytes(new Uint8Array([1, ctx.length]), ctx, hash.oid!, hashed);
+}
+
+/**
+ * Asserts something is a string.
+ * @param value - Value to validate.
+ * @param title - Label included in thrown errors.
+ * @returns The validated string.
+ * @throws On wrong argument types. {@link TypeError}
+ * @example
+ * Validate a label string.
+ *
+ * ```ts
+ * astring('example', 'label');
+ * ```
+ */
+export function astring(value: unknown, title: string = ''): string {
+  if (typeof value !== 'string') {
+    const prefix = title && `"${title}" `;
+    throw new TypeError(prefix + 'expected string, got type=' + typeof value);
+  }
+  return value;
+}
+
+/**
+ * Validates declared required and optional field types on a plain object.
+ * Extra keys are intentionally ignored because many callers validate only the subset they use from
+ * richer option bags or runtime objects.
+ * @param object - Object to validate.
+ * @param fields - Required field types.
+ * @param optFields - Optional field types.
+ * @throws On wrong argument types. {@link TypeError}
+ * @example
+ * Check user options before building a curve helper.
+ *
+ * ```ts
+ * validateObject({ flag: true }, { flag: 'boolean' });
+ * ```
+ */
+export function validateObject(
+  object: Record<string, any>,
+  fields: Record<string, string> = {},
+  optFields: Record<string, string> = {},
+  title = 'object'
+): void {
+  const checkObject = (value: Record<string, any>, label: string) => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value))
+      throw new TypeError(
+        label === 'object'
+          ? 'expected valid options object'
+          : `"${label}" expected object, got type=${typeof value}`
+      );
+  };
+  checkObject(object, title);
+  checkObject(fields, 'fields');
+  checkObject(optFields, 'optFields');
+  type Item = keyof typeof object;
+  function checkField(fieldName: Item, expectedType: string, isOpt: boolean) {
+    const label =
+      title === 'object' ? `param "${String(fieldName)}"` : `"${title}.${String(fieldName)}"`;
+    // Config fields must be explicit own properties. Optional inherited values are rejected too
+    // because callers keep reading the same options object after validation.
+    const val = object[fieldName];
+    // Runtime objects such as Field instances intentionally satisfy required method slots
+    // via their shared prototype.
+    if (
+      !Object.hasOwn(object, fieldName) &&
+      (isOpt ? val !== undefined : expectedType !== 'function')
+    ) {
+      throw new TypeError(`${label} is invalid: expected own property`);
+    }
+    if (isOpt && val === undefined) return;
+    const current = typeof val;
+    if (current !== expectedType || val === null)
+      throw new TypeError(`${label} is invalid: expected ${expectedType}, got ${current}`);
+  }
+  const iter = (f: typeof fields, isOpt: boolean) =>
+    Object.entries(f).forEach(([k, v]) => checkField(k, v, isOpt));
+  iter(fields, false);
+  iter(optFields, true);
 }
