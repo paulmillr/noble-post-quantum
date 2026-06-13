@@ -93,12 +93,13 @@ import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
 import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
+  afunction,
+  aobject,
   astring,
   cleanBytes,
   copyBytes,
   randomBytes,
   splitCoder,
-  validateObject,
   validateSigOpts,
   validateVerOpts,
   type CryptoKeys,
@@ -111,31 +112,32 @@ import {
 type CurveAll = ECDSA | EdDSA | MontgomeryECDH;
 type CurveECDH = ECDSA | MontgomeryECDH;
 type CurveSign = ECDSA | EdDSA;
-const KEM_FIELDS = {
-  lengths: 'object',
-  keygen: 'function',
-  getPublicKey: 'function',
-  encapsulate: 'function',
-  decapsulate: 'function',
+const validateKEM = (kem: TArg<KEM>, title: string): KEM => {
+  const k = aobject<KEM>(kem, title);
+  aobject(k.lengths, `${title}.lengths`);
+  afunction(k.keygen, `${title}.keygen`);
+  afunction(k.getPublicKey, `${title}.getPublicKey`);
+  afunction(k.encapsulate, `${title}.encapsulate`);
+  afunction(k.decapsulate, `${title}.decapsulate`);
+  return k;
 };
-const SIGNER_FIELDS = {
-  lengths: 'object',
-  keygen: 'function',
-  getPublicKey: 'function',
-  sign: 'function',
-  verify: 'function',
+const validateSigner = (signer: TArg<Signer>, title: string): Signer => {
+  const s = aobject<Signer>(signer, title);
+  aobject(s.lengths, `${title}.lengths`);
+  afunction(s.keygen, `${title}.keygen`);
+  afunction(s.getPublicKey, `${title}.getPublicKey`);
+  afunction(s.sign, `${title}.sign`);
+  afunction(s.verify, `${title}.verify`);
+  return s;
 };
 
 // Can re-use if decide to signatures support, on other hand getSecretKey is specific and ugly
 function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
-  validateObject(
-    curve as any,
-    { lengths: 'object', keygen: 'function', getPublicKey: 'function' },
-    {},
-    'curve'
-  );
+  const c = aobject<CurveAll>(curve, 'curve');
+  aobject(c.lengths, 'curve.lengths');
+  afunction(c.keygen, 'curve.keygen');
+  afunction(c.getPublicKey, 'curve.getPublicKey');
   abool(allowZeroKey, 'allowZeroKey');
-  validateObject((curve as any).lengths, {}, {}, 'curve.lengths');
   const lengths = curve.lengths;
   let keygen = curve.keygen;
   if (allowZeroKey) {
@@ -449,11 +451,7 @@ export function combineKEMS(
     throw new TypeError('"combiner" expected function, got type=' + typeof combiner);
   const rawCombiner = combiner as Combiner;
   const rawKems = kems as KEM[];
-  for (let i = 0; i < rawKems.length; i++) {
-    const kem = rawKems[i];
-    validateObject(kem as any, KEM_FIELDS, {}, `kems[${i}]`);
-    validateObject((kem as any).lengths, {}, {}, `kems[${i}].lengths`);
-  }
+  for (let i = 0; i < rawKems.length; i++) validateKEM(rawKems[i], `kems[${i}]`);
   const keys = combineKeys(realSeedLen, expandSeed, ...rawKems);
   const ctCoder = splitLengths(rawKems, 'cipherText');
   const pkCoder = splitLengths(rawKems, 'publicKey');
@@ -543,11 +541,7 @@ export function combineSigners(
   if (typeof expandSeed !== 'function')
     throw new TypeError('"expandSeed" expected function, got type=' + typeof expandSeed);
   const rawSigners = signers as Signer[];
-  for (let i = 0; i < rawSigners.length; i++) {
-    const signer = rawSigners[i];
-    validateObject(signer as any, SIGNER_FIELDS, {}, `signers[${i}]`);
-    validateObject((signer as any).lengths, {}, {}, `signers[${i}].lengths`);
-  }
+  for (let i = 0; i < rawSigners.length; i++) validateSigner(rawSigners[i], `signers[${i}]`);
   const keys = combineKeys(realSeedLen, expandSeed, ...rawSigners);
   const sigCoder = splitLengths(rawSigners, 'signature');
   const pkCoder = splitLengths(rawSigners, 'publicKey');
@@ -630,10 +624,8 @@ export function QSF(
   kdf: CHash
 ): TRet<KEM> {
   astring(label, 'label');
-  validateObject(pqc as any, KEM_FIELDS, {}, 'pqc');
-  validateObject((pqc as any).lengths, {}, {}, 'pqc.lengths');
-  validateObject(curveKEM as any, KEM_FIELDS, {}, 'curveKEM');
-  validateObject((curveKEM as any).lengths, {}, {}, 'curveKEM.lengths');
+  validateKEM(pqc, 'pqc');
+  validateKEM(curveKEM, 'curveKEM');
   if (typeof xof !== 'function' || typeof (xof as any).create !== 'function')
     throw new TypeError('"xof" expected hash function, got type=' + typeof xof);
   ahash(xof);
@@ -704,10 +696,8 @@ export function createKitchenSink(
   hash: CHash
 ): TRet<KEM> {
   astring(label, 'label');
-  validateObject(pqc as any, KEM_FIELDS, {}, 'pqc');
-  validateObject((pqc as any).lengths, {}, {}, 'pqc.lengths');
-  validateObject(curveKEM as any, KEM_FIELDS, {}, 'curveKEM');
-  validateObject((curveKEM as any).lengths, {}, {}, 'curveKEM.lengths');
+  validateKEM(pqc, 'pqc');
+  validateKEM(curveKEM, 'curveKEM');
   if (typeof xof !== 'function' || typeof (xof as any).create !== 'function')
     throw new TypeError('"xof" expected hash function, got type=' + typeof xof);
   ahash(xof);

@@ -172,6 +172,22 @@ export function aarray<T>(
   return item;
 }
 
+export function aobject<T extends object>(value: unknown, title = 'object'): T {
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    throw new TypeError(
+      title === 'object'
+        ? 'expected valid options object'
+        : `"${title}" expected object, got type=${typeof value}`
+    );
+  return value as T;
+}
+
+export function afunction<T extends (...args: any[]) => any>(value: unknown, title: string): T {
+  if (typeof value !== 'function')
+    throw new TypeError(`"${title}" expected function, got type=${typeof value}`);
+  return value as T;
+}
+
 /**
  * Compares two byte arrays in a length-constant way for equal lengths.
  * Unequal lengths return `false` immediately, and there is no runtime type validation.
@@ -302,7 +318,7 @@ export type SigOpts = VerOpts & {
 export function validateOpts(opts: object): void {
   // Arrays silently passed here before, but these call sites expect named option-bag fields.
   if (isBytes(opts)) throw new TypeError('"opts" expected object, got Uint8Array');
-  validateObject(opts as any, {}, {}, 'opts');
+  aobject(opts, 'opts');
 }
 
 /**
@@ -695,62 +711,4 @@ export function astring(value: unknown, title: string = ''): string {
     throw new TypeError(prefix + 'expected string, got type=' + typeof value);
   }
   return value;
-}
-
-/**
- * Validates declared required and optional field types on a plain object.
- * Extra keys are intentionally ignored because many callers validate only the subset they use from
- * richer option bags or runtime objects.
- * @param object - Object to validate.
- * @param fields - Required field types.
- * @param optFields - Optional field types.
- * @throws On wrong argument types. {@link TypeError}
- * @example
- * Check user options before building a curve helper.
- *
- * ```ts
- * validateObject({ flag: true }, { flag: 'boolean' });
- * ```
- */
-export function validateObject(
-  object: Record<string, any>,
-  fields: Record<string, string> = {},
-  optFields: Record<string, string> = {},
-  title = 'object'
-): void {
-  const checkObject = (value: Record<string, any>, label: string) => {
-    if (value === null || typeof value !== 'object' || Array.isArray(value))
-      throw new TypeError(
-        label === 'object'
-          ? 'expected valid options object'
-          : `"${label}" expected object, got type=${typeof value}`
-      );
-  };
-  checkObject(object, title);
-  checkObject(fields, 'fields');
-  checkObject(optFields, 'optFields');
-  type Item = keyof typeof object;
-  function checkField(fieldName: Item, expectedType: string, isOpt: boolean) {
-    const label =
-      title === 'object' ? `param "${String(fieldName)}"` : `"${title}.${String(fieldName)}"`;
-    // Config fields must be explicit own properties. Optional inherited values are rejected too
-    // because callers keep reading the same options object after validation.
-    const val = object[fieldName];
-    // Runtime objects such as Field instances intentionally satisfy required method slots
-    // via their shared prototype.
-    if (
-      !Object.hasOwn(object, fieldName) &&
-      (isOpt ? val !== undefined : expectedType !== 'function')
-    ) {
-      throw new TypeError(`${label} is invalid: expected own property`);
-    }
-    if (isOpt && val === undefined) return;
-    const current = typeof val;
-    if (current !== expectedType || val === null)
-      throw new TypeError(`${label} is invalid: expected ${expectedType}, got ${current}`);
-  }
-  const iter = (f: typeof fields, isOpt: boolean) =>
-    Object.entries(f).forEach(([k, v]) => checkField(k, v, isOpt));
-  iter(fields, false);
-  iter(optFields, true);
 }
