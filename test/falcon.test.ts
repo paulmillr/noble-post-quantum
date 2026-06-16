@@ -3,8 +3,9 @@ import { reverseBits } from '@noble/curves/abstract/fft.js';
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual, throws } from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import * as falcon from '../src/falcon.ts';
 
@@ -25,35 +26,31 @@ const aes256_ctr_drbg = (seed, personalization) => {
   const drbg = rngAesCtrDrbg256(seed, personalization);
   return (len, entropy) => drbg.randomBytes(len, entropy);
 };
-function parseKAT(path) {
-  const lines = readFileSync(join(__dirname, path), 'utf8').trim().split('\n');
-  const res = {};
+async function* parseKAT(path) {
+  const lines = createInterface({
+    input: createReadStream(join(__dirname, path), { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
   let test = null;
-  let group = 'default';
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === '') {
-      if (test) {
-        if (!res[group]) res[group] = [];
-        res[group].push(test);
-        test = null;
+  try {
+    for await (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === '') {
+        if (test) {
+          yield test;
+          test = null;
+        }
+        continue;
       }
-      continue;
+      if (trimmed.startsWith('#')) continue;
+      const [k, v] = trimmed.split(/\s*=\s*/);
+      if (!test) test = {};
+      test[k] = v;
     }
-    if (trimmed.startsWith('#')) {
-      group = trimmed.slice(1).trim() || 'default';
-      if (!res[group]) res[group] = [];
-      continue;
-    }
-    const [k, v] = trimmed.split(/\s*=\s*/);
-    if (!test) test = {};
-    test[k] = v;
+  } finally {
+    lines.close();
   }
-  if (test) {
-    if (!res[group]) res[group] = [];
-    res[group].push(test);
-  }
-  return res;
+  if (test) yield test;
 }
 
 const match = (src, re) => {
@@ -209,37 +206,35 @@ describe('Falcon', () => {
     ['vectors/falcon/pqclean/nistkat_out_falcon-padded-1024_clean', falcon.falcon1024padded],
   ];
   for (const [file, falcon, skip] of falcons) {
-    should(file, () => {
+    should(file, async () => {
       let firstSig, firstPk;
-      for (const [group, items] of Object.entries(parseKAT('./' + file))) {
-        for (const t of items) {
-          if (skip && skip.includes(t.count)) continue;
-          //if (!skip || !skip.includes(t.count)) continue;
-          // console.log('---- TEST', file, t);
-          const sk = hexToBytes(t.sk);
-          deepStrictEqual(bytesToHex(falcon.getPublicKey(sk)), t.pk.toLowerCase());
-          const rng = aes256_ctr_drbg(hexToBytes(t.seed));
-          const realSeed = rng(48);
-          // console.log('SEED', JSON.stringify(Array.from(hexToBytes(t.seed))));
-          // console.log('MSG', JSON.stringify(Array.from(hexToBytes(t.msg))));
-          const keys = falcon.keygen(realSeed);
-          deepStrictEqual(bytesToHex(keys.secretKey), t.sk.toLowerCase());
-          deepStrictEqual(bytesToHex(keys.publicKey), t.pk.toLowerCase());
-          const msg = hexToBytes(t.msg);
-          deepStrictEqual(
-            bytesToHex(falcon.attached.seal(msg, keys.secretKey, { random: rng })),
-            t.sm.toLowerCase()
-          );
-          deepStrictEqual(
-            bytesToHex(falcon.attached.open(hexToBytes(t.sm), keys.publicKey)),
-            t.msg.toLowerCase()
-          );
-          if (!firstSig) {
-            firstSig = hexToBytes(t.sm);
-            firstPk = hexToBytes(t.pk);
-          } else {
-            throws(() => falcon.attached.open(firstSig, keys.publicKey));
-          }
+      for await (const t of parseKAT('./' + file)) {
+        if (skip && skip.includes(t.count)) continue;
+        //if (!skip || !skip.includes(t.count)) continue;
+        // console.log('---- TEST', file, t);
+        const sk = hexToBytes(t.sk);
+        deepStrictEqual(bytesToHex(falcon.getPublicKey(sk)), t.pk.toLowerCase());
+        const rng = aes256_ctr_drbg(hexToBytes(t.seed));
+        const realSeed = rng(48);
+        // console.log('SEED', JSON.stringify(Array.from(hexToBytes(t.seed))));
+        // console.log('MSG', JSON.stringify(Array.from(hexToBytes(t.msg))));
+        const keys = falcon.keygen(realSeed);
+        deepStrictEqual(bytesToHex(keys.secretKey), t.sk.toLowerCase());
+        deepStrictEqual(bytesToHex(keys.publicKey), t.pk.toLowerCase());
+        const msg = hexToBytes(t.msg);
+        deepStrictEqual(
+          bytesToHex(falcon.attached.seal(msg, keys.secretKey, { random: rng })),
+          t.sm.toLowerCase()
+        );
+        deepStrictEqual(
+          bytesToHex(falcon.attached.open(hexToBytes(t.sm), keys.publicKey)),
+          t.msg.toLowerCase()
+        );
+        if (!firstSig) {
+          firstSig = hexToBytes(t.sm);
+          firstPk = hexToBytes(t.pk);
+        } else {
+          throws(() => falcon.attached.open(firstSig, keys.publicKey));
         }
       }
     });

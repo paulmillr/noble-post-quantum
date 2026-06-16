@@ -26,36 +26,43 @@ import { ml_dsa44 } from '../src/ml-dsa.ts';
 import { ml_kem768 } from '../src/ml-kem.ts';
 import { jsonGZ } from './util.ts';
 
+function* vectorTests(path) {
+  yield* jsonGZ(path);
+}
+
 const VECTORS = {
   'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)': {
     lib: QSFMLKEM768P256,
-    tests: jsonGZ(
-      './vectors/hybrids/test-vectors-QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256).json'
-    ),
+    tests: () =>
+      vectorTests(
+        './vectors/hybrids/test-vectors-QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256).json'
+      ),
   },
   'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)': {
     lib: QSFMLKEM1024P384,
-    tests: jsonGZ(
-      './vectors/hybrids/test-vectors-QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256).json'
-    ),
+    tests: () =>
+      vectorTests(
+        './vectors/hybrids/test-vectors-QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256).json'
+      ),
   },
   'KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256)': {
     lib: KitchenSinkMLKEM768X25519,
-    tests: jsonGZ(
-      './vectors/hybrids/test-vectors-KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256).json'
-    ),
+    tests: () =>
+      vectorTests(
+        './vectors/hybrids/test-vectors-KitchenSink-KEM(ML-KEM-768,X25519)-XOF(SHAKE256)-KDF(HKDF-SHA-256).json'
+      ),
   },
   'MLKEM1024-P384': {
     lib: MLKEM1024P384,
-    tests: jsonGZ('./vectors/hybrids/test-vectors-MLKEM1024P384.json'),
+    tests: () => vectorTests('./vectors/hybrids/test-vectors-MLKEM1024P384.json'),
   },
   'MLKEM768-P256': {
     lib: MLKEM768P256,
-    tests: jsonGZ('./vectors/hybrids/test-vectors-MLKEM768P256.json'),
+    tests: () => vectorTests('./vectors/hybrids/test-vectors-MLKEM768P256.json'),
   },
   'MLKEM768-X25519': {
     lib: MLKEM768X25519,
-    tests: jsonGZ('./vectors/hybrids/test-vectors-MLKEM768X25519.json'),
+    tests: () => vectorTests('./vectors/hybrids/test-vectors-MLKEM768X25519.json'),
   },
   XWing: {
     lib: XWing,
@@ -97,7 +104,8 @@ describe('Hybrids', () => {
     const { lib, tests } = VECTORS[name];
     describe(name, () => {
       should('Vectors', () => {
-        for (const t of tests) {
+        const vectorItems = typeof tests === 'function' ? tests() : tests;
+        for (const t of vectorItems) {
           const keys = lib.keygen(hexToBytes(t.seed));
           eql(bytesToHex(keys.secretKey), t.sk);
           eql(bytesToHex(keys.publicKey), t.pk);

@@ -28,13 +28,9 @@ import {
   shake128_32,
   shake256_64,
 } from '@noble/hashes/sha3.js';
-import { jsonGZ } from './util.ts';
+import { jsonGZ, jsonGZGroups } from './util.ts';
 
 const ignoreSlowTests = !['1', 'true'].includes(process.env.SLOW_TESTS);
-
-function sum(array) {
-  return array.reduce((a, b) => a + b, 0);
-}
 
 function checkStrength(hash) {
   return (hash.outputLen * 8) / 2;
@@ -58,44 +54,88 @@ const HASHES = {
 // TODO: use in other libraries? seems useful
 // These tests are from 'https://github.com/usnistgov/ACVP-Server/tree/master/gen-val/json-files'
 // We can generate even more tests from server, but it is already super slow.
-const loadACVP = (name, gzipped = true) => {
-  const json = (fname) =>
-    jsonGZ(`vectors/acvp-vectors/gen-val/json-files/${name}/${fname}.json${gzipped ? '.gz' : ''}`);
-  const prompt = json('prompt');
-  const expectedResult = json('expectedResults');
-  const internalProjection = json('internalProjection');
-  //const registration = json('registration');
-  eql(prompt.testGroups.length, expectedResult.testGroups.length);
-  eql(prompt.testGroups.length, internalProjection.testGroups.length);
-  const groups = [];
-  const is205 = name.includes('FIPS205');
-  for (let gid = 0; gid < prompt.testGroups.length; gid++) {
-    const { tests: pTests, ...pInfo } = prompt.testGroups[gid];
-    const { tests: erTests, ...erInfo } = expectedResult.testGroups[gid];
-    const { tests: ipTests, ...ipInfo } = internalProjection.testGroups[gid];
-    const group = { info: { p: pInfo, er: erInfo, ip: ipInfo }, tests: [] };
-    eql(pTests.length, erTests.length);
-    eql(pTests.length, ipTests.length);
-    for (let tid = 0; tid < pTests.length; tid++) {
-      const shouldBeIgnored = is205 && tid > 0;
-      if (shouldBeIgnored && ignoreSlowTests) continue;
+const acvpFile = (name, fname, gzipped = true) =>
+  `vectors/acvp-vectors/gen-val/json-files/${name}/${fname}.json${gzipped ? '.gz' : ''}`;
+const jsonACVP = (name, fname, gzipped = true) => jsonGZ(acvpFile(name, fname, gzipped));
+const includeACVPTest = (is205, tid) => !(is205 && tid > 0 && ignoreSlowTests);
+const caseKey = (gid, tid) => `${gid}:${tid}`;
 
-      group.tests.push({
-        p: pTests[tid],
-        er: erTests[tid],
-        ip: ipTests[tid],
-      });
-    }
-    groups.push(group);
+function* groupTests(pTests, erTests, ipTests, is205) {
+  eql(pTests.length, erTests.length);
+  eql(pTests.length, ipTests.length);
+  for (let tid = 0; tid < pTests.length; tid++) {
+    if (!includeACVPTest(is205, tid)) continue;
+    yield { tid, p: pTests[tid], er: erTests[tid], ip: ipTests[tid] };
   }
-  return groups;
-};
+}
+
+async function* loadACVP(name, gzipped = true) {
+  const promptGroups = jsonGZGroups(acvpFile(name, 'prompt', gzipped))[Symbol.asyncIterator]();
+  const resultGroups = jsonGZGroups(acvpFile(name, 'expectedResults', gzipped))[
+    Symbol.asyncIterator
+  ]();
+  const projectionGroups = jsonGZGroups(acvpFile(name, 'internalProjection', gzipped))[
+    Symbol.asyncIterator
+  ]();
+  const is205 = name.includes('FIPS205');
+  let gid = 0;
+  try {
+    while (true) {
+      const prompt = await promptGroups.next();
+      const expectedResult = await resultGroups.next();
+      const internalProjection = await projectionGroups.next();
+      eql(prompt.done, expectedResult.done);
+      eql(prompt.done, internalProjection.done);
+      if (prompt.done) return;
+      const { tests: pTests, ...pInfo } = prompt.value;
+      const { tests: erTests, ...erInfo } = expectedResult.value;
+      const { tests: ipTests, ...ipInfo } = internalProjection.value;
+      yield {
+        gid,
+        info: { p: pInfo, er: erInfo, ip: ipInfo },
+        tests: groupTests(pTests, erTests, ipTests, is205),
+      };
+      gid++;
+    }
+  } finally {
+    await promptGroups.return?.();
+    await resultGroups.return?.();
+    await projectionGroups.return?.();
+  }
+}
+
+function loadACVPPlan(name, gzipped = true) {
+  const prompt = jsonACVP(name, 'prompt', gzipped);
+  const is205 = name.includes('FIPS205');
+  const plan = [];
+  for (let gid = 0; gid < prompt.testGroups.length; gid++) {
+    const tests = prompt.testGroups[gid].tests;
+    for (let tid = 0; tid < tests.length; tid++) {
+      if (!includeACVPTest(is205, tid)) continue;
+      plan.push({ gid, tid });
+    }
+  }
+  return plan;
+}
+
+async function loadACVPCases(name, plan) {
+  const needed = new Set(plan.map(({ gid, tid }) => caseKey(gid, tid)));
+  const cases = new Map();
+  for await (const g of loadACVP(name)) {
+    for (const t of g.tests) {
+      const key = caseKey(g.gid, t.tid);
+      if (needed.has(key)) cases.set(key, { info: g.info, t });
+    }
+    if (cases.size === needed.size) break;
+  }
+  return cases;
+}
 
 describe('AVCP', () => {
   describe('ML-KEM', () => {
     const NAMES = { 'ML-KEM-512': ml_kem512, 'ML-KEM-768': ml_kem768, 'ML-KEM-1024': ml_kem1024 };
-    should('keyGen', () => {
-      for (const g of loadACVP('ML-KEM-keyGen-FIPS203')) {
+    should('keyGen', async () => {
+      for await (const g of loadACVP('ML-KEM-keyGen-FIPS203')) {
         const mlkem = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const { publicKey, secretKey } = mlkem.keygen(concatBytes(hexx(t.p.d), hexx(t.p.z)));
@@ -105,8 +145,8 @@ describe('AVCP', () => {
         }
       }
     });
-    should('encapDecap', () => {
-      for (const g of loadACVP('ML-KEM-encapDecap-FIPS203')) {
+    should('encapDecap', async () => {
+      for await (const g of loadACVP('ML-KEM-encapDecap-FIPS203')) {
         const mlkem = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           if (g.info.p.function === 'encapsulation') {
@@ -149,8 +189,8 @@ describe('AVCP', () => {
   });
   describe('ML-DSA', () => {
     const NAMES = { 'ML-DSA-44': ml_dsa44, 'ML-DSA-65': ml_dsa65, 'ML-DSA-87': ml_dsa87 };
-    should('keyGen', () => {
-      for (const g of loadACVP('ML-DSA-keyGen-FIPS204')) {
+    should('keyGen', async () => {
+      for await (const g of loadACVP('ML-DSA-keyGen-FIPS204')) {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const { publicKey, secretKey } = mldsa.keygen(hexx(t.p.seed));
@@ -160,8 +200,8 @@ describe('AVCP', () => {
         }
       }
     });
-    should('sigGen', () => {
-      for (const g of loadACVP('ML-DSA-sigGen-FIPS204')) {
+    should('sigGen', async () => {
+      for await (const g of loadACVP('ML-DSA-sigGen-FIPS204')) {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const rnd = t.p.rnd ? hexx(t.p.rnd) : false;
@@ -185,8 +225,8 @@ describe('AVCP', () => {
         }
       }
     });
-    should('sigVer', () => {
-      for (const g of loadACVP('ML-DSA-sigVer-FIPS204')) {
+    should('sigVer', async () => {
+      for await (const g of loadACVP('ML-DSA-sigVer-FIPS204')) {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           let valid;
@@ -232,8 +272,8 @@ describe('AVCP', () => {
       'SLH-DSA-SHAKE-256s': slh_dsa_shake_256s,
       'SLH-DSA-SHAKE-256f': slh_dsa_shake_256f,
     };
-    should('keyGen', () => {
-      for (const g of loadACVP('SLH-DSA-keyGen-FIPS205')) {
+    should('keyGen', async () => {
+      for await (const g of loadACVP('SLH-DSA-keyGen-FIPS205')) {
         const slhdsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           const { publicKey, secretKey } = slhdsa.keygen(
@@ -245,8 +285,8 @@ describe('AVCP', () => {
         }
       }
     });
-    should('sigVer', () => {
-      for (const g of loadACVP('SLH-DSA-sigVer-FIPS205')) {
+    should('sigVer', async () => {
+      for await (const g of loadACVP('SLH-DSA-sigVer-FIPS205')) {
         const slhdsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
           let valid;
@@ -276,32 +316,33 @@ describe('AVCP', () => {
       }
     });
     describe('sigGen', () => {
-      const all = loadACVP('SLH-DSA-sigGen-FIPS205');
-      const total = sum(all.map((g) => g.tests.length));
-      let i = 0;
-      for (const g of all) {
-        const slhdsa = NAMES[g.info.p.parameterSet];
-        for (const t of g.tests) {
-          i++;
-          should(`vector ${i} of ${total}`, () => {
-            const rnd = t.p.additionalRandomness ? hexx(t.p.additionalRandomness) : false;
-            let sig;
-            if (g.info.p.signatureInterface === 'internal') {
-              sig = slhdsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), { extraEntropy: rnd });
-            } else if (g.info.p.signatureInterface === 'external') {
-              const hash = HASHES[t.p.hashAlg];
-              const ctx = t.p.context ? hexx(t.p.context) : undefined;
-              const opts = { context: ctx, extraEntropy: rnd };
-              if (g.info.p.preHash === 'preHash') {
-                if (checkStrength(hash) < slhdsa.securityLevel) return;
-                sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), opts);
-              } else {
-                sig = slhdsa.sign(hexx(t.p.message), hexx(t.p.sk), opts);
-              }
-            } else throw new Error('unknown signature interface');
-            eql(sig, hexx(t.er.signature));
-          });
-        }
+      const plan = loadACVPPlan('SLH-DSA-sigGen-FIPS205');
+      let cases;
+      const getCases = () => (cases ||= loadACVPCases('SLH-DSA-sigGen-FIPS205', plan));
+      for (let i = 0; i < plan.length; i++) {
+        const { gid, tid } = plan[i];
+        should(`vector ${i + 1} of ${plan.length}`, async () => {
+          const c = (await getCases()).get(caseKey(gid, tid));
+          if (!c) throw new Error(`missing SLH-DSA-sigGen-FIPS205 vector ${gid}:${tid}`);
+          const { info, t } = c;
+          const slhdsa = NAMES[info.p.parameterSet];
+          const rnd = t.p.additionalRandomness ? hexx(t.p.additionalRandomness) : false;
+          let sig;
+          if (info.p.signatureInterface === 'internal') {
+            sig = slhdsa.internal.sign(hexx(t.p.message), hexx(t.p.sk), { extraEntropy: rnd });
+          } else if (info.p.signatureInterface === 'external') {
+            const hash = HASHES[t.p.hashAlg];
+            const ctx = t.p.context ? hexx(t.p.context) : undefined;
+            const opts = { context: ctx, extraEntropy: rnd };
+            if (info.p.preHash === 'preHash') {
+              if (checkStrength(hash) < slhdsa.securityLevel) return;
+              sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), opts);
+            } else {
+              sig = slhdsa.sign(hexx(t.p.message), hexx(t.p.sk), opts);
+            }
+          } else throw new Error('unknown signature interface');
+          eql(sig, hexx(t.er.signature));
+        });
       }
     });
   });
