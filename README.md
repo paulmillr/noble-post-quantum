@@ -293,7 +293,7 @@ Browsers have had weaknesses in the past - and could again - but implementing a 
 - `npm install && npm run build && npm test` will build the code and run tests.
 - `npm run lint` / `npm run format` will run linter / fix linter issues.
 - `npm run bench` will run benchmarks
-- `npm run build:release` will build single file
+- `npm run bundle` will build single file
 
 Check out [github.com/paulmillr/guidelines](https://github.com/paulmillr/guidelines)
 for general coding practices and rules.
