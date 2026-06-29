@@ -311,6 +311,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         if (buf[OMEGA + i] < k || buf[OMEGA + i] > OMEGA) return false as TRet<false>;
         for (let j = k; j < buf[OMEGA + i]; j++) {
           if (j > k && buf[j] <= buf[j - 1]) return false as TRet<false>;
+          if (buf[j] >= N) return false as TRet<false>;
           hi[buf[j]] = 1;
         }
         k = buf[OMEGA + i];
@@ -332,8 +333,17 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
   );
   const T0Coder = polyCoder(13, (i: number) => (1 << (D - 1)) - i);
   const T1Coder = polyCoder(10);
-  // Requires smod. Need to fix!
-  const ZCoder = polyCoder(GAMMA1 === 1 << 17 ? 18 : 20, (i: number) => crystals.smod(GAMMA1 - i));
+  const zPackBits = GAMMA1 === 1 << 17 ? 18 : 20;
+  const zDecode = (i: number) => crystals.smod(GAMMA1 - i);
+  const zBound = GAMMA1 - BETA;
+  // ExpandMask during signing may decode values rejected later by the rejection loop.
+  const ZExpandCoder = polyCoder(zPackBits, zDecode);
+  // Signature z coefficients must already satisfy ||z||∞ < γ1 − β at decode time.
+  const ZSigCoder = polyCoder(zPackBits, zDecode, (c: number) => {
+    if (Math.abs(crystals.smod(c)) >= zBound)
+      throw new Error(`malformed signature z outside [−γ1+β, γ1−β]`);
+    return c;
+  });
   const W1Coder = polyCoder(GAMMA2 === GAMMA2_1 ? 6 : 4);
   const W1Vec = vecCoder(W1Coder, K);
   // Main structures
@@ -347,7 +357,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     vecCoder(ETACoder, K),
     vecCoder(T0Coder, K)
   );
-  const sigCoder = splitCoder('signature', C_TILDE_BYTES, vecCoder(ZCoder, L), hintCoder);
+  const sigCoder = splitCoder('signature', C_TILDE_BYTES, vecCoder(ZSigCoder, L), hintCoder);
   const CoefFromHalfByte =
     ETA === 2
       ? (n: number) => (n < 15 ? 2 - (n % 5) : false)
@@ -547,6 +557,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         crystals.NTT.encode(t0[i]); // tˆ0 ← NTT(t0)
       }
       // This part is per msg
+      if (externalMu) abytes(msg, CRH_BYTES, 'mu');
       const mu = externalMu
         ? msg
         : // 6: µ ← H(tr||M, 512)
@@ -569,13 +580,13 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         .digest(); // ρ′← H(K||rnd||µ, 512)
 
       abytes(rhoprime, CRH_BYTES);
-      const x256 = XOF256(rhoprime, ZCoder.bytesLen);
+      const x256 = XOF256(rhoprime, ZExpandCoder.bytesLen);
       //  Rejection sampling loop
       main_loop: for (let kappa = 0; ; ) {
         const y = [];
         // y ← ExpandMask(ρ , κ)
         for (let i = 0; i < L; i++, kappa++)
-          y.push(ZCoder.decode(x256.get(kappa & 0xff, kappa >> 8)()));
+          y.push(ZExpandCoder.decode(x256.get(kappa & 0xff, kappa >> 8)()));
         const z = y.map((i) => crystals.NTT.encode(i.slice()));
         const w = [];
         for (let i = 0; i < K; i++) {
@@ -639,15 +650,28 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       validateInternalOpts(opts);
       const { externalMu = false } = opts;
       // ML-DSA.Verify(pk, M, σ): Verifes a signature σ for a message M.
+      if (sig.length !== sigCoder.bytesLen) return false;
+      if (publicKey.length !== publicCoder.bytesLen) return false;
       const [rho, t1] = publicCoder.decode(publicKey); // (ρ, t1) ← pkDecode(pk)
       const tr = shake256(publicKey, { dkLen: TR_BYTES }); // 6: tr ← H(BytesToBits(pk), 512)
 
-      if (sig.length !== sigCoder.bytesLen) return false; // return false instead of exception
       // (c˜, z, h) ← sigDecode(σ)
       // ▷ Signer’s commitment hash c ˜, response z and hint
-      const [cTilde, z, h] = sigCoder.decode(sig);
+      let cTilde: Uint8Array;
+      let z: Poly[];
+      let h: Poly[] | false;
+      try {
+        [cTilde, z, h] = sigCoder.decode(sig);
+      } catch {
+        return false;
+      }
       if (h === false) return false; // if h = ⊥ then return false
       for (let i = 0; i < L; i++) if (polyChknorm(z[i], GAMMA1 - BETA)) return false;
+      for (const t of h) {
+        const sum = t.reduce((acc, i) => acc + i, 0);
+        if (sum > OMEGA) return false;
+      }
+      if (externalMu && msg.length !== CRH_BYTES) return false;
       const mu = externalMu
         ? msg
         : // 7: µ ← H(tr||M, 512)
@@ -677,13 +701,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         .update(mu)
         .update(W1Vec.encode(wTick1))
         .digest();
-      // Additional checks in FIPS-204:
-      // [[ ||z||∞ < γ1 − β ]] and [[c ˜ = c˜′]] and [[number of 1’s in h is ≤ ω]]
-      for (const t of h) {
-        const sum = t.reduce((acc, i) => acc + i, 0);
-        if (!(sum <= OMEGA)) return false;
-      }
-      for (const t of z) if (polyChknorm(t, GAMMA1 - BETA)) return false;
+      // [[c ˜ = c˜′]] (z norm and hint weight were checked before the matrix work)
       return equalBytes(cTilde, c2);
     },
   });
@@ -713,6 +731,8 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     ) => {
       validateVerOpts(opts);
       abytes(sig, undefined, 'signature');
+      abytes(publicKey, undefined, 'publicKey');
+      if (publicKey.length !== publicCoder.bytesLen) return false;
       return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
     prehash: (hash: CHash) => {
@@ -742,6 +762,8 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         ) => {
           validateVerOpts(opts);
           abytes(sig, undefined, 'signature');
+          abytes(publicKey, undefined, 'publicKey');
+          if (publicKey.length !== publicCoder.bytesLen) return false;
           return internal.verify(sig, getMessagePrehash(hash, msg, opts.context), publicKey);
         },
       });
