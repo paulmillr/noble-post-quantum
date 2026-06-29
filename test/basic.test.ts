@@ -190,6 +190,46 @@ describe('Basic', () => {
     throws(() => ml_dsa87.prehash(sha3_384).sign(msg, keys87.secretKey));
     ml_dsa87.prehash(sha3_512).sign(msg, keys87.secretKey);
   });
+  should('ML-DSA verify hardening', () => {
+    const cases = { ml_dsa44, ml_dsa65, ml_dsa87 };
+    for (const mldsa of Object.values(cases)) {
+      const keys = mldsa.keygen();
+      const msg = randomBytes(32);
+      const sig = mldsa.sign(msg, keys.secretKey, { extraEntropy: false });
+      eql(mldsa.verify(sig, msg, keys.publicKey), true);
+
+      const shortPk = keys.publicKey.subarray(0, keys.publicKey.length - 1);
+      eql(mldsa.verify(sig, msg, shortPk), false);
+
+      const shortSig = sig.subarray(0, sig.length - 1);
+      eql(mldsa.verify(shortSig, msg, keys.publicKey), false);
+
+      const mu = randomBytes(64);
+      const internalSig = mldsa.internal.sign(mu, keys.secretKey, {
+        externalMu: true,
+        extraEntropy: false,
+      });
+      eql(mldsa.internal.verify(internalSig, mu, keys.publicKey, { externalMu: true }), true);
+      eql(
+        mldsa.internal.verify(internalSig, randomBytes(32), keys.publicKey, { externalMu: true }),
+        false
+      );
+      throws(() =>
+        mldsa.internal.sign(randomBytes(32), keys.secretKey, {
+          externalMu: true,
+          extraEntropy: false,
+        })
+      );
+
+      // Hint index out of range (>= 256) must reject.
+      const badHint = Uint8Array.from(sig);
+      const hintBase = sig.length - (mldsa === ml_dsa44 ? 80 + 4 : mldsa === ml_dsa65 ? 55 + 6 : 75 + 8);
+      badHint[hintBase] = 255;
+      badHint[hintBase + 1] = 255;
+      badHint[sig.length - 1] = hintBase + 2;
+      eql(mldsa.verify(badHint, msg, keys.publicKey), false);
+    }
+  });
   describe('sign/ver opts', () => {
     for (const [k, v] of Object.entries({
       ml_dsa65,
