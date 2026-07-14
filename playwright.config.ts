@@ -8,6 +8,8 @@ const config: PlaywrightTestConfig = defineConfig({
       name: 'chrome-canary-pqc',
       use: {
         ...devices['Desktop Chrome'],
+        // Currently using Chrome Canary because X-Wing is only available on
+        // v151+, which is not yet available in the playwright stable channel.
         channel: 'chrome-canary',
         launchOptions: {
           args: [

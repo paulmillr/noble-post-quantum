@@ -712,3 +712,71 @@ export function astring(value: unknown, title: string = ''): string {
   }
   return value;
 }
+
+/**
+ * Reads a DER length from the current offset.
+ * Returns [length, newOffset].
+ */
+function readDERLength(buf: Uint8Array, offset: number): [number, number] {
+  const first = buf[offset++];
+  if (first < 0x80) return [first, offset];
+  const lengthOfLength = first & 0x7f;
+  if (lengthOfLength === 0 || lengthOfLength > 4) throw new Error('Unsupported ASN.1 length');
+  let length = 0;
+  for (let i = 0; i < lengthOfLength; i++) {
+    length = (length << 8) | buf[offset++];
+  }
+  return [length, offset];
+}
+
+/**
+ * Dynamically unwraps an SPKI structure to extract the raw public key.
+ */
+export function unwrapSPKI(spki: Uint8Array): Uint8Array {
+  let offset = 0;
+  if (spki[offset++] !== 0x30) throw new Error('Expected SPKI SEQUENCE');
+  [, offset] = readDERLength(spki, offset);
+
+  if (spki[offset++] !== 0x30) throw new Error('Expected AlgorithmIdentifier SEQUENCE');
+  let algLen;
+  [algLen, offset] = readDERLength(spki, offset);
+  offset += algLen; // skip AlgorithmIdentifier
+
+  if (spki[offset++] !== 0x03) throw new Error('Expected SubjectPublicKey BIT STRING');
+  let bitStringLen;
+  [bitStringLen, offset] = readDERLength(spki, offset);
+  
+  if (spki[offset++] !== 0x00) throw new Error('Expected byte-aligned BIT STRING');
+  return spki.subarray(offset, offset + bitStringLen - 1);
+}
+
+/**
+ * Encodes a length into ASN.1 DER format.
+ */
+function encodeDERLength(len: number): Uint8Array {
+  if (len < 128) {
+    return new Uint8Array([len]);
+  }
+  const bytes = [];
+  let temp = len;
+  while (temp > 0) {
+    bytes.unshift(temp & 0xff);
+    temp >>>= 8;
+  }
+  return new Uint8Array([0x80 | bytes.length, ...bytes]);
+}
+
+/**
+ * Dynamically wraps a raw public key into an SPKI structure.
+ */
+export function wrapSPKI(oid: Uint8Array, rawKey: Uint8Array): Uint8Array {
+  const algIdSeqLength = encodeDERLength(oid.length);
+  const algIdSeq = new Uint8Array([0x30, ...algIdSeqLength, ...oid]);
+
+  const bitStringLength = encodeDERLength(rawKey.length + 1);
+  const bitString = new Uint8Array([0x03, ...bitStringLength, 0x00, ...rawKey]);
+
+  const spkiLength = encodeDERLength(algIdSeq.length + bitString.length);
+  return new Uint8Array([0x30, ...spkiLength, ...algIdSeq, ...bitString]);
+}
+
