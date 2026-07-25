@@ -6,12 +6,13 @@ import {
   sha3_512,
   shake128,
   shake128_32,
+  shake256,
 } from '@noble/hashes/sha3.js';
 import { describe, should } from '@paulmillr/jsbt/test.js';
-import { deepStrictEqual as eql, throws } from 'node:assert';
+import { deepStrictEqual as eql, notDeepStrictEqual, throws } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
-import { slh_dsa_sha2_128f } from '../src/slh-dsa.ts';
+import { slh_dsa_sha2_128f, slh_dsa_shake_128f } from '../src/slh-dsa.ts';
 import {
   copyBytes,
   getMessage,
@@ -173,6 +174,145 @@ describe('Basic', () => {
       bad[0] = 0xff;
       bad[1] = (bad[1] & 0xf0) | 0x0f;
       throws(() => kem.encapsulate(bad, msg), /wrong publicKey modulus/);
+    }
+  });
+  should('ML-KEM modulus check boundary: q-1 valid, q invalid', () => {
+    const msg = randomBytes(32);
+    for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
+      const { publicKey } = kem.keygen();
+      // First 12-bit little-endian coefficient := q (3329 = 0xd01), smallest invalid value
+      const bad = Uint8Array.from(publicKey);
+      bad[0] = 0x01;
+      bad[1] = (bad[1] & 0xf0) | 0x0d;
+      throws(() => kem.encapsulate(bad, msg), /wrong publicKey modulus/);
+      // First coefficient := q-1 (3328 = 0xd00), largest valid value: must be accepted
+      const ok = Uint8Array.from(publicKey);
+      ok[0] = 0x00;
+      ok[1] = (ok[1] & 0xf0) | 0x0d;
+      kem.encapsulate(ok, msg);
+    }
+  });
+  should('ML-KEM decapsulate validates secretKey hash, ignores z corruption', () => {
+    for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
+      const { publicKey, secretKey } = kem.keygen();
+      const { cipherText, sharedSecret } = kem.encapsulate(publicKey);
+      // Corrupt stored H(ek) at dk[768k+32 .. 768k+64]: input check must fail
+      const badH = Uint8Array.from(secretKey);
+      badH[secretKey.length - 96 + 32] ^= 1;
+      throws(() => kem.decapsulate(cipherText, badH), /hash check failed/);
+      // Corrupting z (last 32 bytes) must not affect valid decapsulation:
+      // z is only used on the implicit-rejection path
+      const badZ = Uint8Array.from(secretKey);
+      badZ[secretKey.length - 1] ^= 1;
+      eql(kem.decapsulate(cipherText, badZ), sharedSecret);
+    }
+  });
+  should('ML-KEM prepared public key matches one-shot API', () => {
+    for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
+      const { publicKey, secretKey } = kem.keygen();
+      const prepared = kem.prepare(publicKey);
+      eql(prepared.publicKey, publicKey);
+      // encapsulate: same ciphertext + shared secret for the same msg
+      const msg = randomBytes(32);
+      const a = kem.encapsulate(publicKey, msg);
+      const b = prepared.encapsulate(msg);
+      eql(b.cipherText, a.cipherText);
+      eql(b.sharedSecret, a.sharedSecret);
+      // decapsulate: valid and implicit-rejection paths agree with the one-shot API
+      eql(prepared.decapsulate(a.cipherText, secretKey), a.sharedSecret);
+      const bad = Uint8Array.from(a.cipherText);
+      bad[0] ^= 1;
+      eql(prepared.decapsulate(bad, secretKey), kem.decapsulate(bad, secretKey));
+      // secretKey from a different keypair is rejected
+      const other = kem.keygen();
+      throws(() => prepared.decapsulate(a.cipherText, other.secretKey), /does not match/);
+      // malformed publicKey is rejected at prepare() time
+      const badPk = Uint8Array.from(publicKey);
+      badPk[0] = 0xff;
+      badPk[1] |= 0x0f;
+      throws(() => kem.prepare(badPk), /wrong publicKey modulus/);
+      // prepared key is detached: mutating the source publicKey has no effect
+      const pkCopy = Uint8Array.from(publicKey);
+      publicKey.fill(0);
+      eql(prepared.encapsulate(msg).cipherText, a.cipherText);
+      publicKey.set(pkCopy);
+    }
+  });
+  should('ML-KEM implicit rejection returns J(z || cipherText)', () => {
+    for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
+      const seed = randomBytes(64);
+      const { publicKey, secretKey } = kem.keygen(seed);
+      const { cipherText, sharedSecret } = kem.encapsulate(publicKey);
+      eql(kem.decapsulate(cipherText, secretKey), sharedSecret);
+      // Tampered ciphertext: no throw, and K̄ = J(z ‖ c) = SHAKE256(z || c, 32), z = seed[32:64]
+      const bad = Uint8Array.from(cipherText);
+      bad[0] ^= 1;
+      const rejected = kem.decapsulate(bad, secretKey);
+      notDeepStrictEqual(rejected, sharedSecret);
+      const expected = shake256
+        .create({ dkLen: 32 })
+        .update(seed.subarray(32))
+        .update(bad)
+        .digest();
+      eql(rejected, expected);
+      // Implicit rejection is deterministic
+      eql(kem.decapsulate(bad, secretKey), rejected);
+    }
+  });
+  should('ML-DSA externalMu requires 64-byte mu', () => {
+    const { publicKey, secretKey } = ml_dsa65.keygen();
+    const mu = Uint8Array.from({ length: 64 }, (_, i) => i);
+    const sig = ml_dsa65.internal.sign(mu, secretKey, { externalMu: true, extraEntropy: false });
+    eql(ml_dsa65.internal.verify(sig, mu, publicKey, { externalMu: true }), true);
+    for (const bad of [new Uint8Array(0), new Uint8Array(63), new Uint8Array(65)]) {
+      throws(() =>
+        ml_dsa65.internal.sign(bad, secretKey, { externalMu: true, extraEntropy: false })
+      );
+      throws(() => ml_dsa65.internal.verify(sig, bad, publicKey, { externalMu: true }));
+    }
+  });
+  should('ML-DSA verify returns false on malformed hint encoding', () => {
+    // [signer, OMEGA, K] per FIPS 204 Table 1; hint block is the trailing OMEGA+K bytes.
+    const cases = [
+      [ml_dsa44, 80, 4],
+      [ml_dsa65, 55, 6],
+      [ml_dsa87, 75, 8],
+    ] as const;
+    const msg = new Uint8Array([1, 2, 3]);
+    for (const [dsa, OMEGA, K] of cases) {
+      const { publicKey, secretKey } = dsa.keygen();
+      const sig = dsa.sign(msg, secretKey, { extraEntropy: false });
+      eql(dsa.verify(sig, msg, publicKey), true);
+      // Hint counter above OMEGA: sigDecode must return ⊥ → false, not throw
+      const badCounter = Uint8Array.from(sig);
+      badCounter[badCounter.length - 1] = OMEGA + 1;
+      eql(dsa.verify(badCounter, msg, publicKey), false);
+      // Non-zero hint padding byte (if padding exists for this signature): non-canonical → false
+      const hintStart = sig.length - (OMEGA + K);
+      const totalHints = sig[sig.length - 1];
+      if (totalHints < OMEGA) {
+        const badPad = Uint8Array.from(sig);
+        badPad[hintStart + OMEGA - 1] = 1; // padding region [totalHints, OMEGA) must be zero
+        eql(dsa.verify(badPad, msg, publicKey), false);
+      }
+      // Wrong length → false, not throw
+      eql(dsa.verify(sig.subarray(0, sig.length - 1), msg, publicKey), false);
+    }
+  });
+  should('SLH-DSA verify returns false on wrong-length signature', () => {
+    // FIPS 205 Algorithm 20 step 1 and ml-dsa behavior: malformed signature *length* is a
+    // verification failure (false), not a thrown type error.
+    for (const slh of [slh_dsa_sha2_128f, slh_dsa_shake_128f]) {
+      const { publicKey, secretKey } = slh.keygen();
+      const msg = new Uint8Array([1, 2, 3]);
+      const sig = slh.sign(msg, secretKey);
+      eql(slh.verify(sig, msg, publicKey), true);
+      eql(slh.verify(sig.subarray(0, sig.length - 1), msg, publicKey), false);
+      const longer = new Uint8Array(sig.length + 1);
+      longer.set(sig);
+      eql(slh.verify(longer, msg, publicKey), false);
+      eql(slh.verify(new Uint8Array(0), msg, publicKey), false);
+      eql(slh.internal.verify(new Uint8Array(0), msg, publicKey), false);
     }
   });
   should('Hash compatibility', () => {

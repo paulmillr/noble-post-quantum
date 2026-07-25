@@ -131,23 +131,33 @@ const polyCoder = (d: number) => (d === 12 ? byteCoder(12) : crystals.bitsCoder(
 // Poly is mod Q, so 12 bits
 type Poly = Uint16Array;
 
+// Coefficients always stay reduced in [0, Q) here (samplers, NTT and coders all reduce),
+// so one conditional correction replaces the generic mod().
 function polyAdd(a_: TArg<Poly>, b_: TArg<Poly>) {
   const a = a_ as Poly;
   const b = b_ as Poly;
   // Mutates `a` in place; callers must pass two N=256 polynomials.
-  for (let i = 0; i < N; i++) a[i] = crystals.mod(a[i] + b[i]); // a += b
+  for (let i = 0; i < N; i++) {
+    const r = a[i] + b[i]; // a += b
+    a[i] = r >= Q ? r - Q : r;
+  }
 }
 function polySub(a_: TArg<Poly>, b_: TArg<Poly>) {
   const a = a_ as Poly;
   const b = b_ as Poly;
   // Mutates `a` in place; callers must pass two N=256 polynomials.
-  for (let i = 0; i < N; i++) a[i] = crystals.mod(a[i] - b[i]); // a -= b
+  for (let i = 0; i < N; i++) {
+    const r = a[i] - b[i]; // a -= b
+    a[i] = r < 0 ? r + Q : r;
+  }
 }
 
 // FIPS-203: Computes the product of two degree-one polynomials with respect to a quadratic modulus
 function BaseCaseMultiply(a0: number, a1: number, b0: number, b1: number, zeta: number) {
   // `zeta` here is Algorithm 11's γ = ζ^(2BitRev_7(i)+1).
-  const c0 = crystals.mod(a1 * b1 * zeta + a0 * b0);
+  // Reduce a1*b1 before multiplying by zeta: a1*b1*zeta would reach ~2^35, forcing JS engines
+  // into slow float fmod; with the extra reduction every intermediate fits int32.
+  const c0 = crystals.mod(crystals.mod(a1 * b1) * zeta + a0 * b0);
   const c1 = crystals.mod(a0 * b1 + a1 * b0);
   return { c0, c1 };
 }
@@ -168,6 +178,30 @@ function MultiplyNTTs(f_: TArg<Poly>, g_: TArg<Poly>): TRet<Poly> {
 }
 
 type PRF = (l: number, key: Uint8Array, nonce: number) => Uint8Array;
+
+/**
+ * Prepared (pre-expanded) ML-KEM public key. Experimental prototype.
+ * Caches only public data: the expanded matrix Â, decoded t̂ and H(ek). No secret material is
+ * retained between calls; secret keys passed to `decapsulate` are decoded and wiped per call,
+ * exactly like the one-shot API. `clean()` wipes the cached public data; the object must not
+ * be used afterwards.
+ */
+export type KEMPrepared = {
+  /** Detached copy of the source public key. */
+  publicKey: Uint8Array;
+  /** Same as `KEM.encapsulate`, minus per-call ek re-validation and Â re-expansion. */
+  encapsulate: (msg?: Uint8Array) => { cipherText: Uint8Array; sharedSecret: Uint8Array };
+  /**
+   * Same as `KEM.decapsulate`; throws if `secretKey` does not embed this public key.
+   * The embedded-ek byte comparison plus stored-hash comparison is equivalent to the
+   * FIPS 203 §7.3 hash input check.
+   */
+  decapsulate: (cipherText: Uint8Array, secretKey: Uint8Array) => Uint8Array;
+  /** Wipe cached (public) data. */
+  clean: () => void;
+};
+/** KEM with prepared-key support. */
+export type MLKEM = KEM & { prepare: (publicKey: Uint8Array) => KEMPrepared };
 
 type XofGet = ReturnType<ReturnType<XOF>['get']>;
 
@@ -253,6 +287,38 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
   const secretCoder = vecCoder(polyCoder(12), K);
   const cipherCoder = splitCoder('ciphertext', vecCoder(polyU, K), polyV);
   const seedCoder = splitCoder('seed', 32, 32);
+  // Algorithm 14 (K-PKE.Encrypt) core, after ek parsing. `tHat` and every poly returned by
+  // `getA(i, j)` are treated as disposable scratch: they are mutated in place and wiped/dropped,
+  // so callers holding cached copies must pass fresh copies.
+  const encryptCore = (
+    tHat: Poly[],
+    getA: (i: number, j: number) => Poly,
+    msg: TArg<Uint8Array>,
+    seed: TArg<Uint8Array>
+  ): TRet<Uint8Array> => {
+    const rHat = [];
+    for (let i = 0; i < K; i++) rHat.push(crystals.NTT.encode(sampleCBD(PRF, seed, i, ETA1)));
+    const tmp2 = new Uint16Array(N);
+    const u = [];
+    for (let i = 0; i < K; i++) {
+      const e1 = sampleCBD(PRF, seed, K + i, ETA2);
+      const tmp = new Uint16Array(N);
+      for (let j = 0; j < K; j++) {
+        const aij = getA(i, j); // A[j][i], inplace transpose access
+        polyAdd(tmp, MultiplyNTTs(aij, rHat[j])); // t += aij * rHat[j]
+      }
+      polyAdd(e1, crystals.NTT.decode(tmp)); // e1 += tmp
+      u.push(e1);
+      polyAdd(tmp2, MultiplyNTTs(tHat[i], rHat[i])); // t2 += tHat[i] * rHat[i]
+      cleanBytes(tmp);
+    }
+    const e2 = sampleCBD(PRF, seed, 2 * K, ETA2);
+    polyAdd(e2, crystals.NTT.decode(tmp2)); // e2 += tmp2
+    const v = poly1.decode(msg); // encode plaintext m into polynomial v
+    polyAdd(v, e2); // v += e2
+    cleanBytes(tHat, rHat, tmp2, e2);
+    return cipherCoder.encode([u, v]) as TRet<Uint8Array>;
+  };
   return {
     secretCoder,
     lengths: {
@@ -297,30 +363,31 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
       seed: TArg<Uint8Array>
     ): TRet<Uint8Array> => {
       const [tHat, rho] = publicCoder.decode(publicKey);
-      const rHat = [];
-      for (let i = 0; i < K; i++) rHat.push(crystals.NTT.encode(sampleCBD(PRF, seed, i, ETA1)));
       const x = XOF(rho);
-      const tmp2 = new Uint16Array(N);
-      const u = [];
-      for (let i = 0; i < K; i++) {
-        const e1 = sampleCBD(PRF, seed, K + i, ETA2);
-        const tmp = new Uint16Array(N);
-        for (let j = 0; j < K; j++) {
-          const aij = SampleNTT(x.get(i, j)); // A[j][i], inplace transpose access
-          polyAdd(tmp, MultiplyNTTs(aij, rHat[j])); // t += aij * rHat[j]
-        }
-        polyAdd(e1, crystals.NTT.decode(tmp)); // e1 += tmp
-        u.push(e1);
-        polyAdd(tmp2, MultiplyNTTs(tHat[i], rHat[i])); // t2 += tHat[i] * rHat[i]
-        cleanBytes(tmp);
-      }
+      const res = encryptCore(tHat as Poly[], (i, j) => SampleNTT(x.get(i, j)) as Poly, msg, seed);
       x.clean();
-      const e2 = sampleCBD(PRF, seed, 2 * K, ETA2);
-      polyAdd(e2, crystals.NTT.decode(tmp2)); // e2 += tmp2
-      const v = poly1.decode(msg); // encode plaintext m into polynomial v
-      polyAdd(v, e2); // v += e2
-      cleanBytes(tHat, rHat, tmp2, e2);
-      return cipherCoder.encode([u, v]) as TRet<Uint8Array>;
+      return res;
+    },
+    // Expands the full Â matrix (public data derived from rho) once, so repeated encryptions
+    // against the same ek skip the K² SampleNTT XOF expansions. Cached polys are copied per
+    // call because encryptCore mutates its inputs in place.
+    prepare: (publicKey: TArg<Uint8Array>) => {
+      const [tHat, rho] = publicCoder.decode(publicKey);
+      const x = XOF(rho);
+      const A: Poly[] = [];
+      for (let i = 0; i < K; i++)
+        for (let j = 0; j < K; j++) A.push(SampleNTT(x.get(i, j)) as Poly);
+      x.clean();
+      return {
+        encrypt: (msg: TArg<Uint8Array>, seed: TArg<Uint8Array>): TRet<Uint8Array> =>
+          encryptCore(
+            (tHat as Poly[]).map((p) => p.slice() as Poly),
+            (i, j) => A[i * K + j].slice() as Poly,
+            msg,
+            seed
+          ),
+        clean: () => cleanBytes(tHat as Poly[], A),
+      };
     },
     decrypt: (cipherText: TArg<Uint8Array>, privateKey: TArg<Uint8Array>): TRet<Uint8Array> => {
       const [u, v] = cipherCoder.decode(cipherText);
@@ -344,7 +411,7 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
  * mismatch, and zeroizing the non-returned shared-secret candidate; JS/JIT still provides no
  * constant-time guarantees for that path.
  */
-function createKyber(opts: TArg<KyberOpts>): TRet<KEM> {
+function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
   const rawOpts = opts as KyberOpts;
   const KPKE = genKPKE(rawOpts);
   const { HASH256, HASH512, KDF } = rawOpts;
@@ -352,6 +419,17 @@ function createKyber(opts: TArg<KyberOpts>): TRet<KEM> {
   const secretCoder = splitCoder('secretKey', lengths.secretKey, lengths.publicKey, 32, 32);
   const msgLen = 32;
   const seedLen = 64;
+  // FIPS-203 includes additional verification check for modulus
+  const validateModulus = (publicKey: TArg<Uint8Array>, fn: string) => {
+    const eke = (publicKey as Uint8Array).subarray(0, 384 * rawOpts.K);
+    // Copy because of inplace encoding
+    const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(copyBytes(eke)));
+    // (Modulus check.) Perform the computation ek ← ByteEncode12(ByteDecode12(eke)).
+    // If ek = ̸ eke, the input is invalid. (See Section 4.2.1.)
+    const ok = equalBytes(ek, eke);
+    cleanBytes(ek);
+    if (!ok) throw new Error(`ML-KEM.${fn}: wrong publicKey modulus`);
+  };
   const kemLengths = Object.freeze({
     ...lengths,
     seed: 64,
@@ -381,18 +459,7 @@ function createKyber(opts: TArg<KyberOpts>): TRet<KEM> {
     encapsulate: (publicKey: TArg<Uint8Array>, msg: TArg<Uint8Array> = randomBytes(msgLen)) => {
       abytes(publicKey, lengths.publicKey, 'publicKey');
       abytes(msg, msgLen, 'message');
-
-      // FIPS-203 includes additional verification check for modulus
-      const eke = publicKey.subarray(0, 384 * opts.K);
-      // Copy because of inplace encoding
-      const ek = KPKESecretCoder.encode(KPKESecretCoder.decode(copyBytes(eke)));
-      // (Modulus check.) Perform the computation ek ← ByteEncode12(ByteDecode12(eke)).
-      // If ek = ̸ eke, the input is invalid. (See Section 4.2.1.)
-      if (!equalBytes(ek, eke)) {
-        cleanBytes(ek);
-        throw new Error('ML-KEM.encapsulate: wrong publicKey modulus');
-      }
-      cleanBytes(ek);
+      validateModulus(publicKey, 'encapsulate');
       // derive randomness
       const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest();
       const cipherText = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
@@ -422,8 +489,59 @@ function createKyber(opts: TArg<KyberOpts>): TRet<KEM> {
       // if ciphertexts do not match, “implicitly reject”
       const isValid = equalBytes(cipherText, cipherText2);
       const Kbar = KDF.create({ dkLen: 32 }).update(z).update(cipherText).digest();
-      cleanBytes(msg, cipherText2, !isValid ? Khat : Kbar);
+      // kr[32:64] is the derived K-PKE encryption randomness: wipe it like encapsulate() does.
+      cleanBytes(msg, cipherText2, kr.subarray(32), !isValid ? Khat : Kbar);
       return (isValid ? Khat : Kbar) as TRet<Uint8Array>;
+    },
+    /**
+     * Experimental prototype: pre-expand a public key so repeated encapsulate/decapsulate
+     * against the same key skip re-validation, H(ek), t̂ decoding and the K² SampleNTT
+     * XOF expansions of Â. Only public data is cached; see {@link KEMPrepared}.
+     */
+    prepare: (publicKey: TArg<Uint8Array>): TRet<KEMPrepared> => {
+      abytes(publicKey, lengths.publicKey, 'publicKey');
+      validateModulus(publicKey, 'prepare');
+      const ek = copyBytes(publicKey); // detach from the caller before caching
+      const publicKeyHash = HASH256(ek);
+      const cached = KPKE.prepare(ek);
+      return Object.freeze({
+        publicKey: ek as TRet<Uint8Array>,
+        encapsulate: (msg: TArg<Uint8Array> = randomBytes(msgLen)) => {
+          abytes(msg, msgLen, 'message');
+          const kr = HASH512.create().update(msg).update(publicKeyHash).digest();
+          const cipherText = cached.encrypt(msg, kr.subarray(32, 64));
+          cleanBytes(kr.subarray(32));
+          return {
+            cipherText: cipherText as TRet<Uint8Array>,
+            sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
+          };
+        },
+        decapsulate: (
+          cipherText: TArg<Uint8Array>,
+          secretKey: TArg<Uint8Array>
+        ): TRet<Uint8Array> => {
+          abytes(secretKey, secretCoder.bytesLen, 'secretKey');
+          abytes(cipherText, lengths.cipherText, 'cipherText');
+          const [sk, ekEmbedded, storedHash, z] = secretCoder.decode(secretKey);
+          // Bind dk to the prepared key. Together with publicKeyHash = H(ek) computed in
+          // prepare(), this is equivalent to (and stronger than) the FIPS 203 §7.3 input
+          // check `H(dk[384k : 768k+32]) == dk[768k+32 : 768k+64]`.
+          if (!equalBytes(ekEmbedded, ek) || !equalBytes(storedHash, publicKeyHash))
+            throw new Error('ML-KEM.decapsulate: secretKey does not match prepared publicKey');
+          const msg = KPKE.decrypt(cipherText, sk);
+          // derive randomness, Khat, rHat = G(mHat || h)
+          const kr = HASH512.create().update(msg).update(publicKeyHash).digest();
+          const Khat = kr.subarray(0, 32);
+          // re-encrypt using the derived randomness and cached Â/t̂
+          const cipherText2 = cached.encrypt(msg, kr.subarray(32, 64));
+          // if ciphertexts do not match, “implicitly reject”
+          const isValid = equalBytes(cipherText, cipherText2);
+          const Kbar = KDF.create({ dkLen: 32 }).update(z).update(cipherText).digest();
+          cleanBytes(msg, cipherText2, kr.subarray(32), !isValid ? Khat : Kbar);
+          return (isValid ? Khat : Kbar) as TRet<Uint8Array>;
+        },
+        clean: cached.clean,
+      }) as TRet<KEMPrepared>;
     },
   });
 }
@@ -470,17 +588,17 @@ const mk = (params: KEMParam) =>
  * const publicKey2 = ml_kem512.getPublicKey(secretKey);
  * ```
  */
-export const ml_kem512: TRet<KEM> = /* @__PURE__ */ (() => mk(PARAMS[512]))();
+export const ml_kem512: TRet<MLKEM> = /* @__PURE__ */ (() => mk(PARAMS[512]))();
 /**
  * ML-KEM-768: Table 2 row `k=3, η1=2, η2=2, du=10, dv=4`; Table 3 sizes `1184/2400/1088/32`.
  * The ASD lifecycle note here is external policy guidance, not a FIPS 203 requirement.
  */
-export const ml_kem768: TRet<KEM> = /* @__PURE__ */ (() => mk(PARAMS[768]))();
+export const ml_kem768: TRet<MLKEM> = /* @__PURE__ */ (() => mk(PARAMS[768]))();
 /**
  * ML-KEM-1024: Table 2 row `k=4, η1=2, η2=2, du=11, dv=5`; Table 3 sizes `1568/3168/1568/32`.
  * The ASD lifecycle note here is external policy guidance, not a FIPS 203 requirement.
  */
-export const ml_kem1024: TRet<KEM> = /* @__PURE__ */ (() => mk(PARAMS[1024]))();
+export const ml_kem1024: TRet<MLKEM> = /* @__PURE__ */ (() => mk(PARAMS[1024]))();
 
 // NOTE: for tests only, don't use. This keeps the exact internal ML-KEM math surfaces available
 // without re-implementing them in separate test code.

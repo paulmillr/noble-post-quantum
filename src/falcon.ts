@@ -1672,7 +1672,11 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         ).encode([nonce, pad(sigLen).encode(s2), msg]);
       },
       decode(data: TArg<Uint8Array>): TRet<SignatureRaw> {
+        // The compressed-signature field is fixed-width here; only the message is variable. A
+        // container shorter than the fixed part would make the s2 field borrow bytes from nowhere
+        // and let a truncated encoding open to the same message.
         const msgLen = data.length - NONCELEN - sigLen - 1;
+        if (msgLen < 0) throw new Error('signature coder: wrong length');
         const [nonce, s2, msg] = headerCoder(
           0x30 + logn,
           splitCoder('falcon.signature', NONCELEN, sigLen, msgLen)
@@ -1696,9 +1700,15 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         nonce: Uint8Array;
         s2: Uint8Array;
       }> {
+        // Padded detached signatures are fixed-length (`lengths.signature`), so the payload width
+        // must come from the parameter set, not from the input: deriving it would accept appended
+        // zero bytes and truncated padding as extra valid encodings of the same signature.
+        // Unpadded signatures are variable-length; decodeUnpaddedSig() enforces the exact canonical
+        // bitlength of whatever remains.
+        const payloadLen = opts.padded ? sigLen : data.length - NONCELEN - 1;
         const [nonce, raw] = headerCoder(
           0x30 + logn,
-          splitCoder('falcon.detachedSignature', NONCELEN, data.length - NONCELEN - 1)
+          splitCoder('falcon.detachedSignature', NONCELEN, payloadLen)
         ).decode(data);
         const s2 = decodeSig(raw);
         return { nonce, s2 } as TRet<{ nonce: Uint8Array; s2: Uint8Array }>;
