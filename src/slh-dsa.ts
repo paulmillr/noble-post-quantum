@@ -118,12 +118,16 @@ const AddressType = {
 /** Address byte array of size `ADDR_BYTES`. */
 export type ADRS = Uint8Array;
 
-/** Hash and tweakable-hash callbacks bound to one SLH-DSA keypair context. */
+/** Hash and tweakable-hash callbacks bound to one SLH-DSA keypair context.
+ * Buffer-aliasing contract: `PRFaddr`, `thash1` and `thashN` return views into per-context
+ * scratch buffers (one per lane), so callers must consume or copy a result before the next
+ * call on the same lane. `clean()` wipes the scratch buffers along with the hash states.
+ */
 export type Context = {
   /**
    * Derive a PRF output for one address.
    * @param addr - Address bytes.
-   * @returns PRF output bytes.
+   * @returns PRF output bytes (scratch view; copy to retain).
    */
   PRFaddr: (addr: TArg<ADRS>) => TRet<Uint8Array>;
   /**
@@ -264,16 +268,25 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
   ) => {
     const { type, height, tree, layer, index, chain, hash, keypair } = opts;
     const { subtreeAddr, keypairAddr } = opts;
-    const v = createView(addr);
 
     if (height !== undefined) addr[OFFSET_CHAIN_ADDR] = height;
     if (layer !== undefined) addr[OFFSET_LAYER] = layer;
     if (type !== undefined) addr[OFFSET_TYPE] = type;
     if (chain !== undefined) addr[OFFSET_CHAIN_ADDR] = chain;
     if (hash !== undefined) addr[OFFSET_HASH_ADDR] = hash;
-    if (index !== undefined) v.setUint32(OFFSET_TREE_INDEX, index, false);
+    // Manual big-endian writes: setAddr runs in the innermost WOTS/tree loops, and creating a
+    // DataView per call was a measurable share of sign() time.
+    if (index !== undefined) {
+      addr[OFFSET_TREE_INDEX + 0] = index >>> 24;
+      addr[OFFSET_TREE_INDEX + 1] = index >>> 16;
+      addr[OFFSET_TREE_INDEX + 2] = index >>> 8;
+      addr[OFFSET_TREE_INDEX + 3] = index;
+    }
     if (subtreeAddr) addr.set(subtreeAddr.subarray(0, OFFSET_TREE + 8));
-    if (tree !== undefined) v.setBigUint64(OFFSET_TREE, tree, false);
+    if (tree !== undefined) {
+      let t = tree;
+      for (let i = 7; i >= 0; i--, t >>= 8n) addr[OFFSET_TREE + i] = Number(t & 0xffn);
+    }
     if (keypair !== undefined) {
       addr[OFFSET_KP_ADDR1] = keypair;
       if (TREE_HEIGHT > 8) addr[OFFSET_KP_ADDR2] = keypair >>> 8;
@@ -352,10 +365,12 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       const maxIdx = (1 << height) - 1;
       const stack = new Uint8Array(height * N);
       const authPath = new Uint8Array(height * N);
+      // One node buffer per treehash call (not per leaf): both halves are fully overwritten at
+      // each use, and the returned root aliases cur1, which is never reused after return.
+      const current = new Uint8Array(2 * N);
+      const cur0 = current.subarray(0, N);
+      const cur1 = current.subarray(N);
       for (let idx = 0; ; idx++) {
-        const current = new Uint8Array(2 * N);
-        const cur0 = current.subarray(0, N);
-        const cur1 = current.subarray(N);
         const addrOffset = idx + idxOffset;
         cur1.set(leafFn(leafIdx, addrOffset, rawContext, info));
         let h = 0;
@@ -562,7 +577,9 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
           },
           forsTreeAddr
         );
-        const prf = context.PRFaddr(forsTreeAddr);
+        // Copy: PRFaddr returns a per-context scratch view, and this value is retained in
+        // `fors` across the many PRFaddr calls inside forsTreehash below.
+        const prf = copyBytes(context.PRFaddr(forsTreeAddr));
         setAddr({ type: AddressType.FORSTREE }, forsTreeAddr);
         const { root, authPath } = forsTreehash(
           context,
@@ -578,7 +595,9 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
         type: AddressType.FORSPK,
         keypairAddr: wotsAddr,
       });
-      const root = context.thashN(K, concatBytes(...roots), forsPkAddr);
+      // Copy: thashN returns a per-context scratch view, and `root` lives across every hash
+      // call in the hypertree loop below (it is also mutated via root.set).
+      const root = copyBytes(context.thashN(K, concatBytes(...roots), forsPkAddr));
       // WOTS signatures
       const treeAddr = setAddr({ type: AddressType.HASHTREE });
       const wots: [Uint8Array, Uint8Array][] = [];
@@ -602,9 +621,13 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     },
     verify: (sig: TArg<Uint8Array>, msg: TArg<Uint8Array>, publicKey: TArg<Uint8Array>) => {
       const [pkSeed, pubRoot] = publicCoder.decode(publicKey);
-      const [random, forsVec, wotsVec] = sigCoder.decode(sig);
       const pk = publicKey;
+      // FIPS 205 Algorithm 20 step 1: wrong-length signatures return false instead of throwing
+      // (same as ml-dsa). Must run before sigCoder.decode, which throws on length mismatch.
+      // Preserve TypeError for non-byte API arguments before treating byte lengths as invalid.
+      abytes(sig, undefined, 'signature');
       if (sig.length !== sigCoder.bytesLen) return false;
+      const [random, forsVec, wotsVec] = sigCoder.decode(sig);
       const context = getContext(pkSeed);
       let { tree, leafIdx, md } = hashMessage(random, pk, msg, context);
       const wotsAddr = setAddr({
@@ -624,14 +647,18 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
         const idxOffset = i << A;
         setAddr({ height: 0, index: indices[i] + idxOffset }, forsTreeAddr);
         const leaf = context.thash1(prf, forsTreeAddr);
-        // Compute inplace, because we need all roots in same byte array
-        roots.push(computeRoot(leaf, indices[i], idxOffset, authPath, A, context, forsTreeAddr));
+        // Copy: computeRoot returns a thashN scratch view, and roots are retained across the
+        // remaining FORS iterations (computeRoot itself copies `leaf` before hashing).
+        roots.push(
+          copyBytes(computeRoot(leaf, indices[i], idxOffset, authPath, A, context, forsTreeAddr))
+        );
       }
       const forsPkAddr = setAddr({
         type: AddressType.FORSPK,
         keypairAddr: wotsAddr,
       });
-      let root = context.thashN(K, concatBytes(...roots), forsPkAddr); // root = thash()
+      // Copy: `root` must survive the thash1/thashN calls of the WOTS chain loop below.
+      let root = copyBytes(context.thashN(K, concatBytes(...roots), forsPkAddr)); // root = thash()
       // WOTS signature
       const treeAddr = setAddr({ type: AddressType.HASHTREE });
       const wotsPkAddr = setAddr({ type: AddressType.WOTSPK });
@@ -654,7 +681,8 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
           }
         }
         const leaf = context.thashN(WOTS_LEN, wotsPk, wotsPkAddr);
-        root = computeRoot(leaf, leafIdx, 0, sigAuth, TREE_HEIGHT, context, treeAddr);
+        // Copy: `root` is read by chainLengths / equalBytes after later hash calls.
+        root = copyBytes(computeRoot(leaf, leafIdx, 0, sigAuth, TREE_HEIGHT, context, treeAddr));
         leafIdx = Number(tree & getMaskBig(TREE_HEIGHT));
       }
       return equalBytes(root, pubRoot);
@@ -724,20 +752,27 @@ const genShake =
     // for each address-bound call instead of reabsorbing the same seed every time.
     const h0 = shake256.create({}).update(pubSeed);
     const h0tmp = h0.clone();
+    // Per-context output scratch: thash1/thashN/PRFaddr return these buffers directly, so
+    // callers must consume or copy a result before the next call on the same lane.
+    const thashOut = new Uint8Array(N);
+    const prfOut = new Uint8Array(N);
     const thash = (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
       stats.thash++;
-      return h0
-        ._cloneInto(h0tmp)
+      const len = blocks * N;
+      h0._cloneInto(h0tmp)
         .update(addr)
-        .update(input.subarray(0, blocks * N))
-        .xof(N) as TRet<Uint8Array>;
+        .update(
+          input.length === len ? (input as Uint8Array) : (input as Uint8Array).subarray(0, len)
+        )
+        .xofInto(thashOut);
+      return thashOut as TRet<Uint8Array>;
     };
     return {
       PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
         if (!skSeed) throw new Error('no sk seed');
         stats.prf++;
-        const res = h0._cloneInto(h0tmp).update(addr).update(skSeed).xof(N);
-        return res as TRet<Uint8Array>;
+        h0._cloneInto(h0tmp).update(addr).update(skSeed).xofInto(prfOut);
+        return prfOut as TRet<Uint8Array>;
       },
       PRFmsg: (
         skPRF: TArg<Uint8Array>,
@@ -767,6 +802,7 @@ const genShake =
       clean: () => {
         h0.destroy();
         h0tmp.destroy();
+        cleanBytes(thashOut, prfOut);
         //console.log(stats);
       },
     } as TRet<Context>;
@@ -849,6 +885,16 @@ const genSha =
 
     const h0tmp = h0ps.clone();
     const h1tmp = h1ps.clone();
+    // Per-context output scratch: thash1/thashN/PRFaddr return views into these buffers, so
+    // callers must consume or copy a result before the next call on the same lane (see Context
+    // docs). digestInto also skips digest()'s per-call destroy(): the tmp states are fully
+    // overwritten by the next _cloneInto and wiped in clean().
+    const h0out = new Uint8Array(h0.outputLen);
+    const h1out = new Uint8Array(h1.outputLen);
+    const prfOut = new Uint8Array(h0.outputLen);
+    const h0outN = h0out.subarray(0, N);
+    const h1outN = h1out.subarray(0, N);
+    const prfOutN = prfOut.subarray(0, N);
 
     // https://www.rfc-editor.org/rfc/rfc8017.html#appendix-B.2.1
     // This local helper is intentionally stricter than generic MGF1 reuse: current SLH-DSA callers
@@ -869,27 +915,28 @@ const genSha =
     }
 
     const thash =
-      (_: ShaType, h: typeof h0ps, hTmp: typeof h0ps) =>
+      (h: typeof h0ps, hTmp: typeof h0ps, out: Uint8Array, outN: Uint8Array) =>
       (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
         stats.thash++;
-        const d = h
-          ._cloneInto(hTmp as any)
+        const len = blocks * N;
+        h._cloneInto(hTmp as any)
           .update(addr)
-          .update(input.subarray(0, blocks * N))
-          .digest();
-        return d.subarray(0, N) as TRet<Uint8Array>;
+          .update(
+            input.length === len ? (input as Uint8Array) : (input as Uint8Array).subarray(0, len)
+          )
+          .digestInto(out);
+        return outN as TRet<Uint8Array>;
       };
     return {
       PRFaddr: (addr: TArg<ADRS>): TRet<Uint8Array> => {
         if (!sk_seed) throw new Error('No sk seed');
         stats.prf++;
-        const res = h0ps
+        h0ps
           ._cloneInto(h0tmp as any)
           .update(addr)
           .update(sk_seed)
-          .digest()
-          .subarray(0, N);
-        return res as TRet<Uint8Array>;
+          .digestInto(prfOut);
+        return prfOutN as TRet<Uint8Array>;
       },
       PRFmsg: (
         skPRF: TArg<Uint8Array>,
@@ -918,13 +965,14 @@ const genSha =
         );
         return mgf1(seed, outLen, h1);
       },
-      thash1: thash(h0, h0ps, h0tmp).bind(null, 1),
-      thashN: thash(h1, h1ps, h1tmp),
+      thash1: thash(h0ps, h0tmp, h0out, h0outN).bind(null, 1),
+      thashN: thash(h1ps, h1tmp, h1out, h1outN),
       clean: () => {
         h0ps.destroy();
         h1ps.destroy();
         h0tmp.destroy();
         h1tmp.destroy();
+        cleanBytes(h0out, h1out, prfOut);
         //console.log(stats);
       },
     } as TRet<Context>;

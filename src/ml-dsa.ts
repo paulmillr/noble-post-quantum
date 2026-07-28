@@ -154,6 +154,8 @@ const polyCoder = (d: number, compress: IdNum = id, verify: IdNum = id) =>
   });
 
 // Mutates `a` in place; callers must pass same-length polynomials.
+// NOTE: conditional-reduction variants (as in ml-kem) were measured performance-neutral here —
+// int32 `%` with 23-bit Q is already cheap — so the simpler mod() form is kept for audit.
 const polyAdd = (a_: TArg<Poly>, b_: TArg<Poly>): TRet<Poly> => {
   const a = a_ as Poly;
   const b = b_ as Poly;
@@ -275,13 +277,16 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     return res0;
   };
 
+  // m = (q-1)/(2γ2): 44 for ML-DSA-44, 16 for 65/87. Hoisted out of UseHint, which runs
+  // per coefficient during verification.
+  const HINT_M = Math.floor((Q - 1) / (2 * GAMMA2));
   const UseHint = (h: number, r: number) => {
     // Returns the high bits of r adjusted according to hint h
-    const m = Math.floor((Q - 1) / (2 * GAMMA2));
     const { r1, r0 } = decompose(r);
     // 3: if h = 1 and r0 > 0 return (r1 + 1) mod m
     // 4: if h = 1 and r0 ≤ 0 return (r1 − 1) mod m
-    if (h === 1) return r0 > 0 ? crystals.mod(r1 + 1, m) | 0 : crystals.mod(r1 - 1, m) | 0;
+    if (h === 1)
+      return r0 > 0 ? crystals.mod(r1 + 1, HINT_M) | 0 : crystals.mod(r1 - 1, HINT_M) | 0;
     return r1 | 0;
   };
   const Power2Round = (r: number) => {
@@ -527,11 +532,32 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     ): TRet<Uint8Array> => {
       validateSigOpts(opts);
       validateInternalOpts(opts);
-      let { extraEntropy: random, externalMu = false } = opts;
+      const { extraEntropy: random, externalMu = false } = opts;
+      // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
+      if (externalMu) abytes(msg, CRH_BYTES, 'mu');
+      // Prepare entropy before touching decoded secrets: randomBytes() may throw, and an RNG
+      // failure must not leave expanded secret-polynomial copies behind.
+      const ownRnd = random === false || random === undefined;
+      const rnd =
+        random === false
+          ? new Uint8Array(32)
+          : random === undefined
+            ? randomBytes(signRandBytes)
+            : (random as Uint8Array);
+      abytes(rnd, 32, 'extraEntropy');
       // This part can be pre-cached per secretKey, but there is only minor performance improvement,
       // since we re-use a lot of variables to computation.
       // (ρ, K,tr, s1, s2, t0) ← skDecode(sk)
-      const [rho, _K, tr, s1, s2, t0] = secretCoder.decode(secretKey);
+      const decoded = (() => {
+        try {
+          return secretCoder.decode(secretKey);
+        } catch (error) {
+          // A malformed key must not strand entropy owned by the library.
+          if (ownRnd) cleanBytes(rnd);
+          throw error;
+        }
+      })();
+      const [rho, _K, tr, s1, s2, t0] = decoded;
       // Cache matrix to avoid re-compute later
       const A: Poly[][] = []; // A ← ExpandA(ρ)
       const xof = XOF128(rho);
@@ -553,21 +579,14 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           //    ▷ Compute message representative µ
           shake256.create({ dkLen: CRH_BYTES }).update(tr).update(msg).digest();
 
-      // Compute private random seed
-      const rnd =
-        random === false
-          ? new Uint8Array(32)
-          : random === undefined
-            ? randomBytes(signRandBytes)
-            : random;
-      abytes(rnd, 32, 'extraEntropy');
       const rhoprime = shake256
         .create({ dkLen: CRH_BYTES })
         .update(_K)
         .update(rnd)
         .update(mu)
         .digest(); // ρ′← H(K||rnd||µ, 512)
-
+      // Only wipe entropy we generated; caller-provided extraEntropy stays caller-owned.
+      if (ownRnd) cleanBytes(rnd);
       abytes(rhoprime, CRH_BYTES);
       const x256 = XOF256(rhoprime, ZCoder.bytesLen);
       //  Rejection sampling loop
@@ -638,6 +657,8 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     ) => {
       validateInternalOpts(opts);
       const { externalMu = false } = opts;
+      // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
+      if (externalMu) abytes(msg, CRH_BYTES, 'mu');
       // ML-DSA.Verify(pk, M, σ): Verifes a signature σ for a message M.
       const [rho, t1] = publicCoder.decode(publicKey); // (ρ, t1) ← pkDecode(pk)
       const tr = shake256(publicKey, { dkLen: TR_BYTES }); // 6: tr ← H(BytesToBits(pk), 512)

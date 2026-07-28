@@ -318,9 +318,9 @@ Benchmarks on Apple M4 (operations/sec, **higher is better**):
 | Primitive         | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
 | ML-KEM-768        | 4661   |         |              | 4089          |
-| ML-DSA65          | 669    | 271     | 565          |               |
+| ML-DSA65          | 719    | 294     | 610          |               |
 | Falcon512         | 14     | 749     | 2160         |               |
-| SLH-DSA-SHA2-192f | 235    | 8       | 159          |               |
+| SLH-DSA-SHA2-192f | 321    | 11       | 198          |               |
 | Pre-quantum x/ed25519     | 12648  | 6157    | 1255         | 1981          |
 
 SLH-DSA (s has 2x shorter signatures; SHAKE is very slow):
