@@ -224,6 +224,30 @@ describe('Hybrids', () => {
       eql(keys.secretKey, seedCopy);
     }
   });
+  should('combineKeys/getPublicKey-detached-root-cleanup', () => {
+    const root = Uint8Array.of(7, 8, 9, 10);
+    let captured: Uint8Array | undefined;
+    const signer = combineSigners(
+      root.length,
+      (seed, len) => {
+        captured = seed as Uint8Array;
+        return shake256(seed, { dkLen: len });
+      },
+      ecSigner(ed25519),
+      ml_dsa44
+    );
+    signer.getPublicKey(root);
+    if (!captured) throw new Error('expected expandSeed input');
+    // Main aliases the caller-owned root; detached roots introduced by keygen must instead be
+    // wiped when getPublicKey discards the secret-key half of keygen's result.
+    eql(
+      { root, captured },
+      {
+        root: Uint8Array.of(7, 8, 9, 10),
+        captured: captured === root ? Uint8Array.of(7, 8, 9, 10) : new Uint8Array(root.length),
+      }
+    );
+  });
   should('combineSigners/keygen-cleanup-on-child-keygen-throw', () => {
     const seen: Uint8Array[] = [];
     const ok = {
@@ -550,6 +574,43 @@ describe('Hybrids', () => {
   should('ecSigner/ed25519/allowZeroKey', () => {
     const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
     throws(() => ecSigner(ed25519, true).keygen(seed), /allowZeroKey requires a Weierstrass curve/);
+  });
+  should('combineSigners/verify returns false on wrong-length signature', () => {
+    const combined = combineSigners(32, expandSeedXof(shake256), ecSigner(ed25519), ml_dsa44);
+    const keys = combined.keygen(Uint8Array.from({ length: 32 }, (_, i) => i + 1));
+    const msg = new Uint8Array([1, 2, 3]);
+    const sig = combined.sign(msg, keys.secretKey);
+    eql(combined.verify(sig, msg, keys.publicKey), true);
+    eql(combined.verify(sig.subarray(0, sig.length - 1), msg, keys.publicKey), false);
+    const longer = new Uint8Array(sig.length + 1);
+    longer.set(sig);
+    eql(combined.verify(longer, msg, keys.publicKey), false);
+    eql(combined.verify(new Uint8Array(0), msg, keys.publicKey), false);
+    throws(() => combined.verify(new Uint16Array(1) as any, msg, keys.publicKey), TypeError);
+    // A signature-length failure must not hide a malformed aggregate public key.
+    throws(() => combined.verify(new Uint8Array(), msg, new Uint8Array()), /publicKey/);
+  });
+  should('keygen secretKey is detached from caller seed', () => {
+    for (const kem of [XWing, QSFMLKEM768P256, KitchenSinkMLKEM768X25519]) {
+      const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 3);
+      const keys = kem.keygen(seed);
+      const skCopy = keys.secretKey.slice();
+      const { sharedSecret, cipherText } = kem.encapsulate(keys.publicKey);
+      // Mutating the caller's seed after keygen must not change the returned secretKey
+      seed.fill(0);
+      eql(keys.secretKey, skCopy);
+      eql(kem.decapsulate(cipherText, keys.secretKey), sharedSecret);
+    }
+  });
+  should('methods work when destructured (no this-dependence)', () => {
+    const { keygen, getPublicKey, encapsulate, decapsulate } = XWing;
+    const keys = keygen(Uint8Array.from({ length: 32 }, (_, i) => i + 5));
+    eql(getPublicKey(keys.secretKey), keys.publicKey);
+    const { sharedSecret, cipherText } = encapsulate(keys.publicKey);
+    eql(decapsulate(cipherText, keys.secretKey), sharedSecret);
+    const kem = ecdhKem(x25519);
+    const enc = kem.encapsulate(kem.keygen().publicKey);
+    eql(enc.sharedSecret.length, 32);
   });
 });
 

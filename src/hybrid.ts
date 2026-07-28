@@ -204,6 +204,11 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
 export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): TRet<KEM> {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
+  // Standalone (not `this.decapsulate`) so encapsulate works even when methods are destructured.
+  const decapsulate = (cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) => {
+    const res = curve.getSharedSecret(secretKey, cipherText);
+    return (curve.lengths.publicKeyHasPrefix ? res.subarray(1) : res) as TRet<Uint8Array>;
+  };
   return {
     lengths: { ...kg.lengths, msg: kg.lengths.seed, cipherText: kg.lengths.publicKey },
     keygen: kg.keygen,
@@ -217,8 +222,8 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): TRet<K
       const seed = copyBytes(rand);
       let ek: Uint8Array | undefined = undefined;
       try {
-        ek = this.keygen(seed).secretKey;
-        const sharedSecret = this.decapsulate(publicKey, ek);
+        ek = kg.keygen(seed).secretKey;
+        const sharedSecret = decapsulate(publicKey, ek);
         const cipherText = curve.getPublicKey(ek) as TRet<Uint8Array>;
         return { sharedSecret, cipherText };
       } finally {
@@ -228,10 +233,7 @@ export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): TRet<K
         if (ek) cleanBytes(ek);
       }
     },
-    decapsulate(cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) {
-      const res = curve.getSharedSecret(secretKey, cipherText);
-      return (curve.lengths.publicKeyHasPrefix ? res.subarray(1) : res) as TRet<Uint8Array>;
-    },
+    decapsulate,
   };
 }
 
@@ -386,25 +388,40 @@ function combineKeys(
       if (!ok) cleanBytes(secretKey);
     }
   }
+  // Standalone (not a method) so getPublicKey / destructured usage never depends on `this`.
+  const keygen = (seed?: TArg<Uint8Array>) => {
+    // Detach the root: the exported secretKey must not alias caller-owned seed bytes, so later
+    // caller mutation of the seed cannot silently change the secret key (and vice versa).
+    const root = seed === undefined ? randomBytes(realSeedLen!) : copyBytes(seed);
+    let res;
+    try {
+      const { publicKey: pk, secretKey } = expandDecapsulationKey(root);
+      try {
+        res = {
+          secretKey: root as TRet<Uint8Array>,
+          publicKey: pkCoder.encode(pk) as TRet<Uint8Array>,
+        };
+      } finally {
+        // The exported secretKey is the (detached) root seed; child secret keys are internal
+        // expansion outputs that are cleaned whether encoding succeeds or throws.
+        cleanBytes(pk, secretKey);
+      }
+      return res;
+    } finally {
+      if (!res) cleanBytes(root);
+    }
+  };
   return {
     info: { lengths: { seed: realSeedLen, publicKey: pkCoder.bytesLen, secretKey: realSeedLen } },
-    getPublicKey(secretKey: TArg<Uint8Array>) {
-      // Composite secret keys are root seeds, so public-key derivation reruns key expansion from
-      // that seed instead of decoding a packed child-secret-key structure.
-      return this.keygen(secretKey).publicKey as TRet<Uint8Array>;
+    // Composite secret keys are root seeds, so public-key derivation reruns key expansion from
+    // that seed instead of decoding a packed child-secret-key structure.
+    getPublicKey: (secretKey: TArg<Uint8Array>) => {
+      const keys = keygen(secretKey);
+      // keygen detaches its exported root; getPublicKey discards that half of the result.
+      cleanBytes(keys.secretKey);
+      return keys.publicKey as TRet<Uint8Array>;
     },
-    keygen(seed: TArg<Uint8Array> = randomBytes(realSeedLen)) {
-      const { publicKey: pk, secretKey } = expandDecapsulationKey(seed);
-      try {
-        const publicKey = pkCoder.encode(pk) as TRet<Uint8Array>;
-        return { secretKey: seed as TRet<Uint8Array>, publicKey };
-      } finally {
-        cleanBytes(pk);
-        // The exported secretKey is the caller/root seed itself; child secret keys are internal
-        // expansion outputs that are cleaned whether encoding succeeds or throws.
-        cleanBytes(secretKey);
-      }
-    },
+    keygen,
     expandDecapsulationKey,
     realSeedLen,
   };
@@ -573,8 +590,8 @@ export function combineSigners(
       }
     },
     /** Verify one combined signature.
-     * Returns `false` when the aggregate signature/publicKey decode succeeds but any child verify
-     * check fails. Throws on unsupported generic opts or malformed aggregate encodings.
+     * Wrong-length aggregate signatures return `false` (matching ml-dsa / slh-dsa behavior), as
+     * does any failing child verify. Throws on unsupported generic opts or malformed publicKey.
      */
     verify: (signature, message, publicKey, opts = {}) => {
       validateVerOpts(opts);
@@ -582,7 +599,13 @@ export function combineSigners(
         throw new Error(
           'combineSigners does not support context; use the underlying signer directly'
         );
+      // Malformed signature *length* is a verification failure, not a thrown type error —
+      // consistent with ml-dsa / slh-dsa. Must run before sigCoder.decode, which throws.
+      // Preserve TypeError for non-byte API arguments before treating byte lengths as invalid.
+      abytes(signature, undefined, 'signature');
+      // A signature failure must not hide malformed aggregate public-key bytes.
       const pks = pkCoder.decode(publicKey);
+      if (signature.length !== sigCoder.bytesLen) return false;
       const sigs = sigCoder.decode(signature);
       for (let i = 0; i < rawSigners.length; i++) {
         if (!rawSigners[i].verify(sigs[i], message, pks[i])) return false;
@@ -790,6 +813,11 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
     }>;
   }
 
+  // Standalone (not `this.decapsulate`) so encapsulate works even when methods are destructured.
+  const decapsulate = (cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) => {
+    const full = curve.getSharedSecret(secretKey, cipherText);
+    return full.subarray(1) as TRet<Uint8Array>;
+  };
   return {
     lengths: {
       secretKey: scalarLen,
@@ -810,7 +838,7 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
       let ek: Uint8Array | undefined = undefined;
       try {
         ek = rejectionSampling(rand).secretKey;
-        const sharedSecret = this.decapsulate(publicKey, ek);
+        const sharedSecret = decapsulate(publicKey, ek);
         const cipherText = curve.getPublicKey(ek, false) as TRet<Uint8Array>;
         return { sharedSecret, cipherText };
       } finally {
@@ -819,10 +847,7 @@ function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: n
         if (ek) cleanBytes(ek);
       }
     },
-    decapsulate(cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>) {
-      const full = curve.getSharedSecret(secretKey, cipherText);
-      return full.subarray(1) as TRet<Uint8Array>;
-    },
+    decapsulate,
   };
 }
 
@@ -851,10 +876,11 @@ function concreteHybridKem(
     32,
     (seed: TArg<Uint8Array>): TRet<Uint8Array> => {
       abytes(seed, 32);
-      const expanded = shake256(seed, { dkLen: totalSeedLen });
-      const mlkemSeed = expanded.subarray(0, mlkemSeedLen);
-      const curveSeed = expanded.subarray(mlkemSeedLen, totalSeedLen);
-      return concatBytes(mlkemSeed, curveSeed) as TRet<Uint8Array>;
+      // One SHAKE256 stream split by the seed coder as mlkemSeed (64) || curveSeed (nseed).
+      // Returned directly: the previous concatBytes of two adjacent subarrays produced an
+      // identical copy while leaving this original buffer unwiped; expandDecapsulationKey
+      // wipes the returned buffer after the child seeds are copied out.
+      return shake256(seed, { dkLen: totalSeedLen }) as TRet<Uint8Array>;
     },
     (pk: TArg<Uint8Array[]>, ct: TArg<Uint8Array[]>, ss: TArg<Uint8Array[]>) =>
       sha3_256(concatBytes(ss[0], ss[1], ct[1], pk[1], asciiToBytes(label))),

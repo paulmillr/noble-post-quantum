@@ -384,10 +384,62 @@ describe('Falcon', () => {
       pbad[sig.length] = 1;
       deepStrictEqual(padded.verify(psig, msg, publicKey), true);
       deepStrictEqual(padded.verify(pbad, msg, publicKey), false);
+      // API misuse must reach byte-type validation before padded-length arithmetic.
+      throws(() => padded.attached.open(new Uint16Array([0x39]) as any, publicKey), TypeError);
       const seal = padded.attached.seal(msg, secretKey, { random: rnd });
       const sbad = new Uint8Array(seal);
       sbad[sig.length] = 1;
       throws(() => padded.attached.open(sbad, publicKey));
+    }
+  });
+  should('padded/malleability', () => {
+    // Padded signatures are fixed-length, so exactly one byte string may encode a given signature.
+    // Deriving the payload width from the input instead of from the parameter set used to accept
+    // both a zero-appended and a padding-truncated container: without the secret key, an attacker
+    // could turn one signature into many distinct ones that verify for the same (msg, publicKey).
+    const rnd = (len) => new Uint8Array(len).fill(7);
+    const cases = [
+      [falcon.falcon512, falcon.falcon512padded, new Uint8Array(48).fill(1)],
+      [falcon.falcon1024, falcon.falcon1024padded, new Uint8Array(48).fill(2)],
+    ];
+    for (const [detached, padded, seed] of cases) {
+      const { publicKey, secretKey } = padded.keygen(seed);
+      for (const msg of [new Uint8Array(0), hexToBytes('68656c6c6f00')]) {
+        const sig = padded.sign(msg, secretKey, { random: rnd });
+        deepStrictEqual(sig.length, padded.lengths.signature);
+        deepStrictEqual(padded.verify(sig, msg, publicKey), true);
+        // Trailing zero bytes appended to the fixed-length container.
+        for (const extra of [1, 5, 50]) {
+          deepStrictEqual(
+            padded.verify(concatBytes(sig, new Uint8Array(extra)), msg, publicKey),
+            false
+          );
+        }
+        // Zero padding stripped from the end of the fixed-length container. Both parameter sets
+        // leave enough trailing zeros here that the compressed payload still decodes.
+        let end = sig.length;
+        while (end > 0 && sig[end - 1] === 0) end--;
+        deepStrictEqual(sig.length - end > 0, true);
+        for (let cut = 1; cut <= Math.min(4, sig.length - end); cut++) {
+          deepStrictEqual(padded.verify(sig.subarray(0, sig.length - cut), msg, publicKey), false);
+        }
+        // Attached padded: same fixed-width signature field, followed by the message. Truncation
+        // eats into the padding once the message is exhausted, so the shortened container must be
+        // rejected instead of opening to the same message.
+        const seal = padded.attached.seal(msg, secretKey, { random: rnd });
+        deepStrictEqual(padded.attached.open(seal, publicKey), msg);
+        for (let cut = 1; cut <= 5; cut++)
+          throws(() => padded.attached.open(seal.subarray(0, seal.length - cut), publicKey));
+        for (const extra of [1, 5])
+          throws(() => padded.attached.open(concatBytes(seal, new Uint8Array(extra)), publicKey));
+        // Control: the unpadded variant rejects the same zero-append, and always has.
+        const usig = detached.sign(msg, secretKey, { random: rnd });
+        deepStrictEqual(detached.verify(usig, msg, publicKey), true);
+        deepStrictEqual(
+          detached.verify(concatBytes(usig, new Uint8Array(1)), msg, publicKey),
+          false
+        );
+      }
     }
   });
   should('publicKey/validation', () => {

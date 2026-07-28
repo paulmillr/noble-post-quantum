@@ -318,27 +318,27 @@ Benchmarks on Apple M4 (operations/sec, **higher is better**):
 | Primitive         | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
 | ML-KEM-768        | 4661   |         |              | 4089          |
-| ML-DSA65          | 669    | 271     | 565          |               |
+| ML-DSA65          | 719    | 294     | 610          |               |
 | Falcon512         | 14     | 749     | 2160         |               |
-| SLH-DSA-SHA2-192f | 235    | 8       | 159          |               |
-| Pre-quantum x/ed25519     | 12648  | 6157    | 1255         | 1981          |
+| SLH-DSA-SHA2-192f | 321    | 11       | 198          |               |
+| Pre-quantum x/ed25519 | 12648  | 6157    | 1255         | 1981          |
 
 SLH-DSA (s has 2x shorter signatures; SHAKE is very slow):
 
 |            | keygen | sign   | verify |
 | ---------- | ------ | ------ | ------ |
-| sha2_128f  | 2ms    | 65ms   | 4ms    |
-| shake_128f | 10ms   | 248ms  | 15ms   |
-| sha2_192f  | 4ms    | 117ms  | 6ms    |
-| shake_192f | 15ms   | 407ms  | 22ms   |
-| sha2_256f  | 11ms   | 250ms  | 6ms    |
-| shake_256f | 42ms   | 840ms  | 22ms   |
-| sha2_128s  | 190ms  | 1350ms | 1ms    |
-| shake_128s | 700ms  | 5264ms | 5ms    |
-| sha2_192s  | 272ms  | 2900ms | 2ms    |
-| shake_192s | 1000ms | 9100ms | 7ms    |
-| sha2_256s  | 190ms  | 2600ms | 3ms    |
-| shake_256s | 672ms  | 8070ms | 3ms    |
+| sha2_128f  | 2ms    | 47ms   | 3ms    |
+| shake_128f | 10ms   | 237ms  | 14ms   |
+| sha2_192f  | 3.2ms  | 93ms   | 5.1ms  |
+| shake_192f | 15ms   | 396ms  | 21ms   |
+| sha2_256f  | 8.5ms  | 187ms  | 5.2ms  |
+| shake_256f | 40ms   | 813ms  | 22ms   |
+| sha2_128s  | 140ms  | 1068ms | 1.1ms  |
+| shake_128s | 673ms  | 5114ms | 5.2ms  |
+| sha2_192s  | 209ms  | 2114ms | 1.9ms  |
+| shake_192s | 974ms  | 8779ms | 7.1ms  |
+| sha2_256s  | 137ms  | 1941ms | 2.7ms  |
+| shake_256s | 645ms  | 7689ms | 11ms   |
 
 Key and signature sizes:
 
