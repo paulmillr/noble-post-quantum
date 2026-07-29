@@ -141,6 +141,46 @@ Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs
 [repo](https://github.com/pq-crystals/dilithium)).
 The internals are similar to ML-KEM, but keys and params are different.
 
+### Recipe: delegating to an ephemeral session key
+
+A common pattern in real-world protocol design is to keep a long-lived PQC
+identity key offline as much as possible, and instead have it authorize a
+short-lived, cheaper-to-rotate classical key for actual execution. ML-DSA is
+well suited to signing this kind of capability, since the identity key only
+needs to sign occasionally rather than on every action.
+
+```ts
+// Recipe: PQC identity key issuing a short-lived capability delegated to an
+// ephemeral classical execution key (ML-DSA-65 signs a secp256k1 delegation).
+import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
+import { randomBytes } from '@noble/post-quantum/utils.js';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+
+// 1. Long-lived PQC identity (root key), generated once
+const identity = ml_dsa65.keygen(randomBytes(32));
+
+// 2. Ephemeral per-session execution key (classical, cheap to rotate)
+const sessionPriv = secp256k1.utils.randomSecretKey();
+const sessionPub = secp256k1.getPublicKey(sessionPriv);
+
+// 3. Root identity signs a capability binding the session key to a scope + expiry
+const capability = {
+  sessionPubKey: Buffer.from(sessionPub).toString('hex'),
+  scope: 'send:max=100USDC',
+  expiresAt: Date.now() + 5 * 60_000, // 5 minutes
+};
+const capabilityBytes = new TextEncoder().encode(JSON.stringify(capability));
+const capabilitySig = ml_dsa65.sign(capabilityBytes, identity.secretKey);
+
+// 4. Anyone can verify the session key was actually authorized by the PQC identity,
+//    without the identity key ever touching the hot execution path
+const isValid = ml_dsa65.verify(capabilitySig, capabilityBytes, identity.publicKey);
+```
+
+This example also imports `@noble/curves` directly for the demo; it's already
+a dependency of this package, but isn't otherwise imported by name elsewhere
+in this README.
+
 ### SLH-DSA / SPHINCS+ signatures
 
 ```ts
