@@ -9,14 +9,14 @@ Auditable & minimal JS implementation of post-quantum public-key cryptography.
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
 - 🦅 Falcon: lattice-based signatures from Falcon Round 3
-- 🍡 Hybrid algorithms, combining classic & post-quantum: Concrete, XWing, KitchenSink
-- 🪶 16KB (gzipped) for everything, including bundled hashes & curves
+- 🍡 Hybrid algorithms, combining classic & post-quantum: XWing, KitchenSink, QSF & others
+- 🪶 16KB (gzipped) for everything, including bundled hashes, curves & ciphers
 
 > [!IMPORTANT]
-> NIST published [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
-> prohibiting classical cryptography (RSA, DSA, ECDSA, ECDH) after 2035.
-> Australian ASD does same thing [after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
-> Take it into an account while designing a new cryptographic system.
+> NIST published draft [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
+> which proposes prohibiting classical cryptography (RSA, DSA, ECDSA, ECDH) after 2035.
+> Australia's ASD does the same [after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
+> Take this into account when designing new cryptographic systems.
 
 ### This library belongs to _noble_ cryptography
 
@@ -83,8 +83,8 @@ import {
 - [hybrid: XWing, KitchenSink and others](#hybrid-xwing-kitchensink-and-others)
 - [What should I use?](#what-should-i-use)
 - [Security](#security)
-- [Speed](#speed)
 - [Contributing & testing](#contributing--testing)
+- [Speed](#speed)
 - [License](#license)
 
 ### ML-KEM / Kyber shared secrets
@@ -141,6 +141,24 @@ Lattice-based digital signature algorithm, defined in [FIPS-204](https://nvlpubs
 [repo](https://github.com/pq-crystals/dilithium)).
 The internals are similar to ML-KEM, but keys and params are different.
 
+`sign` / `verify` accept optional parameters:
+
+```ts
+import { sha512 } from '@noble/hashes/sha2.js';
+const ctx = new Uint8Array([1, 2, 3]);
+const sigCtx = ml_dsa65.sign(msg, keys.secretKey, { context: ctx }); // verify needs same context
+const sigDet = ml_dsa65.sign(msg, keys.secretKey, { extraEntropy: false }); // deterministic
+const hml = ml_dsa65.prehash(sha512); // HashML-DSA
+const sigPre = hml.sign(msg, keys.secretKey);
+const isValidPre = hml.verify(sigPre, msg, keys.publicKey);
+```
+
+- `context`: domain-separation byte string, up to 255 bytes; must match between `sign` and `verify`
+- `extraEntropy`: hedged-signing randomness. Default is 32 random bytes;
+  `false` produces deterministic signatures; custom 32-byte value is also allowed
+- `externalMu`: treat `msg` as the precomputed 64-byte message representative µ
+- `prehash(hash)`: pre-hash variant (HashML-DSA) from FIPS-204
+
 ### SLH-DSA / SPHINCS+ signatures
 
 ```ts
@@ -170,6 +188,9 @@ Hash-based digital signature algorithm, defined in [FIPS-205](https://nvlpubs.ni
 - sha2 vs shake (sha3): indicates internal hash function used
 - 128 / 192 / 256: indicates security level in bits
 - s / f: indicates small vs fast trade-off
+
+`sign` / `verify` accept the same optional `context`, `extraEntropy` and `prehash(hash)`
+(HashSLH-DSA) parameters as ML-DSA. With `extraEntropy: false`, signing is deterministic.
 
 SLH-DSA is slow: see [benchmarks](#speed) for key size & speed.
 
@@ -206,7 +227,7 @@ import {
 } from '@noble/post-quantum/hybrid.js';
 ```
 
-Hybrid submodule combine post-quantum algorithms with elliptic curve cryptography:
+The hybrid submodule combines post-quantum algorithms with elliptic curve cryptography:
 
 - `ml_kem768_x25519`: ML-KEM-768 + X25519 (CG Framework, same as XWing)
 - `ml_kem768_p256`: ML-KEM-768 + P-256 (CG Framework)
@@ -224,25 +245,26 @@ The following spec drafts are matched:
 
 ### What should I use?
 
-|         | Speed  | Key size    | Sig size    | Created in | Popularized in | Post-quantum? |
-| ------- | ------ | ----------- | ----------- | ---------- | -------------- | ------------- |
-| RSA     | Normal | 256B - 2KB  | 256B - 2KB  | 1970s      | 1990s          | No            |
-| ECC     | Normal | 32 - 256B   | 48 - 128B   | 1980s      | 2010s          | No            |
-| ML-KEM  | Fast   | 1.6 - 31KB  | 1KB         | 1990s      | 2020s          | Yes           |
-| ML-DSA  | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB | 1990s      | 2020s          | Yes           |
-| SLH-DSA | Slow   | 32 - 128B   | 17 - 50KB   | 1970s      | 2020s          | Yes           |
-| FN-DSA  | Slow   | 0.9 - 1.8KB | 0.6 - 1.2KB | 1990s      | 2020s          | Yes           |
+|         | Speed  | Key size    | Sig / CT size | Created in | Popularized in | Post-quantum? |
+| ------- | ------ | ----------- | ------------- | ---------- | -------------- | ------------- |
+| RSA     | Normal | 256B - 2KB  | 256B - 2KB    | 1970s      | 1990s          | No            |
+| ECC     | Normal | 32 - 256B   | 48 - 128B     | 1980s      | 2010s          | No            |
+| ML-KEM  | Fast   | 0.8 - 1.6KB | 0.8 - 1.6KB   | 1990s      | 2020s          | Yes           |
+| ML-DSA  | Normal | 1.3 - 2.5KB | 2.5 - 4.5KB   | 1990s      | 2020s          | Yes           |
+| SLH-DSA | Slow   | 32 - 128B   | 17 - 50KB     | 1970s      | 2020s          | Yes           |
+| FN-DSA  | Slow   | 0.9 - 1.8KB | 0.6 - 1.2KB   | 1990s      | 2020s          | Yes           |
 
-We suggest to use ECC + ML-KEM for key agreement, ECC + SLH-DSA for signatures.
+ML-KEM is a KEM, not a signature scheme: its last column is ciphertext (CT) size.
+We suggest using ECC + ML-KEM for key agreement, ECC + SLH-DSA for signatures.
 
 ML-KEM and ML-DSA are lattice-based. SLH-DSA is hash-based, which means it is built on top of older, more conservative primitives. NIST guidance for security levels:
 
 - Category 3 (~AES-192): ML-KEM-768, ML-DSA-65, SLH-DSA-192
 - Category 5 (~AES-256): ML-KEM-1024, ML-DSA-87, SLH-DSA-256
 
-NIST recommends to use cat-3+, while australian [ASD only allows cat-5 after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
+NIST recommends cat-3+, while Australian [ASD only allows cat-5 after 2030](https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism/cyber-security-guidelines/guidelines-cryptography).
 
-It's also useful to check out [NIST SP 800-131Ar3](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-131Ar3.ipd.pdf)
+It's also useful to check out draft [NIST SP 800-131Ar3](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-131Ar3.ipd.pdf)
 for "Transitioning the Use of Cryptographic Algorithms and Key Lengths".
 
 For [hashes](https://github.com/paulmillr/noble-hashes), use SHA512 or SHA3-512 (not SHA256); and for [ciphers](https://github.com/paulmillr/noble-ciphers) ensure AES-256 or ChaCha.
@@ -273,10 +295,11 @@ Keep in mind that even hardware versions ML-KEM [are vulnerable](https://eprint.
   - Version ranges are locked, and changes are checked with npm-diff.
 - **Dev dependencies** are excluded from end-user installs; they're only used for development and build steps.
 
-For this package, there are 2 dependencies; and a few dev dependencies:
+For this package, there are 3 dependencies; and a few dev dependencies:
 
 - [noble-hashes](https://github.com/paulmillr/noble-hashes) provides cryptographic hashing functionality, used internally in every algorithm
 - [noble-curves](https://github.com/paulmillr/noble-curves) provides elliptic curve cryptography for hybrid algorithms
+- [noble-ciphers](https://github.com/paulmillr/noble-ciphers) provides AES-CTR DRBG and ChaCha20, used internally in Falcon
 - jsbt is used for benchmarking / testing / build tooling and developed by the same author
 - prettier, fast-check and typescript are used for code quality / test generation / ts compilation
 
@@ -291,8 +314,8 @@ Browsers have had weaknesses in the past - and could again - but implementing a 
 ## Contributing & testing
 
 - `npm install && npm run build && npm test` will build the code and run tests.
-- `npm run lint` / `npm run format` will run linter / fix linter issues.
-- `npm run bench` will run benchmarks
+- `npm run format` will run prettier and fix formatting issues.
+- `npm run benchmark` will run benchmarks
 - `npm run bundle` will build single file
 
 Check out [github.com/paulmillr/guidelines](https://github.com/paulmillr/guidelines)
@@ -304,26 +327,26 @@ related to the library.
 
 ## Speed
 
-> `npm run bench`
+> `npm run benchmark`
 
 Noble is the fastest JS implementation of post-quantum algorithms.
 
-There is experimental [awasm git branch](https://github.com/paulmillr/noble-post-quantum/tree/awasm),
+There is experimental [git branch](https://github.com/paulmillr/noble-post-quantum/tree/awasm),
 which uses WASM-based [awasm-noble](https://github.com/paulmillr/awasm-noble) for hashing.
 It has 80% faster ML-KEM, 30% faster ML-DSA, 2.3x faster SLH-DSA-SHA256, 15x faster SLH-DSA-SHAKE.
-The SHAKE-s version is much more usable in WASM variant. Try it out!
+Try it out.
 
 Benchmarks on Apple M4 (operations/sec, **higher is better**):
 
 | Primitive         | Keygen | Signing | Verification | Shared secret |
 | ----------------- | ------ | ------- | ------------ | ------------- |
 | ML-KEM-768        | 4661   |         |              | 4089          |
-| ML-DSA65          | 719    | 294     | 610          |               |
+| ML-DSA-65         | 719    | 294     | 610          |               |
 | Falcon512         | 14     | 749     | 2160         |               |
 | SLH-DSA-SHA2-192f | 321    | 11       | 198          |               |
 | Pre-quantum x/ed25519 | 12648  | 6157    | 1255         | 1981          |
 
-SLH-DSA (s has 2x shorter signatures; SHAKE is very slow):
+SLH-DSA (`s` variants have 2x shorter signatures; SHAKE is very slow):
 
 |            | keygen | sign   | verify |
 | ---------- | ------ | ------ | ------ |
