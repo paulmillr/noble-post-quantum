@@ -1,0 +1,41 @@
+name: Playwright PQC Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Grab your repository's code
+      - uses: actions/checkout@v4
+
+      # 2. Set up the Node environment
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20 # Or whatever version noble-post-quantum targets
+
+      # 3. Install NPM dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Install Chromium and its OS-level dependencies
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      # 5. Execute the tests
+      - name: Run Playwright tests
+        run: npx playwright test
+
+      # 6. (Optional) Upload the test report if things fail
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
