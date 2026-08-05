@@ -182,15 +182,29 @@ export function aobject<T extends object>(value: unknown, title = 'object'): T {
   return value as T;
 }
 
-export function afunction<T extends (...args: any[]) => any>(value: unknown, title: string): T {
+// TODO: import from @noble/curves/utils.js once a release exports it; copied verbatim until then.
+/**
+ * Asserts something is a function.
+ * @param value - Value to validate.
+ * @param title - Label included in thrown errors.
+ * @returns The validated function.
+ * @throws On wrong argument types. {@link TypeError}
+ * @example
+ * Validate a required method before calling it.
+ *
+ * ```ts
+ * afunction(() => true, 'predicate');
+ * ```
+ */
+export function afunction<T extends (...args: any[]) => any>(value: T, title: string): T {
   if (typeof value !== 'function')
-    throw new TypeError(`"${title}" expected function, got type=${typeof value}`);
-  return value as T;
+    throw new TypeError(`"${title}" is invalid: expected function, got ${typeof value}`);
+  return value;
 }
 
 /**
  * Compares two byte arrays in a length-constant way for equal lengths.
- * Unequal lengths return `false` immediately, and there is no runtime type validation.
+ * Inputs are validated as byte arrays; unequal lengths return `false` immediately.
  * @param a - First byte array.
  * @param b - Second byte array.
  * @returns Whether both arrays contain the same bytes.
@@ -201,6 +215,8 @@ export function afunction<T extends (...args: any[]) => any>(value: unknown, tit
  * ```
  */
 export function equalBytes(a: TArg<Uint8Array>, b: TArg<Uint8Array>): boolean {
+  a = abytes(a);
+  b = abytes(b);
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
