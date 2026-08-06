@@ -8,7 +8,7 @@ import {
   shake128_32,
   shake256,
 } from '@noble/hashes/sha3.js';
-import { describe, should } from '@paulmillr/jsbt/test.js';
+import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, notDeepStrictEqual, throws } from 'node:assert';
 import { genCrystals } from '../src/_crystals.ts';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
@@ -16,9 +16,9 @@ import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import { slh_dsa_sha2_128f, slh_dsa_shake_128f } from '../src/slh-dsa.ts';
 import {
   copyBytes,
+  getMask,
   getMessage,
   getMessagePrehash,
-  getMask,
   randomBytes,
   validateOpts,
   validateSigOpts,
@@ -27,7 +27,7 @@ import {
 } from '../src/utils.ts';
 
 describe('Basic', () => {
-  should('utils validator constructors', () => {
+  it('utils validator constructors', () => {
     throws(() => validateOpts(new Uint8Array([1]) as any), TypeError);
     throws(() => validateVerOpts(new Uint8Array([1]) as any), TypeError);
     throws(() => validateSigOpts(new Uint8Array([1]) as any), TypeError);
@@ -50,7 +50,7 @@ describe('Basic', () => {
     throws(() => getMessage(new Uint8Array([1]), new Uint8Array(256)), RangeError);
     throws(() => getMessagePrehash(sha3_256, new Uint8Array([1]), new Uint8Array(256)), RangeError);
   });
-  should('getMask wide 32-bit edges', () => {
+  it('getMask wide 32-bit edges', () => {
     eql(getMask(31), 0x7fffffff);
     eql(getMask(32), 0xffffffff);
     const crystals = genCrystals({
@@ -72,7 +72,7 @@ describe('Basic', () => {
     );
   });
   describe('Immutability', () => {
-    should('ML-KEM', () => {
+    it('ML-KEM', () => {
       // keygen
       const seed = randomBytes(64);
       const seedCopy = Uint8Array.from(seed);
@@ -96,7 +96,7 @@ describe('Basic', () => {
       eql(cipherText, enc.cipherText);
       eql(secretKey, keys.secretKey);
     });
-    should('ML-DSA', () => {
+    it('ML-DSA', () => {
       // keygen
       const seed = randomBytes(32);
       const seedCopy = Uint8Array.from(seed);
@@ -123,7 +123,7 @@ describe('Basic', () => {
       eql(publicKey, keys.publicKey);
       eql(msg, msgCopy);
     });
-    should('ML-DSA internal externalMu', () => {
+    it('ML-DSA internal externalMu', () => {
       const cases = { ml_dsa44, ml_dsa65, ml_dsa87 };
       for (const mldsa of Object.values(cases)) {
         const keys = mldsa.keygen();
@@ -149,7 +149,7 @@ describe('Basic', () => {
         eql(publicKey, publicCopy);
       }
     });
-    should('SLH-DSA', () => {
+    it('SLH-DSA', () => {
       // keygen
       const seed = randomBytes(48);
       const seedCopy = Uint8Array.from(seed);
@@ -178,7 +178,7 @@ describe('Basic', () => {
       eql(msg, msgCopy);
     });
   });
-  should('ML-KEM rejects public keys with coeffs above q - 1', () => {
+  it('ML-KEM rejects public keys with coeffs above q - 1', () => {
     const msg = randomBytes(32);
     const cases = [
       ['ml_kem512', ml_kem512, 64],
@@ -194,7 +194,7 @@ describe('Basic', () => {
       throws(() => kem.encapsulate(bad, msg), /wrong publicKey modulus/);
     }
   });
-  should('ML-KEM modulus check boundary: q-1 valid, q invalid', () => {
+  it('ML-KEM modulus check boundary: q-1 valid, q invalid', () => {
     const msg = randomBytes(32);
     for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
       const { publicKey } = kem.keygen();
@@ -210,7 +210,7 @@ describe('Basic', () => {
       kem.encapsulate(ok, msg);
     }
   });
-  should('ML-KEM decapsulate validates secretKey hash, ignores z corruption', () => {
+  it('ML-KEM decapsulate validates secretKey hash, ignores z corruption', () => {
     for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
       const { publicKey, secretKey } = kem.keygen();
       const { cipherText, sharedSecret } = kem.encapsulate(publicKey);
@@ -225,7 +225,7 @@ describe('Basic', () => {
       eql(kem.decapsulate(cipherText, badZ), sharedSecret);
     }
   });
-  should('ML-KEM prepared public key matches one-shot API', () => {
+  it('ML-KEM prepared public key matches one-shot API', () => {
     for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
       const { publicKey, secretKey } = kem.keygen();
       const prepared = kem.prepare(publicKey);
@@ -256,7 +256,7 @@ describe('Basic', () => {
       publicKey.set(pkCopy);
     }
   });
-  should('ML-KEM implicit rejection returns J(z || cipherText)', () => {
+  it('ML-KEM implicit rejection returns J(z || cipherText)', () => {
     for (const kem of [ml_kem512, ml_kem768, ml_kem1024]) {
       const seed = randomBytes(64);
       const { publicKey, secretKey } = kem.keygen(seed);
@@ -277,7 +277,7 @@ describe('Basic', () => {
       eql(kem.decapsulate(bad, secretKey), rejected);
     }
   });
-  should('ML-DSA externalMu requires 64-byte mu', () => {
+  it('ML-DSA externalMu requires 64-byte mu', () => {
     const { publicKey, secretKey } = ml_dsa65.keygen();
     const mu = Uint8Array.from({ length: 64 }, (_, i) => i);
     const sig = ml_dsa65.internal.sign(mu, secretKey, { externalMu: true, extraEntropy: false });
@@ -289,7 +289,7 @@ describe('Basic', () => {
       throws(() => ml_dsa65.internal.verify(sig, bad, publicKey, { externalMu: true }));
     }
   });
-  should('ML-DSA prepares and cleans entropy before secret expansion', () => {
+  it('ML-DSA prepares and cleans entropy before secret expansion', () => {
     let calls = 0;
     let generated: Uint8Array | undefined;
     const getRandomValues = globalThis.crypto.getRandomValues;
@@ -332,7 +332,7 @@ describe('Basic', () => {
       globalThis.crypto.getRandomValues = getRandomValues;
     }
   });
-  should('ML-DSA verify returns false on malformed hint encoding', () => {
+  it('ML-DSA verify returns false on malformed hint encoding', () => {
     // [signer, OMEGA, K] per FIPS 204 Table 1; hint block is the trailing OMEGA+K bytes.
     const cases = [
       [ml_dsa44, 80, 4],
@@ -360,7 +360,7 @@ describe('Basic', () => {
       eql(dsa.verify(sig.subarray(0, sig.length - 1), msg, publicKey), false);
     }
   });
-  should('SLH-DSA verify returns false on wrong-length signature', () => {
+  it('SLH-DSA verify returns false on wrong-length signature', () => {
     // FIPS 205 Algorithm 20 step 1 and ml-dsa behavior: malformed signature *length* is a
     // verification failure (false), not a thrown type error.
     for (const slh of [slh_dsa_sha2_128f, slh_dsa_shake_128f]) {
@@ -379,7 +379,7 @@ describe('Basic', () => {
       throws(() => slh.internal.verify(new Uint16Array() as any, msg, publicKey), TypeError);
     }
   });
-  should('Hash compatibility', () => {
+  it('Hash compatibility', () => {
     const keys44 = ml_dsa44.keygen();
     const keys65 = ml_dsa65.keygen();
     const keys87 = ml_dsa87.keygen();
@@ -401,7 +401,7 @@ describe('Basic', () => {
       ml_dsa65_sha3_384: ml_dsa65.prehash(sha3_384),
       slh_dsa_sha2_128f_sha3_384: slh_dsa_sha2_128f.prehash(sha3_384),
     })) {
-      should(k, () => {
+      it(k, () => {
         const keys = v.keygen();
         const msg = new Uint8Array();
         const context = new Uint8Array([1, 2, 3]);
@@ -426,4 +426,4 @@ describe('Basic', () => {
   });
 });
 
-should.runWhen(import.meta.url);
+it.runWhen(import.meta.url);

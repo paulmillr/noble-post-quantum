@@ -1,6 +1,6 @@
 // Wycheproof test vectors from https://github.com/C2SP/wycheproof
 import { hexToBytes as hexx } from '@noble/hashes/utils.js';
-import { describe, should } from '@paulmillr/jsbt/test.js';
+import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
@@ -38,7 +38,7 @@ describe('Wycheproof', () => {
   describe('ML-KEM', () => {
     for (const { level, kem } of KEM_LEVELS) {
       describe(`ML-KEM-${level}`, () => {
-        should('keygen', async () => {
+        it('keygen', async () => {
           for await (const g of loadWP(`mlkem_${level}_keygen_seed_test`)) {
             for (const t of g.tests) {
               const keys = kem.keygen(hexx(t.seed));
@@ -47,7 +47,7 @@ describe('Wycheproof', () => {
             }
           }
         });
-        should('decaps', async () => {
+        it('decaps', async () => {
           for await (const g of loadWP(`mlkem_${level}_test`)) {
             for (const t of g.tests) {
               if (t.result === 'valid') {
@@ -68,7 +68,7 @@ describe('Wycheproof', () => {
             }
           }
         });
-        should('encaps', async () => {
+        it('encaps', async () => {
           for await (const g of loadWP(`mlkem_${level}_encaps_test`)) {
             for (const t of g.tests) {
               if (t.result === 'valid') {
@@ -95,7 +95,7 @@ describe('Wycheproof', () => {
   describe('ML-DSA', () => {
     for (const { level, dsa } of DSA_LEVELS) {
       describe(`ML-DSA-${level}`, () => {
-        should('verify', async () => {
+        it('verify', async () => {
           for await (const g of loadWP(`mldsa_${level}_verify_test`)) {
             const pk = hexx(g.publicKey);
             for (const t of g.tests) {
@@ -112,7 +112,7 @@ describe('Wycheproof', () => {
             }
           }
         });
-        should('sign (from seed)', async () => {
+        it('sign (from seed)', async () => {
           for await (const g of loadWP(`mldsa_${level}_sign_seed_test`)) {
             let keys;
             try {
@@ -146,4 +146,4 @@ describe('Wycheproof', () => {
   });
 });
 
-should.runWhen(import.meta.url);
+it.runWhen(import.meta.url);

@@ -3,7 +3,7 @@ import { p256 } from '@noble/curves/nist.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_512, shake256 } from '@noble/hashes/sha3.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
-import { describe, should } from '@paulmillr/jsbt/test.js';
+import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, throws } from 'node:assert';
 import { randomBytes } from 'node:crypto';
 import {
@@ -13,14 +13,14 @@ import {
   ecdhKem,
   ecSigner,
   expandSeedXof,
-  KitchenSinkMLKEM768X25519,
-  MLKEM1024P384,
-  MLKEM768P256,
-  MLKEM768X25519,
+  KitchenSink_ml_kem768_x25519 as KitchenSinkMLKEM768X25519,
+  ml_kem1024_p384 as MLKEM1024P384,
+  ml_kem768_p256 as MLKEM768P256,
+  ml_kem768_x25519 as MLKEM768X25519,
   QSF,
-  QSFMLKEM1024P384,
-  QSFMLKEM768P256,
-  XWing,
+  QSF_ml_kem1024_p384 as QSFMLKEM1024P384,
+  QSF_ml_kem768_p256 as QSFMLKEM768P256,
+  ml_kem768_x25519 as XWing,
 } from '../src/hybrid.ts';
 import { ml_dsa44 } from '../src/ml-dsa.ts';
 import { ml_kem768 } from '../src/ml-kem.ts';
@@ -103,7 +103,7 @@ describe('Hybrids', () => {
   for (const name in VECTORS) {
     const { lib, tests } = VECTORS[name];
     describe(name, () => {
-      should('Vectors', () => {
+      it('Vectors', () => {
         const vectorItems = typeof tests === 'function' ? tests() : tests;
         for (const t of vectorItems) {
           const keys = lib.keygen(hexToBytes(t.seed));
@@ -119,7 +119,7 @@ describe('Hybrids', () => {
           eql(sharedSecret, ss2);
         }
       });
-      should('random', () => {
+      it('random', () => {
         const { secretKey, publicKey } = lib.keygen();
         eql(publicKey.length, lib.lengths.publicKey);
         const { sharedSecret, cipherText } = lib.encapsulate(publicKey);
@@ -128,7 +128,7 @@ describe('Hybrids', () => {
         const sharedSecret2 = lib.decapsulate(cipherText, secretKey);
         eql(sharedSecret2, sharedSecret);
       });
-      should('immutability', () => {
+      it('immutability', () => {
         const seed = randomBytes(32);
         const seed1 = seed.slice();
         const { secretKey, publicKey } = lib.keygen(seed);
@@ -145,7 +145,7 @@ describe('Hybrids', () => {
       });
     });
   }
-  should('combineSigners', () => {
+  it('combineSigners', () => {
     const combined = combineSigners(32, expandSeedXof(shake256), ecSigner(ed25519), ml_dsa44);
     const aliceSeed = randomBytes(32);
     const aliceSeed1 = aliceSeed.slice();
@@ -178,7 +178,7 @@ describe('Hybrids', () => {
     eql(combined.verify(aliceSig0, msg, aliceKeys.publicKey), false);
     eql(combined.verify(aliceSig1, msg, aliceKeys.publicKey), false);
   });
-  should('hybrid signer wrappers/opts', () => {
+  it('hybrid signer wrappers/opts', () => {
     const rand = Uint8Array.from({ length: 32 }, (_, i) => i);
     const ctx = new Uint8Array([1]);
     const msg0 = Uint8Array.from([1, 2, 3, 4]);
@@ -201,7 +201,7 @@ describe('Hybrids', () => {
       /does not support context/
     );
   });
-  should('combineKeys/identityExpand/seed-immutability', () => {
+  it('combineKeys/identityExpand/seed-immutability', () => {
     const seed = Uint8Array.from({ length: 64 }, (_, i) => i + 1);
     const seedCopy = seed.slice();
     const pickFirst = (_pk: Uint8Array[], _ct: Uint8Array[], sharedSecrets: Uint8Array[]) =>
@@ -224,7 +224,7 @@ describe('Hybrids', () => {
       eql(keys.secretKey, seedCopy);
     }
   });
-  should('combineKeys/getPublicKey-detached-root-cleanup', () => {
+  it('combineKeys/getPublicKey-detached-root-cleanup', () => {
     const root = Uint8Array.of(7, 8, 9, 10);
     let captured: Uint8Array | undefined;
     const signer = combineSigners(
@@ -248,7 +248,7 @@ describe('Hybrids', () => {
       }
     );
   });
-  should('combineSigners/keygen-cleanup-on-child-keygen-throw', () => {
+  it('combineSigners/keygen-cleanup-on-child-keygen-throw', () => {
     const seen: Uint8Array[] = [];
     const ok = {
       lengths: { seed: 2, secretKey: 2, publicKey: 1, signature: 1 },
@@ -288,7 +288,7 @@ describe('Hybrids', () => {
       [[0, 0]]
     );
   });
-  should('combineSigners/keygen-cleanup-on-bad-expand-output', () => {
+  it('combineSigners/keygen-cleanup-on-bad-expand-output', () => {
     let leaked: Uint8Array | undefined;
     const badExpand = (_seed: Uint8Array, _len: number) => {
       leaked = Uint8Array.of(11, 22, 33);
@@ -313,7 +313,7 @@ describe('Hybrids', () => {
     throws(() => hybrid.keygen(Uint8Array.of(1, 2, 3, 4)), /expected Uint8Array of length 4/);
     eql(leaked, Uint8Array.of(0, 0, 0));
   });
-  should('combineSigners/keygen-cleanup-on-aliased-bad-expand-output', () => {
+  it('combineSigners/keygen-cleanup-on-aliased-bad-expand-output', () => {
     const signer = {
       lengths: { seed: 2, secretKey: 2, publicKey: 1, signature: 1 },
       keygen(seed: Uint8Array = Uint8Array.of(1, 2)) {
@@ -335,7 +335,7 @@ describe('Hybrids', () => {
     throws(() => hybrid.keygen(root), /expected Uint8Array of length 4/);
     eql(root, rootCopy);
   });
-  should('combineKEMS/combiner-alias', () => {
+  it('combineKEMS/combiner-alias', () => {
     const pickFirst = (_pk: Uint8Array[], _ct: Uint8Array[], sharedSecrets: Uint8Array[]) =>
       sharedSecrets[0];
     const hybrid = combineKEMS(
@@ -353,7 +353,7 @@ describe('Hybrids', () => {
     );
     eql(out.sharedSecret, hybrid.decapsulate(out.cipherText, keys.secretKey));
   });
-  should('combineKEMS/decapsulate-secret-cleanup', () => {
+  it('combineKEMS/decapsulate-secret-cleanup', () => {
     const seenSk: Uint8Array[] = [];
     const seenSs: Uint8Array[] = [];
     const mk = (id: number) => ({
@@ -398,7 +398,7 @@ describe('Hybrids', () => {
       [[0], [0]]
     );
   });
-  should('combineKEMS/encapsulate-secret-cleanup-on-child-throw', () => {
+  it('combineKEMS/encapsulate-secret-cleanup-on-child-throw', () => {
     const seen: Uint8Array[] = [];
     const ok = {
       lengths: { seed: 1, secretKey: 1, publicKey: 1, msg: 1, cipherText: 1 },
@@ -446,7 +446,7 @@ describe('Hybrids', () => {
       [[0]]
     );
   });
-  should('combineKEMS/encapsulate-secret-cleanup-on-combiner-throw', () => {
+  it('combineKEMS/encapsulate-secret-cleanup-on-combiner-throw', () => {
     const seen: Uint8Array[] = [];
     const mk = (id: number) => ({
       lengths: { seed: 1, secretKey: 1, publicKey: 1, msg: 1, cipherText: 1 },
@@ -481,7 +481,7 @@ describe('Hybrids', () => {
       [[0], [0]]
     );
   });
-  should('QSF/kdf-length', () => {
+  it('QSF/kdf-length', () => {
     const kem = QSFMLKEM768P256;
     eql(kem.lengths.msg, 32);
     const custom = QSF('test', ml_kem768, ecdhKem(p256, true), shake256, sha3_512);
@@ -493,11 +493,11 @@ describe('Hybrids', () => {
     eql(out.sharedSecret, custom.decapsulate(out.cipherText, keys.secretKey));
     eql(out.sharedSecret.length, custom.lengths.msg);
   });
-  should('ecdhKem/x25519/allowZeroKey', () => {
+  it('ecdhKem/x25519/allowZeroKey', () => {
     const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
     throws(() => ecdhKem(x25519, true).keygen(seed), /allowZeroKey requires a Weierstrass curve/);
   });
-  should('ecdhKem/x25519/rand-immutability', () => {
+  it('ecdhKem/x25519/rand-immutability', () => {
     const cases = [
       ['ecdhKem(x25519)', ecdhKem(x25519), Uint8Array.from({ length: 32 }, (_, i) => i + 65)],
       [
@@ -521,7 +521,7 @@ describe('Hybrids', () => {
       eql(rand, randCopy);
     }
   });
-  should('ecdhKem/encapsulate-secret-cleanup-on-throw', () => {
+  it('ecdhKem/encapsulate-secret-cleanup-on-throw', () => {
     const seen: Uint8Array[] = [];
     const curve: any = {
       lengths: { seed: 2, secretKey: 2, publicKey: 1, publicKeyHasPrefix: false },
@@ -543,7 +543,7 @@ describe('Hybrids', () => {
       [[0, 0]]
     );
   });
-  should('combineSigners/sign-secret-cleanup', () => {
+  it('combineSigners/sign-secret-cleanup', () => {
     const seen: Uint8Array[] = [];
     const mk = (id: number) => ({
       lengths: { seed: 2, secretKey: 2, publicKey: 1, signature: 1 },
@@ -571,11 +571,11 @@ describe('Hybrids', () => {
       ]
     );
   });
-  should('ecSigner/ed25519/allowZeroKey', () => {
+  it('ecSigner/ed25519/allowZeroKey', () => {
     const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
     throws(() => ecSigner(ed25519, true).keygen(seed), /allowZeroKey requires a Weierstrass curve/);
   });
-  should('combineSigners/verify returns false on wrong-length signature', () => {
+  it('combineSigners/verify returns false on wrong-length signature', () => {
     const combined = combineSigners(32, expandSeedXof(shake256), ecSigner(ed25519), ml_dsa44);
     const keys = combined.keygen(Uint8Array.from({ length: 32 }, (_, i) => i + 1));
     const msg = new Uint8Array([1, 2, 3]);
@@ -590,7 +590,7 @@ describe('Hybrids', () => {
     // A signature-length failure must not hide a malformed aggregate public key.
     throws(() => combined.verify(new Uint8Array(), msg, new Uint8Array()), /publicKey/);
   });
-  should('keygen secretKey is detached from caller seed', () => {
+  it('keygen secretKey is detached from caller seed', () => {
     for (const kem of [XWing, QSFMLKEM768P256, KitchenSinkMLKEM768X25519]) {
       const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 3);
       const keys = kem.keygen(seed);
@@ -602,7 +602,7 @@ describe('Hybrids', () => {
       eql(kem.decapsulate(cipherText, keys.secretKey), sharedSecret);
     }
   });
-  should('methods work when destructured (no this-dependence)', () => {
+  it('methods work when destructured (no this-dependence)', () => {
     const { keygen, getPublicKey, encapsulate, decapsulate } = XWing;
     const keys = keygen(Uint8Array.from({ length: 32 }, (_, i) => i + 5));
     eql(getPublicKey(keys.secretKey), keys.publicKey);
@@ -614,4 +614,4 @@ describe('Hybrids', () => {
   });
 });
 
-should.runWhen(import.meta.url);
+it.runWhen(import.meta.url);

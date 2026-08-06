@@ -7,3 +7,5 @@ export {
   slh_dsa_shake_192f, slh_dsa_shake_192s,
   slh_dsa_shake_256f, slh_dsa_shake_256s
 } from '@noble/post-quantum/slh-dsa.js';
+// export { falcon1024 } from '@noble/post-quantum/falcon.js';
+export { ml_kem768_x25519 } from '@noble/post-quantum/hybrid.js';

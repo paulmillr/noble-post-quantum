@@ -1,7 +1,7 @@
 import { rngAesCtrDrbg256 } from '@noble/ciphers/aes.js';
 import { reverseBits } from '@noble/curves/abstract/fft.js';
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js';
-import { describe, should } from '@paulmillr/jsbt/test.js';
+import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual, throws } from 'node:assert';
 import { createReadStream, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -129,13 +129,13 @@ const floatPatch = {
 
 describe('Falcon', () => {
   describe('Roots', () => {
-    should('Exact', () => {
+    it('Exact', () => {
       deepStrictEqual(
         Array.from(falcon.__tests.COMPLEX_ROOTS, floatBits),
         round3Fpr.list('fpr_gm_tab', falconRound3FprC)
       );
     });
-    should('Generated', () => {
+    it('Generated', () => {
       // COMPLEX ROOT GENERATION FOR FALCON
       // This basically tests that roots are somewhat close to what they should be mathematically
       const GM = new Float64Array(2048);
@@ -176,12 +176,12 @@ describe('Falcon', () => {
       // console.log('Patch hex length', patch.length * 2);
     });
   });
-  should('Exact constants', () => {
+  it('Exact constants', () => {
     deepStrictEqual(falcon.__tests.INV_SIGMA.map(floatBits), round3Fpr.list('fpr_inv_sigma'));
     deepStrictEqual(falcon.__tests.SIGMA_MIN.map(floatBits), round3Fpr.list('fpr_sigma_min'));
     deepStrictEqual(floatBits(falcon.__tests.BNORM_MAX), round3Fpr.one('fpr_bnorm_max'));
   });
-  should('FFT', () => {
+  it('FFT', () => {
     // Strict equality check for fft
     const iS = ['ce56c65b260702a9', 'ce64798dbae700ed', 'ce619c7041fc36c7', 'ce41d6c3598de14f'];
     const i = iS.map(Float.decode);
@@ -206,7 +206,7 @@ describe('Falcon', () => {
     ['vectors/falcon/pqclean/nistkat_out_falcon-padded-1024_clean', falcon.falcon1024padded],
   ];
   for (const [file, falcon, skip] of falcons) {
-    should(file, async () => {
+    it(file, async () => {
       let firstSig, firstPk;
       for await (const t of parseKAT('./' + file)) {
         if (skip && skip.includes(t.count)) continue;
@@ -239,7 +239,7 @@ describe('Falcon', () => {
       }
     });
   }
-  should('falcon1024/detached', () => {
+  it('falcon1024/detached', () => {
     // Note, there is no KAT's for detached signatures! So we do our own.
     const pk = hexToBytes(
       '0A0441A9B73F494D16556680B12B0F446A652700E4304151BC310683C43F20AB28492FF580708068FA064275C1B0D08452FC7C324154929CA850D4E6F3425B0F149475A14468C740BE9842D2C1BBB93E2001F4202068D060C1AA9F99A5F67E86800F2E2A48FCE95A1E9F570A12D4A11B22ACB86716FB6EBB45B6CE1020E7F44E4230103713EC346055D407C969605D9F76CB8B2F0AF2BBE1AC1F4A278009266FDEEA0AFADA2598E36A492E0B40EAE12539A4B1E44D150D47C192D9895CA08D1E91D24E535C6D6490038C629045917508CA815E14F401F4A9A5C15E011204D012D0BB71876ABD5A8C75A94F32FE0628289DB4664A96B45E494D2528EA90781A3098E8DAD76FD583A890EFEFAE861E815DC26894EC5965FE8F389C14ECD77B20327C44B202CBDE2B4566B9F73A022FA0641BF81CAAB70E822065B61F5E9FC919238DEAF80BA4C1726DD50C642E39DADA13EC8935E9936A95766FFDF868C4D95DB2C1A67097225C464EFAA8DE05D806BC5E47F79643180142D5EF53A88E7E06C364A598779C04830B08E6910495F9938AF193AC54970FED8DB696001256451F91396C67F1A90F8D5D51BA9CA90B217A8F27DC844096448F75B12C428BD0FF2984600F95B9D601CECAF967C6A062A399AB1FB67DA110239E739E6195A811459F21B4570F6C077DF858550C4FED907240442ACCFE5195BEF68C2C95756E889378D05F7EDE7223AE27618D6A91105E8C6492D9ACB30526ACA35976343FD46C1284A4675854BB44E9DCEB32499EA6A4F452DD59400BF096175B060C15E5ED501BEBB24A9C0CA96DD5F348F66E27488DF0B8954569E46B96A409ADB2D1ACE23889E17AEA253288C545F48B82C12B2956E09C008D455C93145F638348502314EB271D924CED3B4F5E9FBD3D10B3CEA6778B506121140EE25414EC56A5CE057A2422EA74C0A021352822E76436636447317A121D4AFD2541008A997B15F3A298DE7587AADC903BA644A859EC40A3D8D75254CBA581217380F95C33A4D514B946CB573A50B819F8702A35029645B008EB08DEF18552E706F4EFF147C93B683DEDBD6A7CA4183BD2F5AB3890D5B32C4780BE2054EB151D182D54A502576F395899C6D548C916B4BD058E116243887D56C462A9A616ABE28204ED5A1A3239C9859264513B02C11F0C30C976C1F6825BB152E8D4A42129A73137031724322322B7928664C32CACD0DA7A29FC87C808A2A0CE9194424B077C1EEF54355F03F50A870889868275DBD5268C53B2C9854BBB69FF12F75D113438DF3A6F129754CA7622B066ED5B4564266CE011A5804B7BE1C5E24DE1E1719848936A9978C0148F08B2E610090C99585D323695AADA1A335A7590F7EE501F284DF5FD1C757E4C9B92EAAF737F20026B299351350C8AA8C1060D7861315012C520118E27EA0890CA774205145EE7244C811ED0D2A9CF9ACCC3C5A01C94B480CBD2B41FB7B501850944C2C489089EEA9EC6639C9A1139B756C40BA120FADA904C7C06772A131858AE2986C2278E5126215E631591505EF1FF281E201BBD149D7AACA2926D8CBB2729AA9977E679F5DE62A138EDFC9AD11F09A984E6704E5CAF3F6451010ED3DAB5E0D03573187543FCC67AAD6D86BB56138306DE7981EE4C676B19A0ACBDA017FB14014B1E0BD4CBD989A50A9D03EF21F75DB63104EF07C04F9476167D47ECA3104517BF8DC00B018F9178437C6810E715AE603684755054649E5F8EBA2B337C28AE377674F12B02B4285CC9D1EC1F459AE88DD4486F30A8FC7FE3D5A6AC84A6DB056D05DC035DE1CB29890B74D05EF4432DE4516C0983FE1965A001D737C7DE2D885DD3D636E1B7898C9ECB6A9EA7A6A15B4A18D2A1A0F4C877EC01930A75223368A82A22B50A7681D88970DE12985F987865F5A5898CD52370123D638AEAB37829B5ABB1DA8C2989EE532AE538535973B022491033167D51C46A06B6E17C3183ECA65B7515F865D5308FFD8D698555525CF6D79653597F4E46D126E6D67F142519F1410ADC69589B23165D0F87EAC5F7DE4F3C13D14B643B608A32D980D125567E9CAD1EB095C4C4BB05D5A9B1EECC3E9AAD4174182841F1E8C62204116E719FF3474E4663ADA986DCA08C350162298B488BAADDB3761D25CE5114FAB64C979E5FCDAE6A024EF7A80679A2415AAC324408232363D12285DD33A690B3205175E6C75A85B368F8B1FE5BBB02EAFA624C61938BC2F805E94D001AAA90E6A2EE8852F82B573D09524DAED64933A03918C87E03BBC5F9A4349308666E83318C968A8486C8A722B1398C8429A9819A7BF5095739969C03BEADF7937A5DFA16DC7C44A8E3D355900A7D4089A5D300BB690CD8633B4DE36670D9374997A0309E117630131CB269F4B1EF9EF12980C0F3F40E6423C547B8C142A04D4D54A0054262776887358861228D1052D9F960A877F89E0B8768C307C687A683941FA9A473110F87966CB56A81AF94C98C614740C9453999A6D0D3B12DE361AD7375EBD3022DC2B7626A286A63B8448947CACC'
@@ -274,7 +274,7 @@ describe('Falcon', () => {
     );
     deepStrictEqual(falcon.falcon1024.verify(hexToBytes(sig), msg, pk), true);
   });
-  should('detached/validation', () => {
+  it('detached/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
     const rnd = (len) => new Uint8Array(len).fill(7);
     // Verified against PQClean: unpadded rejects appended bytes,
@@ -301,7 +301,7 @@ describe('Falcon', () => {
       );
     }
   });
-  should('attached/validation', () => {
+  it('attached/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
     const rnd = (len) => new Uint8Array(len).fill(7);
     // Unpadded attached signatures reject appended bytes even if the outer length prefix is
@@ -331,7 +331,7 @@ describe('Falcon', () => {
       throws(() => padded.attached.open(pbad, publicKey));
     }
   });
-  should('padded/detached-lengths', () => {
+  it('padded/detached-lengths', () => {
     const msg = Uint8Array.from([1, 2, 3, 4]);
     const random = (len = 0) => new Uint8Array(len).fill(7);
     const { secretKey: sk512 } = falcon.falcon512padded.keygen(new Uint8Array(48).fill(1));
@@ -353,7 +353,7 @@ describe('Falcon', () => {
       }
     );
   });
-  should('detached/maxS2Len', () => {
+  it('detached/maxS2Len', () => {
     // These payload-only budgets must stay aligned with the vendored PQClean detached limits:
     // total detached bytes minus the detached header byte and 40-byte nonce.
     deepStrictEqual(
@@ -367,7 +367,7 @@ describe('Falcon', () => {
       }
     );
   });
-  should('padded/validation', () => {
+  it('padded/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
     const rnd = (len) => new Uint8Array(len).fill(7);
     // Verified against PQClean: padded detached signatures accept
@@ -392,7 +392,7 @@ describe('Falcon', () => {
       throws(() => padded.attached.open(sbad, publicKey));
     }
   });
-  should('padded/malleability', () => {
+  it('padded/malleability', () => {
     // Padded signatures are fixed-length, so exactly one byte string may encode a given signature.
     // Deriving the payload width from the input instead of from the parameter set used to accept
     // both a zero-appended and a padding-truncated container: without the secret key, an attacker
@@ -442,7 +442,7 @@ describe('Falcon', () => {
       }
     }
   });
-  should('publicKey/validation', () => {
+  it('publicKey/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
     const rnd = (len) => new Uint8Array(len).fill(7);
     // Verified against PQClean: modq_decode rejects truncated bodies
@@ -471,7 +471,7 @@ describe('Falcon', () => {
       deepStrictEqual(detached.verify(sig, msg, badPk), false);
     }
   });
-  should('privateKey/validation', () => {
+  it('privateKey/validation', () => {
     const cases = [
       [falcon.falcon512, new Uint8Array(48).fill(1), 0x82],
       [falcon.falcon1024, new Uint8Array(48).fill(2), 0x80],
@@ -485,7 +485,7 @@ describe('Falcon', () => {
       throws(() => detached.getPublicKey(bad));
     }
   });
-  should('keyCoder/encode/validation', () => {
+  it('keyCoder/encode/validation', () => {
     // Verified against PQClean: modq_encode rejects coefficients >= 12289,
     // and trim_i8_encode rejects the forbidden minimum.
     const cases = [
@@ -517,7 +517,7 @@ describe('Falcon', () => {
       throws(() => privateKeyCoder.encode([badF, g, F]));
     }
   });
-  should('keygen/validation', () => {
+  it('keygen/validation', () => {
     // Round 3 KATs use 48-byte seeds, and PQClean keypair seeds SHAKE from `unsigned char seed[48]`.
     const cases = [
       falcon.falcon512,
@@ -533,7 +533,7 @@ describe('Falcon', () => {
       throws(() => detached.keygen(new Uint8Array(49)));
     }
   });
-  should('sign/validation', () => {
+  it('sign/validation', () => {
     // Round 3 Sign samples a 40-byte nonce, and PQClean also uses fixed nonce/seed buffers.
     const badNonceLens = [0, 1, 39, 41, 80];
     const badSeedLens = [0, 1, 47, 49, 200];
@@ -577,7 +577,7 @@ describe('Falcon', () => {
       }
     }
   });
-  should('verify/validation', () => {
+  it('verify/validation', () => {
     // Keep top-level misuse handling aligned with the other noble signers: wrong JS types should throw,
     // while malformed byte encodings still return false.
     const bads = [undefined, 1, 'x', {}, []];
@@ -598,7 +598,7 @@ describe('Falcon', () => {
   });
   // privateKeyCoder is frozen so exported test surfaces cannot poison library functions. Temporarily
   // expose an unfrozen hook if this cleanup assertion needs to be re-enabled.
-  should.skip('secret/cleanup', () => {
+  it.skip('secret/cleanup', () => {
     const msg = new Uint8Array([1, 2, 3]);
     const zero = (parts) => {
       for (const p of parts) deepStrictEqual(p, new Int8Array(p.length));
@@ -638,7 +638,7 @@ describe('Falcon', () => {
       }
     }
   });
-  should('api/shape', () => {
+  it('api/shape', () => {
     const cases = [
       [falcon.falcon512, new Uint8Array(48).fill(1), false],
       [falcon.falcon512padded, new Uint8Array(48).fill(2), true],
@@ -677,7 +677,7 @@ describe('Falcon', () => {
       );
     }
   });
-  should('secretKey/validation', () => {
+  it('secretKey/validation', () => {
     const msg = new Uint8Array([1, 2, 3]);
     const cases = [falcon.falcon512, falcon.falcon1024];
     for (const detached of cases) {
@@ -693,7 +693,7 @@ describe('Falcon', () => {
       throws(() => detached.attached.seal(msg, bad), /invalid secretKey/);
     }
   });
-  should('falcon-sign interop', () => {
+  it('falcon-sign interop', () => {
     const MSG = hexToBytes('68656c6c6f00');
     const SIG = hexToBytes(
       '02668050bd5303fa1f5927dcb69245bae640c3681a7ea09ee53c3d96eacfc4e01e575251b84c100cb7cd2965f76a67cc29856a471b007a642ede1d0126676e3492b5c4ee54dd20a9db692c6f23b91f6278cc9a0aba89f445935bbe6b0ebee0601c4206d641a23d899b570e77e11a1d9c74a8eee81ff8ed1e4cd44ca91e1c8e5d7d82529cccef325ca49c943b27829568e7faf71d3d9e43bb683c38eca339b82c561905ab4f17a8ca078a96ba48c51de9da65bb2935e91441687bc693c783cce1f0b297b9d4c9edf4d9dd52df1ff8d8ab8c0fb717c0542358b9c64c96c0d71ff78e3110b01210e44de05b39434be4843dcdd6998d1843c72d5b363c8354c46708824e8d2cfdbc3b4d25e05cef4e9d66509fb210a4c5c2bb753b1c6cc456718bee6cedd9fd488fe5d90df5f25b01af99a40ce0acaf0d626897444d7ce90abeae9467527e7dc903b558c8c151f5b325906251aca5d914dbae3ac5a9ad28b23bdeefaab7940717fda775e4dcc74d9c3d9bf410ee64ad1115049864ba1c234795496b95bce8aed009ee7a8b4644d8f34787a059f60b5c118ebe3f52ecfd95b3d94cd996a9b91ec4ba7151c9d272ca47c1812ff0f9660d955748852d1bbf0d777df8cabdd4bc31933c64d6fd4fce4eeed02bca18bfa2549a1986892071df6216d60a4a0473db2d3329a63631babb99e95f3925f216bfb3b506abc7e3dd9bc649b486723d4a5a16533eb6eecda3fb1fd0a3d1c1d7f2103647e47a6278c5a7cb7c65fed2686a19faaab7dd0f6af3b9ebcff4fa5655a58939b5481fa31523309aa7ee8b9d98dc7a7d4cf90639c862709021ba34876314f5406656ca09673cdfecbd7a22a6e4ca039dc8c1ba1b0a2b72f6b92a4f0b20b7a0e43da025a7bddb6f353b8831556bdbb60074eb1e9f31264e9006e37480'
@@ -741,4 +741,4 @@ describe('Falcon', () => {
 
 // should.opts.FAST = false;
 
-should.runWhen(import.meta.url);
+it.runWhen(import.meta.url);

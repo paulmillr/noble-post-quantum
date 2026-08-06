@@ -1,5 +1,5 @@
 import { concatBytes, hexToBytes as hexx } from '@noble/hashes/utils.js';
-import { describe, should } from '@paulmillr/jsbt/test.js';
+import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
@@ -134,7 +134,7 @@ async function loadACVPCases(name, plan) {
 describe('AVCP', () => {
   describe('ML-KEM', () => {
     const NAMES = { 'ML-KEM-512': ml_kem512, 'ML-KEM-768': ml_kem768, 'ML-KEM-1024': ml_kem1024 };
-    should('keyGen', async () => {
+    it('keyGen', async () => {
       for await (const g of loadACVP('ML-KEM-keyGen-FIPS203')) {
         const mlkem = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -145,7 +145,7 @@ describe('AVCP', () => {
         }
       }
     });
-    should('encapDecap', async () => {
+    it('encapDecap', async () => {
       for await (const g of loadACVP('ML-KEM-encapDecap-FIPS203')) {
         const mlkem = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -189,7 +189,7 @@ describe('AVCP', () => {
   });
   describe('ML-DSA', () => {
     const NAMES = { 'ML-DSA-44': ml_dsa44, 'ML-DSA-65': ml_dsa65, 'ML-DSA-87': ml_dsa87 };
-    should('keyGen', async () => {
+    it('keyGen', async () => {
       for await (const g of loadACVP('ML-DSA-keyGen-FIPS204')) {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -200,7 +200,7 @@ describe('AVCP', () => {
         }
       }
     });
-    should('sigGen', async () => {
+    it('sigGen', async () => {
       for await (const g of loadACVP('ML-DSA-sigGen-FIPS204')) {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -225,7 +225,7 @@ describe('AVCP', () => {
         }
       }
     });
-    should('sigVer', async () => {
+    it('sigVer', async () => {
       for await (const g of loadACVP('ML-DSA-sigVer-FIPS204')) {
         const mldsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -272,7 +272,7 @@ describe('AVCP', () => {
       'SLH-DSA-SHAKE-256s': slh_dsa_shake_256s,
       'SLH-DSA-SHAKE-256f': slh_dsa_shake_256f,
     };
-    should('keyGen', async () => {
+    it('keyGen', async () => {
       for await (const g of loadACVP('SLH-DSA-keyGen-FIPS205')) {
         const slhdsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -285,7 +285,7 @@ describe('AVCP', () => {
         }
       }
     });
-    should('sigVer', async () => {
+    it('sigVer', async () => {
       for await (const g of loadACVP('SLH-DSA-sigVer-FIPS205')) {
         const slhdsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
@@ -321,7 +321,7 @@ describe('AVCP', () => {
       const getCases = () => (cases ||= loadACVPCases('SLH-DSA-sigGen-FIPS205', plan));
       for (let i = 0; i < plan.length; i++) {
         const { gid, tid } = plan[i];
-        should(`vector ${i + 1} of ${plan.length}`, async () => {
+        it(`vector ${i + 1} of ${plan.length}`, async () => {
           const c = (await getCases()).get(caseKey(gid, tid));
           if (!c) throw new Error(`missing SLH-DSA-sigGen-FIPS205 vector ${gid}:${tid}`);
           const { info, t } = c;
@@ -348,4 +348,4 @@ describe('AVCP', () => {
   });
 });
 
-should.runWhen(import.meta.url);
+it.runWhen(import.meta.url);
