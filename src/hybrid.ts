@@ -896,33 +896,3 @@ export const ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
 /** P-384 + ML-KEM-1024 hybrid preset. */
 export const ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48))();
-
-// Legacy aliases
-/** Legacy alias for `ml_kem768_x25519`. */
-export const XWing: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_x25519)();
-/** Legacy alias for `ml_kem768_x25519`. */
-export const MLKEM768X25519: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_x25519)();
-/** Legacy alias for `ml_kem768_p256`. */
-export const MLKEM768P256: TRet<KEM> = /* @__PURE__ */ (() => ml_kem768_p256)();
-/** Legacy alias for `ml_kem1024_p384`. */
-export const MLKEM1024P384: TRet<KEM> = /* @__PURE__ */ (() => ml_kem1024_p384)();
-/**
- * Legacy alias for `QSF_ml_kem768_p256`.
- * @example
- * Use the QSF ML-KEM-768 + P-256 preset with caller-provided encapsulation randomness.
- * ```ts
- * import { QSFMLKEM768P256 } from '@noble/post-quantum/hybrid.js';
- * const seed = new Uint8Array(QSFMLKEM768P256.lengths.seed!).fill(1);
- * const { secretKey, publicKey } = QSFMLKEM768P256.keygen(seed);
- * const msg = new Uint8Array(QSFMLKEM768P256.lengths.msgRand!).fill(7);
- * const { cipherText, sharedSecret } = QSFMLKEM768P256.encapsulate(publicKey, msg);
- * const recovered = QSFMLKEM768P256.decapsulate(cipherText, secretKey);
- * const publicKey2 = QSFMLKEM768P256.getPublicKey(secretKey);
- * ```
- */
-export const QSFMLKEM768P256: TRet<KEM> = /* @__PURE__ */ (() => QSF_ml_kem768_p256)();
-/** Legacy alias for `QSF_ml_kem1024_p384`. */
-export const QSFMLKEM1024P384: TRet<KEM> = /* @__PURE__ */ (() => QSF_ml_kem1024_p384)();
-/** Legacy alias for `KitchenSink_ml_kem768_x25519`. */
-export const KitchenSinkMLKEM768X25519: TRet<KEM> = /* @__PURE__ */ (() =>
-  KitchenSink_ml_kem768_x25519)();
