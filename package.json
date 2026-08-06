@@ -4,18 +4,16 @@
   "description": "Auditable & minimal JS implementation of post-quantum cryptography: FIPS 203, 204, 205, Falcon",
   "files": [
     "*.js",
-    "*.js.map",
     "*.d.ts",
-    "*.d.ts.map",
     "src"
   ],
   "dependencies": {
     "@noble/ciphers": "~2.2.0",
-    "@noble/curves": "~2.2.0",
-    "@noble/hashes": "~2.2.0"
+    "@noble/curves": "~2.3.0",
+    "@noble/hashes": "~2.3.0"
   },
   "devDependencies": {
-    "@paulmillr/jsbt": "0.6.1",
+    "@paulmillr/jsbt": "0.6.5",
     "@types/node": "25.3.0",
     "fast-check": "4.2.0",
     "prettier": "3.6.2",
@@ -23,15 +21,12 @@
   },
   "scripts": {
     "benchmark": "node benchmark/pq.ts",
+    "benchmark:size": "jsbt size",
     "build": "tsc",
-    "bundle": "npx --no @paulmillr/jsbt bundle",
-    "check": "npx --no @paulmillr/jsbt check",
-    "build:clean": "rm *.{js,js.map,d.ts,d.ts.map} 2> /dev/null",
+    "check": "jsbt-check",
+    "build:clean": "rm *.{js,d.ts} 2> /dev/null",
     "format": "prettier --write 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
     "test": "node test/index.ts",
-    "test:bun": "bun test/index.ts",
-    "test:deno": "deno --allow-env --allow-read test/index.ts",
-    "test:tsc": "cd test; npx tsc; node compiled/test/index.js",
     "test:slow": "SLOW_TESTS=1 node test/index.ts"
   },
   "exports": {

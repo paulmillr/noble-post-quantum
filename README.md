@@ -3,14 +3,14 @@
 Auditable & minimal JS implementation of post-quantum public-key cryptography.
 
 - 🔒 Auditable
-- 🔻 Tree-shakeable: unused code is excluded from your builds
-- 🔍 Reliable: tests ensure correctness
+- 🪶 Minimal: 7KB (gzipped) ML-KEM, unused code is excluded from your builds
+- 🏎 Fast: hand-optimized for caveats of JS engines
+- 🔍 Reliable: ACVP / wycheproof tests ensure correctness
 - 🦾 ML-KEM & CRYSTALS-Kyber: lattice-based KEM from FIPS-203
 - 🔋 ML-DSA & CRYSTALS-Dilithium: lattice-based signatures from FIPS-204
 - 🐈 SLH-DSA & SPHINCS+: hash-based Winternitz signatures from FIPS-205
 - 🦅 Falcon: lattice-based signatures from Falcon Round 3
-- 🍡 Hybrid algorithms, combining classic & post-quantum: XWing, KitchenSink, QSF & others
-- 🪶 16KB (gzipped) for everything, including bundled hashes, curves & ciphers
+- 🍡 Hybrid algorithms (combining classic & post-quantum)
 
 > [!IMPORTANT]
 > NIST published draft [IR 8547](https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8547.ipd.pdf),
@@ -71,8 +71,7 @@ import {
 } from '@noble/post-quantum/falcon.js';
 import {
   ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
-  KitchenSink_ml_kem768_x25519, XWing,
-  QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
+  KitchenSink_ml_kem768_x25519, QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
 } from '@noble/post-quantum/hybrid.js';
 ```
 
@@ -222,7 +221,7 @@ Lattice-based digital signature algorithm, submitted to NIST PQC Round 3 ([websi
 ```js
 import {
   ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
-  KitchenSink_ml_kem768_x25519, XWing,
+  KitchenSink_ml_kem768_x25519,
   QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
 } from '@noble/post-quantum/hybrid.js';
 ```
