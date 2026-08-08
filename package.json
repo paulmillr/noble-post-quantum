@@ -21,7 +21,6 @@
   },
   "scripts": {
     "benchmark": "node benchmark/pq.ts",
-    "benchmark:size": "jsbt size",
     "benchmark:size": "npx bismar@0.1.3 -s",
     "build": "tsc",
     "check": "jsbt-check",
