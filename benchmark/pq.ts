@@ -3,6 +3,7 @@ import { concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import bench from '@paulmillr/jsbt/benchmark.js';
 import { deepStrictEqual } from 'node:assert';
 import { falcon1024, falcon512 } from '../src/falcon.ts';
+import { ml_kem768_p256, ml_kem768_x25519 } from '../src/hybrid.ts';
 import { ml_dsa65 } from '../src/ml-dsa.ts';
 import { ml_kem768 } from '../src/ml-kem.ts';
 import * as slh from '../src/slh-dsa.ts';
@@ -51,6 +52,20 @@ function falconOpts(lib, name: string) {
   await bench('keygen', () => mlkem.keygen());
   await bench('encapsulate', () => mlkem.encapsulate(mlkemo.publicKey));
   await bench('decapsulate', () => mlkem.decapsulate(mlkemo.cipherText, mlkemo.secretKey));
+
+  console.log('# ML-KEM768 + X25519');
+  const hkemX = ml_kem768_x25519;
+  const hkemXo = mlKemOpts(hkemX);
+  await bench('keygen', () => hkemX.keygen());
+  await bench('encapsulate', () => hkemX.encapsulate(hkemXo.publicKey));
+  await bench('decapsulate', () => hkemX.decapsulate(hkemXo.cipherText, hkemXo.secretKey));
+
+  console.log('# ML-KEM768 + P256');
+  const hkemP = ml_kem768_p256;
+  const hkemPo = mlKemOpts(hkemP);
+  await bench('keygen', () => hkemP.keygen());
+  await bench('encapsulate', () => hkemP.encapsulate(hkemPo.publicKey));
+  await bench('decapsulate', () => hkemP.decapsulate(hkemPo.cipherText, hkemPo.secretKey));
 
   console.log('# ML-DSA65');
   const mldsa = ml_dsa65;
