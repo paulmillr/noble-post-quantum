@@ -90,8 +90,7 @@ import {
 
 ```ts
 import { ml_kem512, ml_kem768, ml_kem1024 } from '@noble/post-quantum/ml-kem.js';
-import { randomBytes } from '@noble/post-quantum/utils.js';
-import { notDeepStrictEqual } from 'node:assert';
+import { equalBytes, randomBytes } from '@noble/post-quantum/utils.js';
 const seed = randomBytes(64); // seed is optional
 const aliceKeys = ml_kem768.keygen(seed);
 const { cipherText, sharedSecret: bobShared } = ml_kem768.encapsulate(aliceKeys.publicKey);
@@ -100,7 +99,7 @@ const aliceShared = ml_kem768.decapsulate(cipherText, aliceKeys.secretKey);
 // Warning: Can be MITM-ed
 const malloryKeys = ml_kem768.keygen();
 const malloryShared = ml_kem768.decapsulate(cipherText, malloryKeys.secretKey); // No error!
-notDeepStrictEqual(aliceShared, malloryShared); // Different key!
+console.log(equalBytes(aliceShared, malloryShared)); // false: different key!
 ```
 
 Lattice-based key encapsulation mechanism, defined in [FIPS-203](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf) ([website](https://www.pq-crystals.org/kyber/resources.shtml), [repo](https://github.com/pq-crystals/kyber)).
@@ -143,7 +142,10 @@ The internals are similar to ML-KEM, but keys and params are different.
 `sign` / `verify` accept optional parameters:
 
 ```ts
+import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 import { sha512 } from '@noble/hashes/sha2.js';
+const keys = ml_dsa65.keygen();
+const msg = new TextEncoder().encode('hello noble');
 const ctx = new Uint8Array([1, 2, 3]);
 const sigCtx = ml_dsa65.sign(msg, keys.secretKey, { context: ctx }); // verify needs same context
 const sigDet = ml_dsa65.sign(msg, keys.secretKey, { extraEntropy: false }); // deterministic
@@ -309,20 +311,6 @@ We rely on the built-in
 which is considered a cryptographically secure PRNG.
 
 Browsers have had weaknesses in the past - and could again - but implementing a userspace CSPRNG is even worse, as there’s no reliable userspace source of high-quality entropy.
-
-## Contributing & testing
-
-- `npm install && npm run build && npm test` will build the code and run tests.
-- `npm run format` will run prettier and fix formatting issues.
-- `npm run benchmark` will run benchmarks
-- `npm run bundle` will build single file
-
-Check out [github.com/paulmillr/guidelines](https://github.com/paulmillr/guidelines)
-for general coding practices and rules.
-
-See [paulmillr.com/noble](https://paulmillr.com/noble/)
-for useful resources, articles, documentation and demos
-related to the library.
 
 ## Speed
 

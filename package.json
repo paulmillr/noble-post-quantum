@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.6.1",
+  "version": "0.7.0-pre",
   "description": "Auditable & minimal JS implementation of post-quantum cryptography: FIPS 203, 204, 205, Falcon",
   "files": [
     "*.js",
@@ -21,7 +21,7 @@
   },
   "scripts": {
     "benchmark": "node benchmark/pq.ts",
-    "benchmark:size": "npx bismar@0.1.3 -s",
+    "benchmark:size": "npx bismar@0.1 -s",
     "build": "tsc",
     "check": "jsbt-check",
     "build:clean": "rm *.{js,d.ts} 2> /dev/null",
