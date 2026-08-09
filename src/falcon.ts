@@ -443,6 +443,17 @@ const Q: number = 12289; // 12 * 1024 + 1
 // Falcon's midpoint floor(q/2); the only live use is the mirrored G-reconstruction reduction below.
 const Qhalf: number = Q >> 1;
 const QBig = BigInt(Q);
+const _0n = /* @__PURE__ */ BigInt(0);
+const _1n = /* @__PURE__ */ BigInt(1);
+const _10n = /* @__PURE__ */ BigInt(10);
+const _25n = /* @__PURE__ */ BigInt(25);
+const _31n = /* @__PURE__ */ BigInt(31);
+const _32n = /* @__PURE__ */ BigInt(32);
+const _63n = /* @__PURE__ */ BigInt(63);
+const _64n = /* @__PURE__ */ BigInt(64);
+// Low 32 bits and low 63 bits of a bigint, used by the chacha20 counter and gaussian sampler.
+const MASK_32n = /* @__PURE__ */ BigInt('0xffffffff');
+const MASK_63n = /* @__PURE__ */ BigInt('0x7fffffffffffffff');
 //const R = 4091; // 2^16 mod q
 // This 16-bit Montgomery kernel uses R = 2^16, so mul(x, R2) converts x into Montgomery form.
 const R2 = 10952; // 2^32 mod q
@@ -479,35 +490,35 @@ const BITLENGTH = [
 // Smaller Falcon dimensions reuse the N = 1024, q = 12289 table by summing 2^(10-logn) draws.
 // The trailing 0 sentinel guarantees gaussSingle()
 // always selects a tail bucket when x = 0 is missed.
-const gauss_1024_12289 = [
-  1283868770400643928n,
-  6416574995475331444n,
-  4078260278032692663n,
-  2353523259288686585n,
-  1227179971273316331n,
-  575931623374121527n,
-  242543240509105209n,
-  91437049221049666n,
-  30799446349977173n,
-  9255276791179340n,
-  2478152334826140n,
-  590642893610164n,
-  125206034929641n,
-  23590435911403n,
-  3948334035941n,
-  586753615614n,
-  77391054539n,
-  9056793210n,
-  940121950n,
-  86539696n,
-  7062824n,
-  510971n,
-  32764n,
-  1862n,
-  94n,
-  4n,
-  0n,
-];
+const gauss_1024_12289 = /* @__PURE__ */ [
+  '1283868770400643928',
+  '6416574995475331444',
+  '4078260278032692663',
+  '2353523259288686585',
+  '1227179971273316331',
+  '575931623374121527',
+  '242543240509105209',
+  '91437049221049666',
+  '30799446349977173',
+  '9255276791179340',
+  '2478152334826140',
+  '590642893610164',
+  '125206034929641',
+  '23590435911403',
+  '3948334035941',
+  '586753615614',
+  '77391054539',
+  '9056793210',
+  '940121950',
+  '86539696',
+  '7062824',
+  '510971',
+  '32764',
+  '1862',
+  '94',
+  '4',
+  '0',
+].map(BigInt);
 
 // Exact binary64 1/sigma payloads from round-3 fpr.h. Nearby decimal spellings round 1 ULP low in
 // JS, so keep these as decoded bit patterns and recheck the raw payloads after edits.
@@ -1248,9 +1259,9 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       let val = 0;
       for (let i = 0; i < g; i++) {
         const r128 = bytesToNumberLE(this.shake.xof(16));
-        const r1 = r128 & 0x7fffffffffffffffn;
-        const r2 = (r128 >> 64n) & 0x7fffffffffffffffn;
-        const sign = Number((r128 >> 63n) & 1n);
+        const r1 = r128 & MASK_63n;
+        const r2 = (r128 >> _64n) & MASK_63n;
+        const sign = Number((r128 >> _63n) & _1n);
         let f = r1 < gauss_1024_12289[0] ? 1 : 0;
         let v = 0;
         for (let k = 1; k < gauss_1024_12289.length; k++) {
@@ -1283,13 +1294,13 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       const n = 1 << logn;
       const d = new Array(n >> 1);
       for (let k = 0; k < n; k += 2) {
-        let s: bigint = 0n;
+        let s: bigint = _0n;
         for (let i = 0; i <= k; i += 2) s += a[i] * a[k - i];
         for (let i = k + 2; i < n; i += 2) s -= a[i] * a[k + n - i];
         d[k >>> 1] = s;
       }
       for (let k = 0; k < n; k += 2) {
-        let s: bigint = 0n;
+        let s: bigint = _0n;
         for (let i = 1; i < k; i += 2) s += a[i] * a[k - i];
         for (let i = k + 1; i < n; i += 2) s -= a[i] * a[k + n - i];
         d[k >>> 1] -= s;
@@ -1299,7 +1310,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     private mulConjD(logn: number, d: BPoly, a: BPoly, b: BPoly): BPoly {
       const n = 1 << logn;
       for (let k = 0; k < n; k++) {
-        let s: bigint = 0n;
+        let s: bigint = _0n;
         for (let i = 0; i <= k; i += 2) s += b[i >>> 1] * a[k - i];
         for (let i = k + 2 - (k & 1); i < n; i += 2) s -= b[i >>> 1] * a[k + n - i];
         if ((k & 1) === 0) d[k] = s;
@@ -1310,7 +1321,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     private subMul(logn: number, a: BPoly, b: BPoly, c: BPoly, e: bigint): BPoly {
       const n = 1 << logn;
       for (let k = 0; k < n; k++) {
-        let s: bigint = 0n;
+        let s: bigint = _0n;
         for (let i = 0; i <= k; i++) s += b[i] * c[k - i];
         for (let i = k + 1; i < n; i++) s -= b[i] * c[k + n - i];
         a[k] -= s << e;
@@ -1353,7 +1364,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       const Gx = new Float64Array(n);
       const k = new Array(n);
       while (true) {
-        let scaleFG = 31n * (FGlen - 10n);
+        let scaleFG = _31n * (FGlen - _10n);
         for (let i = 0; i < n; i++) {
           Fx[i] = Number(F[i] >> scaleFG);
           Gx[i] = Number(G[i] >> scaleFG);
@@ -1373,12 +1384,12 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         }
         F = this.subMul(logn, F, f, k, scaleK); // 3:     F ← F - kf
         G = this.subMul(logn, G, g, k, scaleK); // 4:     G ← G - kg
-        const maxfgNew = scaleK + BigInt(Math.round(fgMaxBits)) + 10n;
+        const maxfgNew = scaleK + BigInt(Math.round(fgMaxBits)) + _10n;
         if (maxfgNew < maxFGBits) maxFGBits = maxfgNew;
-        if (FGlen > 1n && FGlen * 31n >= maxFGBits + 31n) FGlen--;
-        if (scaleK <= 0n) break;
-        scaleK -= 25n;
-        if (scaleK < 0n) scaleK = 0n;
+        if (FGlen > _1n && FGlen * _31n >= maxFGBits + _31n) FGlen--;
+        if (scaleK <= _0n) break;
+        scaleK -= _25n;
+        if (scaleK < _0n) scaleK = _0n;
       }
       return true;
     }
@@ -1406,10 +1417,10 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         const xf = f[0];
         const xg = g[0];
         // We can rely on 'invert' to throw if they are not coprime.
-        if (xf <= 0n || xg <= 0n) return false;
+        if (xf <= _0n || xg <= _0n) return false;
         try {
           const u1 = invert(xf, xg); //  if gcd(f, g) ≠ 1 then
-          const v1 = (1n - u1 * xf) / xg;
+          const v1 = (_1n - u1 * xf) / xg;
           F[0] = -v1 * QBig; // 5:     (F, G) ← (vq, uq)
           G[0] = u1 * QBig;
           return true;
@@ -1797,7 +1808,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     private shakeBuf: Uint8Array;
     private ctrView: DataView;
     // ChaCha
-    private ctr: bigint = 0n;
+    private ctr: bigint = _0n;
     private buf: Uint8Array;
     private buf32: Uint32Array;
     private pos: number;
@@ -1847,8 +1858,8 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       const out32 = swap32IfBE(this.buf32);
       for (let i = 0; i < 8; i++, this.ctr++) {
         const n = swap32IfBE(this.nonce32.slice()); // [n0, n1, n2, n3]
-        n[2] ^= Number(this.ctr & 0xffffffffn);
-        n[3] ^= Number(this.ctr >> 32n);
+        n[2] ^= Number(this.ctr & MASK_32n);
+        n[3] ^= Number(this.ctr >> _32n);
         // chacha20() takes raw nonce bytes; on BE the word-normalized temp must be swapped back.
         swap32IfBE(n.subarray(1));
         chacha20(this.key, u8(n.subarray(1)), EMPTY_CHACHA20_BLOCK, this.curBlock, n[0]);

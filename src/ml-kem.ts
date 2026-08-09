@@ -294,8 +294,8 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
   // `getA(i, j)` are treated as disposable scratch: they are mutated in place and wiped/dropped,
   // so callers holding cached copies must pass fresh copies.
   const encryptCore = (
-    tHat: Poly[],
-    getA: (i: number, j: number) => Poly,
+    tHat: TArg<Poly[]>,
+    getA: TArg<(i: number, j: number) => Poly>,
     msg: TArg<Uint8Array>,
     seed: TArg<Uint8Array>
   ): TRet<Uint8Array> => {

@@ -198,8 +198,12 @@ const base2b = (outLen: number, b: number) => {
   };
 };
 
+const _1n = /* @__PURE__ */ BigInt(1);
+const _8n = /* @__PURE__ */ BigInt(8);
+const _0xffn = /* @__PURE__ */ BigInt(0xff);
+
 function getMaskBig(bits: number) {
-  return (1n << BigInt(bits)) - 1n; // 4 -> 0b1111
+  return (_1n << BigInt(bits)) - _1n; // 4 -> 0b1111
 }
 
 /** Public SLH-DSA signer with prehash customization. */
@@ -285,7 +289,7 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     if (subtreeAddr) addr.set(subtreeAddr.subarray(0, OFFSET_TREE + 8));
     if (tree !== undefined) {
       let t = tree;
-      for (let i = 7; i >= 0; i--, t >>= 8n) addr[OFFSET_TREE + i] = Number(t & 0xffn);
+      for (let i = 7; i >= 0; i--, t >>= _8n) addr[OFFSET_TREE + i] = Number(t & _0xffn);
     }
     if (keypair !== undefined) {
       addr[OFFSET_KP_ADDR1] = keypair;
@@ -915,7 +919,7 @@ const genSha =
     }
 
     const thash =
-      (h: typeof h0ps, hTmp: typeof h0ps, out: Uint8Array, outN: Uint8Array) =>
+      (h: typeof h0ps, hTmp: typeof h0ps, out: TArg<Uint8Array>, outN: TArg<Uint8Array>) =>
       (blocks: number, input: TArg<Uint8Array>, addr: TArg<ADRS>): TRet<Uint8Array> => {
         stats.thash++;
         const len = blocks * N;

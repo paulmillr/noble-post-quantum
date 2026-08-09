@@ -64,7 +64,16 @@ export type DSAInternal = CryptoKeys & {
   ) => boolean;
 };
 /** Public ML-DSA signer surface. */
-export type DSA = Signer & { internal: TRet<DSAInternal> };
+export type DSA = Signer & {
+  internal: TRet<DSAInternal>;
+  securityLevel: number;
+  /**
+   * HashML-DSA (FIPS 204 §5.4) variant which signs a pre-hashed message.
+   * @param hash - Approved hash, checked against the parameter set security level.
+   * @returns Signer which pre-hashes `msg` before formatting `M'`.
+   */
+  prehash: (hash: TArg<CHash>) => TRet<Signer>;
+};
 
 // Constants
 // FIPS 204 fixes ML-DSA over R = Z[X]/(X^256 + 1), so every polynomial has 256 coefficients.
@@ -736,8 +745,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       abytes(sig, undefined, 'signature');
       return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
-    prehash: (hash: CHash) => {
-      checkHash(hash, securityLevel);
+    prehash: (hash: TArg<CHash>): TRet<Signer> => {
+      checkHash(hash as CHash, securityLevel);
+      const rawHash = hash as CHash;
       return Object.freeze({
         info: Object.freeze({ type: 'hashml-dsa' }),
         securityLevel: securityLevel,
@@ -750,7 +760,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           opts: TArg<SigOpts> = {}
         ): TRet<Uint8Array> => {
           validateSigOpts(opts);
-          const M = getMessagePrehash(hash, msg, opts.context);
+          const M = getMessagePrehash(rawHash, msg, opts.context);
           const res = internal.sign(M, secretKey, opts);
           cleanBytes(M);
           return res as TRet<Uint8Array>;
@@ -763,7 +773,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         ) => {
           validateVerOpts(opts);
           abytes(sig, undefined, 'signature');
-          return internal.verify(sig, getMessagePrehash(hash, msg, opts.context), publicKey);
+          return internal.verify(sig, getMessagePrehash(rawHash, msg, opts.context), publicKey);
         },
       });
     },

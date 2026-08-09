@@ -112,23 +112,23 @@ import {
 type CurveAll = ECDSA | EdDSA | MontgomeryECDH;
 type CurveECDH = ECDSA | MontgomeryECDH;
 type CurveSign = ECDSA | EdDSA;
-const validateKEM = (kem: TArg<KEM>, title: string): KEM => {
+const validateKEM = (kem: TArg<KEM>, title: string): TRet<KEM> => {
   const k = aobject<KEM>(kem, title);
   aobject(k.lengths, `${title}.lengths`);
   afunction(k.keygen, `${title}.keygen`);
   afunction(k.getPublicKey, `${title}.getPublicKey`);
   afunction(k.encapsulate, `${title}.encapsulate`);
   afunction(k.decapsulate, `${title}.decapsulate`);
-  return k;
+  return k as TRet<KEM>;
 };
-const validateSigner = (signer: TArg<Signer>, title: string): Signer => {
+const validateSigner = (signer: TArg<Signer>, title: string): TRet<Signer> => {
   const s = aobject<Signer>(signer, title);
   aobject(s.lengths, `${title}.lengths`);
   afunction(s.keygen, `${title}.keygen`);
   afunction(s.getPublicKey, `${title}.getPublicKey`);
   afunction(s.sign, `${title}.sign`);
   afunction(s.verify, `${title}.verify`);
-  return s;
+  return s as TRet<Signer>;
 };
 
 // Can re-use if decide to signatures support, on other hand getSecretKey is specific and ugly
