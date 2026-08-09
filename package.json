@@ -1,6 +1,6 @@
 {
   "name": "@noble/post-quantum",
-  "version": "0.7.0-pre",
+  "version": "0.7.0",
   "description": "Auditable & minimal JS implementation of post-quantum cryptography: FIPS 203, 204, 205, Falcon",
   "files": [
     "*.js",
