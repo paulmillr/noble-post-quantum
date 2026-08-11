@@ -552,6 +552,9 @@ const SIGMA_MIN = /* @__PURE__ */ Object.freeze([
   f64b(BigInt('4608433670533905013')),
   f64b(BigInt('4608525754002622308')),
 ]);
+// Upper end of the SamplerZ proof interval from Falcon section 3.9.1. The per-leaf sigma is
+// derived from the reconstructed private basis, so imported keys must be checked against it.
+const SIGMA_MAX = 1.8205;
 
 // Falcon Table 3.1 RCDT values for chi, split into 24-bit limbs; storage is [high, mid, low],
 // so gaussian0() intentionally compares them against v0, v1, v2 in reverse order. The final
@@ -2127,7 +2130,13 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       // 13: z₀ ← mergefft(z'₀)
       // 14: return z = (z₀, z₁)
       if (logn === 0) {
+        // The dynamic sampler stores 1/σ' instead of σ'. Keygen guarantees this interval,
+        // but an imported compact key may reconstruct an invalid basis. Check the actual LDL*
+        // leaf before it can drive SamplerZ; the negated comparison also rejects NaN/infinity.
         const leaf = Math.sqrt(g00i[0].re) * INV_SIGMA[this.logn];
+        const sigmaPrime = 1 / leaf;
+        if (!(sigmaPrime >= SIGMA_MIN[this.logn] && sigmaPrime <= SIGMA_MAX))
+          throw new Error('invalid secretKey: sampler sigma out of range');
         // 3:     z₀ ← SamplerZ(t₀, σ')
         //        ▷ Since n=1, tᵢ = invFFT(tᵢ) ∈ Q and zᵢ = invFFT(zᵢ) ∈ Z
         const t0re = this.samplerZ(t0[0].re, leaf);

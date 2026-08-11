@@ -679,8 +679,11 @@ describe('Falcon', () => {
   });
   it('secretKey/validation', () => {
     const msg = new Uint8Array([1, 2, 3]);
-    const cases = [falcon.falcon512, falcon.falcon1024];
-    for (const detached of cases) {
+    const cases = [
+      [falcon.falcon512, new Uint8Array(48).fill(1)],
+      [falcon.falcon1024, new Uint8Array(48).fill(2)],
+    ];
+    for (const [detached, seed] of cases) {
       const n = detached.lengths.publicKey === 897 ? 512 : 1024;
       const { privateKeyCoder } = coders(detached);
       const f = new Int8Array(n);
@@ -691,6 +694,18 @@ describe('Falcon', () => {
       throws(() => detached.getPublicKey(bad), /invalid secretKey/);
       throws(() => detached.sign(msg, bad), /invalid secretKey/);
       throws(() => detached.attached.seal(msg, bad), /invalid secretKey/);
+
+      // A compact key can be coefficient-canonical and have invertible f while reconstructing a
+      // basis outside SamplerZ's proof envelope. In particular, clearing F also reconstructs G=0,
+      // which used to enter an unbounded rejection loop with σ'=infinity.
+      const { publicKey, secretKey } = detached.keygen(seed);
+      const [validF, validG, validBigF] = privateKeyCoder.decode(secretKey);
+      validBigF.fill(0);
+      const badBasis = privateKeyCoder.encode([validF, validG, validBigF]);
+      deepStrictEqual(detached.getPublicKey(badBasis), publicKey);
+      const random = (len) => new Uint8Array(len).fill(7);
+      throws(() => detached.sign(msg, badBasis, { random }), /sampler sigma out of range/);
+      throws(() => detached.attached.seal(msg, badBasis, { random }), /sampler sigma out of range/);
     }
   });
   it('falcon-sign interop', () => {

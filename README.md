@@ -79,7 +79,7 @@ import {
 - [ML-DSA / Dilithium](#ml-dsa--dilithium-signatures)
 - [SLH-DSA / SPHINCS+](#slh-dsa--sphincs-signatures)
 - [Falcon](#falcon-signatures)
-- [hybrid: XWing, KitchenSink and others](#hybrid-xwing-kitchensink-and-others)
+- [hybrid: X-Wing, KitchenSink and others](#hybrid-x-wing-kitchensink-and-others)
 - [What should I use?](#what-should-i-use)
 - [Security](#security)
 - [Contributing & testing](#contributing--testing)
@@ -218,7 +218,26 @@ Lattice-based digital signature algorithm, submitted to NIST PQC Round 3 ([websi
 - `falcon512padded`, `falcon1024padded`: fixed-length detached signatures
 - `attached.seal(...)` / `attached.open(...)`: attached-signature API for Round 3 vectors and interop
 
-### hybrid: XWing, KitchenSink and others
+> [!WARNING]
+> Falcon signing is randomized by design. Leave signing options unset in production so every
+> signature receives a fresh 40-byte public nonce and a fresh 48-byte sampler seed from the system
+> CSPRNG. Falcon's `extraEntropy` option does not have the hedged semantics used by ML-DSA and
+> SLH-DSA:
+>
+> - `extraEntropy: false` seeds an AES-CTR-DRBG with 48 zero bytes. It makes signatures
+>   deterministic for a fixed key and message, and reuses the same nonce and initial random stream
+>   across different messages. This is outside the Falcon Round 3 randomized-hash design.
+> - A 48-byte `extraEntropy` value replaces system randomness; it is not mixed with fresh entropy.
+>   Reusing a value therefore reuses the signing stream.
+> - The raw `random` callback overrides `extraEntropy` and supplies both the nonce and sampler seed.
+>   It exists for test-vector reproduction and should not be used as a production randomness hook.
+>
+> In particular, do not copy ML-DSA examples that use `extraEntropy: false` into Falcon code.
+
+`attached.open(...)` throws when verification fails and returns a fresh, non-aliased copy of the
+embedded message when it succeeds. Detached `verify(...)` returns `false` for an invalid signature.
+
+### hybrid: X-Wing, KitchenSink and others
 
 ```js
 import {
@@ -230,19 +249,26 @@ import {
 
 The hybrid submodule combines post-quantum algorithms with elliptic curve cryptography:
 
-- `ml_kem768_x25519`: ML-KEM-768 + X25519 (CG Framework, same as XWing)
-- `ml_kem768_p256`: ML-KEM-768 + P-256 (CG Framework)
-- `ml_kem1024_p384`: ML-KEM-1024 + P-384 (CG Framework)
+- `ml_kem768_x25519`: ML-KEM-768 + X25519, implementing X-Wing under the descriptive
+  `ml_kem768_x25519` export name. There is no separate `XWing` alias.
+- `ml_kem768_p256`: ML-KEM-768 + P-256 using the current CG framework construction
+- `ml_kem1024_p384`: ML-KEM-1024 + P-384 using the current CG framework construction
 - `KitchenSink_ml_kem768_x25519`: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
-- `QSF_ml_kem768_p256`: ML-KEM-768 + P-256 (QSF construction)
-- `QSF_ml_kem1024_p384`: ML-KEM-1024 + P-384 (QSF construction)
+- `QSF_ml_kem768_p256`, `QSF_ml_kem1024_p384`: legacy compatibility presets for the older
+  QSF/C2PRI naming and labels. New code should use `ml_kem768_p256` and `ml_kem1024_p384`.
 
-The following spec drafts are matched:
+The current `ml_kem*` presets are tested against these work-in-progress specifications:
 
-- [irtf-cfrg-hybrid-kems-07](https://datatracker.ietf.org/doc/draft-irtf-cfrg-hybrid-kems/)
-- [irtf-cfrg-concrete-hybrid-kems-02](https://datatracker.ietf.org/doc/draft-irtf-cfrg-concrete-hybrid-kems/)
-- [connolly-cfrg-xwing-kem-09](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/)
-- [tls-westerbaan-xyber768d00-03](https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/)
+- [irtf-cfrg-hybrid-kems-12](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12)
+- [irtf-cfrg-concrete-hybrid-kems-03](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-concrete-hybrid-kems-03)
+- [connolly-cfrg-xwing-kem-10](https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-10)
+
+`QSF(...)` is the legacy API name for the construction now called the C2PRI combiner. It derives
+the final secret from `ssPQ || ssT || ctT || ekT || label`; omitting the PQ ciphertext and
+encapsulation key is intentional and relies on the PQ KEM's C2PRI property. The `QSF_*` presets
+retain older draft labels and vectors for compatibility, so they do not implement the current
+concrete preset encodings. They are also unrelated to the separate universal-combiner example in
+NIST SP 800-227.
 
 ### What should I use?
 
@@ -282,9 +308,23 @@ If you see anything unusual: investigate and report.
 
 ### Constant-timeness
 
-There is no protection against side-channel attacks.
-We actively research how to provide this property for post-quantum algorithms in JS.
-Keep in mind that even hardware versions ML-KEM [are vulnerable](https://eprint.iacr.org/2023/1084).
+This pure JavaScript implementation does not claim constant-time execution. JavaScript engines,
+JIT compilers, garbage collection, floating-point operations and `bigint` arithmetic do not offer
+the execution guarantees needed for a formal constant-time claim.
+
+- ML-DSA signing uses rejection loops, early-exit norm checks and conditional arithmetic whose
+  execution depends on secret-key and per-signature state. Fresh randomized signing is the default,
+  but it does not turn the implementation into a constant-time one.
+- Falcon signing uses data-dependent Gaussian and rejection sampling, floating-point operations,
+  and `bigint` paths. Its timing and microarchitectural side-channel posture is materially weaker
+  than a hardened native implementation. Deterministic or repeated signing randomness can make
+  observations easier to correlate and should be avoided.
+- These limitations matter most when an attacker can measure signing closely, such as hostile
+  co-tenancy, shared hardware, or a high-resolution local timing oracle. Use an isolated execution
+  environment or a reviewed native/constant-time backend when that is part of the threat model.
+
+We actively research how to improve this property for post-quantum algorithms in JS. Even hardware
+ML-KEM implementations require careful side-channel engineering and [have had practical attacks](https://eprint.iacr.org/2023/1084).
 
 ### Supply chain security
 
