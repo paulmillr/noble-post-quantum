@@ -181,9 +181,9 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
 /**
  * Wraps an ECDH-capable curve as a KEM.
  * Shared secrets stay in the wrapped curve's raw ECDH byte format with no built-in KDF.
- * On SEC 1 / Weierstrass curves, that means the compressed shared-point body without the
- * 1-byte `0x02` / `0x03` prefix.
- * The X25519 path also leaves RFC 7748's optional all-zero shared-secret check to callers.
+ * With noble's SEC 1 / Weierstrass curves, `getSharedSecret()` returns a compressed point and the
+ * wrapper removes its 1-byte `0x02` / `0x03` prefix, leaving the x-coordinate. Noble's X25519
+ * backend rejects low-order inputs that would produce an all-zero shared secret.
  * @param curve - Curve with `getSharedSecret`.
  * @param allowZeroKey - Legacy vector-matching toggle for Weierstrass keygen.
  * On Weierstrass curves this removes the usual post-reduction `+1` shift, changing seeded scalar
@@ -616,11 +616,13 @@ export function combineSigners(
 }
 
 /**
- * Builds a QSF hybrid KEM preset from a PQ KEM and an elliptic-curve KEM.
+ * Builds a legacy-named QSF hybrid KEM from a PQ KEM and an elliptic-curve KEM.
  * The combined shared-secret length follows `kdf.outputLen`; the built-in presets use 32-byte
  * SHA3-256 output, while custom `kdf` choices inherit their own digest size.
- * Its combiner hashes `ss0 || ss1 || ct1 || pk1 || label`, not the full
- * `(c1, c2, ek1, ek2)` example input shape from SP 800-227 equation (15).
+ * `QSF` was the name used by earlier IETF hybrid-KEM drafts for the construction now called the
+ * C2PRI combiner. It hashes `ssPQ || ssT || ctT || ekT || label`; omission of the PQ ciphertext
+ * and encapsulation key is intentional and relies on the PQ KEM's C2PRI property. This API does
+ * not implement the separate universal-combiner example in NIST SP 800-227.
  * Labels are encoded with `asciiToBytes()`, so non-ASCII labels are rejected.
  * @param label - Domain-separation label.
  * @param pqc - Post-quantum KEM.
@@ -666,7 +668,11 @@ export function QSF(
   );
 }
 
-/** QSF preset combining ML-KEM-768 with P-256. */
+/**
+ * Legacy QSF/C2PRI preset combining ML-KEM-768 with P-256.
+ * Retained for compatibility with older draft labels and vectors. New code should use
+ * {@link ml_kem768_p256}, which implements the current concrete hybrid-KEM construction.
+ */
 export const QSF_ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
   QSF(
     'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)',
@@ -675,7 +681,11 @@ export const QSF_ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
     shake256,
     sha3_256
   ))();
-/** QSF preset combining ML-KEM-1024 with P-384. */
+/**
+ * Legacy QSF/C2PRI preset combining ML-KEM-1024 with P-384.
+ * Retained for compatibility with older draft labels and vectors. New code should use
+ * {@link ml_kem1024_p384}, which implements the current concrete hybrid-KEM construction.
+ */
 export const QSF_ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
   QSF(
     'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)',
@@ -765,8 +775,10 @@ export const KitchenSink_ml_kem768_x25519: TRet<KEM> = /* @__PURE__ */ (() =>
     sha256
   ))();
 
-// Always X25519 and ML-KEM - 768, no point to export
-/** X25519 + ML-KEM-768 hybrid preset.
+/**
+ * X-Wing: the specified ML-KEM-768 + X25519 hybrid construction.
+ * The public export is named `ml_kem768_x25519`; there is intentionally no separate `XWing`
+ * alias.
  * Uses the hard-coded domain-separation label `\\.//^\\` and hashes only `ct1 || pk1`
  * from the X25519 side in addition to the two component shared secrets.
  */
@@ -786,9 +798,9 @@ export const ml_kem768_x25519: TRet<KEM> = /* @__PURE__ */ (() =>
  * Internal SEC 1-style KEM wrapper for NIST curves.
  * `nseed` is only the rejection-sampling byte budget for deriving one nonzero scalar:
  * current presets use `128` bytes for P-256 and `48` bytes for P-384.
- * `decapsulate()` returns the uncompressed shared point body `x || y` without the `0x04`
- * prefix, not the SEC 1 `x_P`-only primitive output, because current hybrid combiners hash
- * both coordinates.
+ * Noble's `getSharedSecret()` returns a compressed SEC 1 point by default; `decapsulate()`
+ * removes its `0x02` / `0x03` prefix and returns the x-coordinate used by the concrete
+ * hybrid-KEM construction.
  */
 function nistCurveKem(curve: ECDSA, scalarLen: number, elemLen: number, nseed: number): TRet<KEM> {
   const Fn = curve.Point.Fn;

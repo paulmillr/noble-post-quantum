@@ -313,7 +313,8 @@ describe('Falcon', () => {
     for (const [detached, padded, seed] of cases) {
       const { publicKey, secretKey } = detached.keygen(seed);
       const seal = detached.attached.seal(msg, secretKey, { random: rnd });
-      deepStrictEqual(detached.attached.open(seal, publicKey), msg);
+      const opened = detached.attached.open(seal, publicKey);
+      deepStrictEqual(opened, msg);
       for (const extra of [0x00, 0x01]) {
         const len = (seal[0] << 8) | seal[1];
         const bad = new Uint8Array(seal.length + 1);
@@ -323,6 +324,9 @@ describe('Falcon', () => {
         bad[1] = (len + 1) & 0xff;
         throws(() => detached.attached.open(bad, publicKey));
       }
+      // The opened message must not retain a view into caller-owned attached-signature bytes.
+      seal[2 + 40] ^= 0xff;
+      deepStrictEqual(opened, msg);
       const sig = detached.sign(msg, secretKey, { random: rnd });
       const pseal = padded.attached.seal(msg, secretKey, { random: rnd });
       deepStrictEqual(padded.attached.open(pseal, publicKey), msg);

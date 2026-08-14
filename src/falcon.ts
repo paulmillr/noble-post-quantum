@@ -1215,7 +1215,14 @@ type FalconOpts = {
 };
 
 type FalconRandom = (bytesLength?: number) => TRet<Uint8Array>;
-type FalconSigOpts = SigOpts & { random?: FalconRandom };
+type FalconSigOpts = SigOpts & {
+  /**
+   * Raw randomness hook for tests and vector reproduction. It takes precedence over
+   * `extraEntropy` and supplies both the public 40-byte nonce and 48-byte sampler seed.
+   * Reusing a deterministic callback reuses the same signing stream and is unsafe in production.
+   */
+  random?: FalconRandom;
+};
 /** Falcon attached-signature API. */
 export type FalconAttached = CryptoKeys & {
   /** Key lengths plus the 48-byte sampler-seed hook for signing. */
@@ -1233,7 +1240,8 @@ export type FalconAttached = CryptoKeys & {
    * @param sig Attached Falcon signature bytes.
    * @param publicKey Falcon public key bytes.
    * @param opts Optional verification options.
-   * @returns Embedded message bytes when the signature is valid.
+   * @returns A fresh copy of the embedded message when the signature is valid.
+   * @throws If the attached signature is malformed or invalid. {@link Error}
    */
   open(sig: Uint8Array, publicKey: Uint8Array, opts?: VerOpts): Uint8Array;
 };
@@ -2317,8 +2325,9 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     publicKey: publicKeyCoder.bytesLen,
     secretKey: secretKeyCoder.bytesLen,
   });
-  // Noble exposes a 48-byte sampler-seed hook,
-  // but Falcon still samples/encodes a separate 40-byte nonce per signature.
+  // Falcon's option semantics intentionally differ from hedged ML-DSA/SLH-DSA signing:
+  // `extraEntropy` replaces the RNG stream instead of being mixed with fresh system randomness.
+  // The resulting stream supplies the public nonce first and the sampler seed second.
   const getRnd = (opts: TArg<FalconSigOpts> = {}): TRet<FalconRandom> => {
     validateSigOpts(opts);
     if (opts.context !== undefined) throw new Error('context is not supported');
@@ -2417,9 +2426,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     open(sig: TArg<Uint8Array>, pk: TArg<Uint8Array>, verOpts: TArg<VerOpts> = {}) {
       checkVerOpts(verOpts);
       const { s2, nonce, msg } = SignatureCoder.decode(sig);
-      // Zero-copy API: returned message aliases the caller-provided signature buffer.
-      // Copy it if ownership is needed.
-      if (verifyRaw(pk, s2, nonce, msg)) return msg;
+      if (verifyRaw(pk, s2, nonce, msg)) return Uint8Array.from(msg);
       throw new Error('invalid signature');
     },
   });

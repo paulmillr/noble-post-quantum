@@ -10,7 +10,8 @@ import {
 } from '@noble/hashes/sha3.js';
 import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, notDeepStrictEqual, throws } from 'node:assert';
-import { genCrystals } from '../src/_crystals.ts';
+import { genCrystals, XOF128 } from '../src/_crystals.ts';
+import { makeHintFromAdjustedLowBits } from '../src/_ml-dsa.ts';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import { slh_dsa_sha2_128f, slh_dsa_shake_128f } from '../src/slh-dsa.ts';
@@ -70,6 +71,66 @@ describe('Basic', () => {
         }),
       /expected <= 32/
     );
+  });
+  it('XOF coordinates are canonical bytes', () => {
+    const xof = XOF128(new Uint8Array(32));
+    try {
+      eql(xof.get(255, 255)().length, 168);
+      for (const bad of [-1, 256, 1.5, NaN, Infinity]) {
+        throws(() => xof.get(bad, 0), RangeError);
+        throws(() => xof.get(0, bad), RangeError);
+      }
+    } finally {
+      xof.clean();
+    }
+  });
+  it('ML-DSA adjusted-low-bits hints recover the original high bits', () => {
+    const q = 8380417;
+    const mod = (value: number, modulo = q) => {
+      const reduced = value % modulo;
+      return reduced >= 0 ? reduced : reduced + modulo;
+    };
+    const smod = (value: number, modulo: number) => {
+      const reduced = mod(value, modulo);
+      return reduced > modulo >> 1 ? reduced - modulo : reduced;
+    };
+    for (const gamma2 of [Math.floor((q - 1) / 88), Math.floor((q - 1) / 32)]) {
+      const alpha = 2 * gamma2;
+      const highBitsModulus = Math.floor((q - 1) / alpha);
+      const decompose = (value: number) => {
+        const canonical = mod(value);
+        const low = smod(canonical, alpha);
+        if (canonical - low === q - 1) return { high: 0, low: low - 1 };
+        return { high: Math.floor((canonical - low) / alpha), low };
+      };
+      const useHint = (hint: number, value: number) => {
+        const { high, low } = decompose(value);
+        if (hint === 0) return high;
+        return low > 0 ? mod(high + 1, highBitsModulus) : mod(high - 1, highBitsModulus);
+      };
+      // Signing norm checks keep the centered adjusted low bits strictly inside (-2γ2, 2γ2).
+      const adjustedCases = [
+        -alpha + 1,
+        -gamma2 - 1,
+        -gamma2,
+        -gamma2 + 1,
+        -1,
+        0,
+        1,
+        gamma2 - 1,
+        gamma2,
+        gamma2 + 1,
+        alpha - 1,
+      ];
+      for (let high = 0; high < highBitsModulus; high++) {
+        for (const centeredAdjusted of adjustedCases) {
+          const adjusted = mod(centeredAdjusted);
+          const hint = makeHintFromAdjustedLowBits(adjusted, high, gamma2, q);
+          const reconstructed = mod(high * alpha + adjusted);
+          eql(useHint(hint, reconstructed), high);
+        }
+      }
+    }
   });
   describe('Immutability', () => {
     it('ML-KEM', () => {

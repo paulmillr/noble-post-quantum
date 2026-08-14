@@ -31,8 +31,8 @@ export type XOF = (
    * SHAKE state and invalidates older readers.
    * Each squeeze aliases one mutable internal output buffer, so callers must copy blocks they
    * want to retain before the next read.
-   * @param x - First matrix coordinate.
-   * @param y - Second matrix coordinate.
+   * @param x - First matrix coordinate, encoded as one byte (`0..255`).
+   * @param y - Second matrix coordinate, encoded as one byte (`0..255`).
    * @returns Lazy block reader for that coordinate pair.
    */
   get: (x: number, y: number) => () => Uint8Array; // return block aligned to blockLen and 3
@@ -259,8 +259,12 @@ const createXofShake =
     return {
       stats: () => ({ calls, xofs }),
       get: (x: number, y: number) => {
+        if (!Number.isSafeInteger(x) || x < 0 || x > 255)
+          throw new RangeError(`x expected an integer in [0, 255], got ${x}`);
+        if (!Number.isSafeInteger(y) || y < 0 || y > 255)
+          throw new RangeError(`y expected an integer in [0, 255], got ${y}`);
         // Rebind to `seed || x || y` so callers can implement the spec's per-coordinate
-        // SHAKE inputs like `rho || j || i` and `rho || IntegerToBytes(counter, 2)`.
+        // SHAKE inputs like `rho || j || i`. Multi-byte counters must be split by the caller.
         _seed[seedLen + 0] = x;
         _seed[seedLen + 1] = y;
         h.destroy();
@@ -280,8 +284,9 @@ const createXofShake =
 
 /**
  * SHAKE128-based extendable-output reader factory used by ML-KEM.
- * `get(x, y)` selects one coordinate pair at a time; calling it again invalidates previously
- * returned readers, and each squeeze reuses one mutable internal output buffer.
+ * `get(x, y)` appends two one-byte coordinates (`0..255`) to the seed. Calling it again
+ * invalidates previously returned readers, and each squeeze reuses one mutable internal output
+ * buffer.
  * @param seed - Seed bytes for the reader.
  * @param blockLen - Optional output block length.
  * @returns Stateful XOF reader.
@@ -297,8 +302,8 @@ const createXofShake =
 export const XOF128: TRet<XOF> = /* @__PURE__ */ createXofShake(shake128);
 /**
  * SHAKE256-based extendable-output reader factory used by ML-DSA.
- * `get(x, y)` appends raw one-byte coordinates to the seed, invalidates previously returned
- * readers, and reuses one mutable internal output buffer for each squeeze.
+ * `get(x, y)` appends two one-byte coordinates (`0..255`) to the seed, invalidates previously
+ * returned readers, and reuses one mutable internal output buffer for each squeeze.
  * @param seed - Seed bytes for the reader.
  * @param blockLen - Optional output block length.
  * @returns Stateful XOF reader.

@@ -497,6 +497,14 @@ describe('Hybrids', () => {
     const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
     throws(() => ecdhKem(x25519, true).keygen(seed), /allowZeroKey requires a Weierstrass curve/);
   });
+  it('ecdhKem/x25519 rejects low-order peers', () => {
+    const kem = ecdhKem(x25519);
+    const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+    const { secretKey } = kem.keygen(seed);
+    const lowOrderPeer = new Uint8Array(32);
+    throws(() => kem.decapsulate(lowOrderPeer, secretKey));
+    throws(() => kem.encapsulate(lowOrderPeer, seed));
+  });
   it('ecdhKem/x25519/rand-immutability', () => {
     const cases = [
       ['ecdhKem(x25519)', ecdhKem(x25519), Uint8Array.from({ length: 32 }, (_, i) => i + 65)],

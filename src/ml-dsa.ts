@@ -12,6 +12,7 @@ import { abool } from '@noble/curves/utils.js';
 import { shake256 } from '@noble/hashes/sha3.js';
 import type { CHash } from '@noble/hashes/utils.js';
 import { genCrystals, type XOF, XOF128, XOF256 } from './_crystals.ts';
+import { makeHintFromAdjustedLowBits } from './_ml-dsa.ts';
 import {
   abytes,
   type BytesCoderLen,
@@ -264,28 +265,6 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
 
   const HighBits = (r: number) => decompose(r).r1;
   const LowBits = (r: number) => decompose(r).r0;
-  const MakeHint = (z: number, r: number) => {
-    // Compute hint bit indicating whether adding z to r alters the high bits of r.
-    // FIPS 204 §6.2 also permits the Section 5.1 alternative from [6], which uses the
-    // transformed low-bits/high-bits state at this call site instead of Algorithm 39 literally.
-    // This optimized predicate only applies to those transformed Section 5.1 inputs; it is
-    // not a drop-in replacement for Algorithm 39 on arbitrary `(z, r)` pairs.
-
-    // From dilithium code
-    const res0 = z <= GAMMA2 || z > Q - GAMMA2 || (z === Q - GAMMA2 && r === 0) ? 0 : 1;
-    // from FIPS204:
-    // // const r1 = HighBits(r);
-    // // const v1 = HighBits(r + z);
-    // // const res1 = +(r1 !== v1);
-    // But they return different results! However, decompose is same.
-    // So, either there is a bug in Dilithium ref implementation or in FIPS204.
-    // For now, lets use dilithium one, so test vectors can be passed.
-    // The round-3 Dilithium / ML-DSA code uses the same low-bits / high-bits convention after
-    // `r0 += ct0`.
-    // See dilithium-py README section "Optimising decomposition and making hints".
-    return res0;
-  };
-
   // m = (q-1)/(2γ2): 44 for ML-DSA-44, 16 for 65/87. Hoisted out of UseHint, which runs
   // per coefficient during verification.
   const HINT_M = Math.floor((Q - 1) / (2 * GAMMA2));
@@ -433,13 +412,13 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     for (let i = 0; i < N; i++) u[i] = UseHint(h[i], u[i]);
     return u as TRet<Poly>;
   };
-  const polyMakeHint = (a_: TArg<Poly>, b_: TArg<Poly>) => {
-    const a = a_ as Poly;
-    const b = b_ as Poly;
+  const polyMakeHintFromAdjustedLowBits = (adjusted_: TArg<Poly>, high_: TArg<Poly>) => {
+    const adjusted = adjusted_ as Poly;
+    const high = high_ as Poly;
     const v = newPoly(N);
     let cnt = 0;
     for (let i = 0; i < N; i++) {
-      const h = MakeHint(a[i], b[i]);
+      const h = makeHintFromAdjustedLowBits(adjusted[i], high[i], GAMMA2, Q);
       v[i] = h;
       cnt += h;
     }
@@ -638,9 +617,12 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           if (polyChknorm(r0, GAMMA2 - BETA)) continue main_loop; // ||r0||∞ ≥ γ2 − β
           const ct0 = crystals.NTT.decode(MultiplyNTTs(t0[i], cHat)); // ⟨⟨ct0⟩⟩ ← NTT−1(cˆ◦ tˆ0)
           if (polyChknorm(ct0, GAMMA2)) continue main_loop;
+          // The optimized Section 5.1 hint path operates on adjusted low bits and the original
+          // high bits. It is equivalent here to Algorithm 39's
+          // MakeHint(−⟨⟨ct0⟩⟩, w − ⟨⟨cs2⟩⟩ + ⟨⟨ct0⟩⟩), but its helper must not be reused with
+          // generic `(z, r)` inputs.
           polyAdd(r0, ct0);
-          // ▷ Signer’s hint
-          const hint = polyMakeHint(r0, w1[i]); // h ← MakeHint(−⟨⟨ct0⟩⟩, w− ⟨⟨cs2⟩⟩ + ⟨⟨ct0⟩⟩)
+          const hint = polyMakeHintFromAdjustedLowBits(r0, w1[i]);
           h.push(hint.v);
           cnt += hint.cnt;
         }

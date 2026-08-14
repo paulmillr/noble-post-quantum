@@ -19,7 +19,7 @@ import {
 } from '@noble/post-quantum/falcon.js';
 import {
   ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
-  KitchenSink_ml_kem768_x25519, XWing,
+  KitchenSink_ml_kem768_x25519,
   QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
 } from '@noble/post-quantum/hybrid.js';
 ```
