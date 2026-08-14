@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { concatBytes, utf8ToBytes } from '@noble/hashes/utils.js';
-import bench from '@paulmillr/jsbt/benchmark.js';
+import bench, { section } from '@paulmillr/jsbt/benchmark.js';
 import { deepStrictEqual } from 'node:assert';
 import { falcon1024, falcon512 } from '../src/falcon.ts';
 import { ml_kem768_p256, ml_kem768_x25519 } from '../src/hybrid.ts';
@@ -46,28 +46,28 @@ function falconOpts(lib, name: string) {
 }
 
 (async () => {
-  console.log('# ML-KEM768');
+  section('ML-KEM768');
   const mlkem = ml_kem768;
   const mlkemo = mlKemOpts(mlkem);
   await bench('keygen', () => mlkem.keygen());
   await bench('encapsulate', () => mlkem.encapsulate(mlkemo.publicKey));
   await bench('decapsulate', () => mlkem.decapsulate(mlkemo.cipherText, mlkemo.secretKey));
 
-  console.log('# ML-KEM768 + X25519');
+  section('ML-KEM768 + X25519');
   const hkemX = ml_kem768_x25519;
   const hkemXo = mlKemOpts(hkemX);
   await bench('keygen', () => hkemX.keygen());
   await bench('encapsulate', () => hkemX.encapsulate(hkemXo.publicKey));
   await bench('decapsulate', () => hkemX.decapsulate(hkemXo.cipherText, hkemXo.secretKey));
 
-  console.log('# ML-KEM768 + P256');
+  section('ML-KEM768 + P256');
   const hkemP = ml_kem768_p256;
   const hkemPo = mlKemOpts(hkemP);
   await bench('keygen', () => hkemP.keygen());
   await bench('encapsulate', () => hkemP.encapsulate(hkemPo.publicKey));
   await bench('decapsulate', () => hkemP.decapsulate(hkemPo.cipherText, hkemPo.secretKey));
 
-  console.log('# ML-DSA65');
+  section('ML-DSA65');
   const mldsa = ml_dsa65;
   const mldsao = mlDsaOpts(mldsa);
   // NOTE: signature uses rejection sampling, which means time significantly depends on random values
@@ -82,14 +82,14 @@ function falconOpts(lib, name: string) {
   await bench('sign', () => mldsa.sign(mldsao.msg, mldsao.secretKey, { extraEntropy: rand }));
   await bench('verify', () => mldsa.verify(mldsao.signature, mldsao.msg, mldsao.publicKey));
 
-  console.log('# SLH-DSA SHA2 192f');
+  section('SLH-DSA SHA2 192f');
   const slhdsa = slh.slh_dsa_sha2_192f;
   const slhdsao = slhDsaOpts(slhdsa);
   await bench('keygen', () => slhdsa.keygen(randomBytes(72)));
   await bench('sign', () => slhdsa.sign(slhdsao.msg, slhdsao.secretKey));
   await bench('verify', () => slhdsa.verify(slhdsao.signature, slhdsao.msg, slhdsao.publicKey));
 
-  console.log('# Falcon512');
+  section('Falcon512');
   const falcon512o = falconOpts(falcon512, 'falcon512');
   deepStrictEqual(
     falcon512.verify(falcon512o.signature, falcon512o.msg, falcon512o.publicKey),
@@ -103,7 +103,7 @@ function falconOpts(lib, name: string) {
     falcon512.verify(falcon512o.signature, falcon512o.msg, falcon512o.publicKey)
   );
 
-  console.log('# Falcon1024');
+  section('Falcon1024');
   const falcon1024o = falconOpts(falcon1024, 'falcon1024');
   deepStrictEqual(
     falcon1024.verify(falcon1024o.signature, falcon1024o.msg, falcon1024o.publicKey),

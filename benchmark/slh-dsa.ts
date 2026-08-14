@@ -8,7 +8,7 @@
  * Slow ('s') variants take seconds per signature, so they are measured with a
  * single sample; fast operations are sampled until MAX_RUN_TIME is exhausted.
  */
-import { utils } from '@paulmillr/jsbt/benchmark.js';
+import { benchmarkRaw } from '@paulmillr/jsbt/benchmark.js';
 import * as slh from '../src/slh-dsa.ts';
 import { randomBytes } from '../src/utils.ts';
 
@@ -37,7 +37,7 @@ function formatMs(nanoseconds: bigint): string {
 }
 
 async function measure(fn: () => unknown): Promise<string> {
-  const { stats } = await utils.benchmarkRaw(fn, MAX_RUN_TIME);
+  const { stats } = await benchmarkRaw(fn, MAX_RUN_TIME);
   return formatMs(stats.mean);
 }
 
