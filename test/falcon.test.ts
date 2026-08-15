@@ -53,6 +53,20 @@ async function* parseKAT(path) {
   if (test) yield test;
 }
 
+const katCache = new Map();
+async function loadKAT(path) {
+  let vectors = katCache.get(path);
+  if (!vectors) {
+    vectors = (async () => {
+      const result = [];
+      for await (const vector of parseKAT(path)) result.push(vector);
+      return result;
+    })();
+    katCache.set(path, vectors);
+  }
+  return vectors;
+}
+
 const match = (src, re) => {
   const m = src.match(re);
   if (!m) throw new Error(`missing pattern: ${re}`);
@@ -189,55 +203,87 @@ describe('Falcon', () => {
     const o = oS.map(Float.decode);
     deepStrictEqual(i.map(Float.encode), iS);
     deepStrictEqual(o.map(Float.encode), oS);
-    const x = new Float64Array(i);
-    return;
     const floatPoly = falcon.__tests.getFloatPoly(2);
+    const x = floatPoly.to(new Float64Array(i));
     floatPoly.FFT(x);
-    deepStrictEqual(x, new Float64Array(o));
+    deepStrictEqual(floatPoly.from(x), new Float64Array(o));
+  });
+  it('LDL preserves Gram matrix inputs', () => {
+    const g00 = [
+      { re: 4, im: 0 },
+      { re: 5, im: 0 },
+    ];
+    const g01 = [
+      { re: 2, im: 1 },
+      { re: -1, im: 2 },
+    ];
+    const g11 = [
+      { re: 9, im: 0 },
+      { re: 8, im: 0 },
+    ];
+    const inputs = [g00, g01, g11].map((poly) => poly.map((v) => ({ ...v })));
+    deepStrictEqual(falcon.__tests.ldlFFT(2, g00, g01, g11), {
+      g00: inputs[0],
+      g01: [
+        { re: 0.5, im: -0.25 },
+        { re: -0.2, im: -0.4 },
+      ],
+      g11: [
+        { re: 7.75, im: 0 },
+        { re: 7, im: 0 },
+      ],
+    });
+    deepStrictEqual([g00, g01, g11], inputs);
   });
 
   const falcons = [
-    ['vectors/falcon/round3/falcon512-KAT.rsp', falcon.falcon512],
-    ['vectors/falcon/round3/falcon1024-KAT.rsp', falcon.falcon1024],
+    ['vectors/falcon/round3/falcon512-KAT.rsp', falcon.falcon512, undefined, 100],
+    ['vectors/falcon/round3/falcon1024-KAT.rsp', falcon.falcon1024, undefined, 100],
     // pqclean
     ['vectors/falcon/pqclean/nistkat_out_falcon-512_clean', falcon.falcon512],
     ['vectors/falcon/pqclean/nistkat_out_falcon-1024_clean', falcon.falcon1024],
     ['vectors/falcon/pqclean/nistkat_out_falcon-padded-512_clean', falcon.falcon512padded],
     ['vectors/falcon/pqclean/nistkat_out_falcon-padded-1024_clean', falcon.falcon1024padded],
   ];
-  for (const [file, falcon, skip] of falcons) {
-    it(file, async () => {
-      let firstSig, firstPk;
-      for await (const t of parseKAT('./' + file)) {
-        if (skip && skip.includes(t.count)) continue;
-        //if (!skip || !skip.includes(t.count)) continue;
-        // console.log('---- TEST', file, t);
-        const sk = hexToBytes(t.sk);
-        deepStrictEqual(bytesToHex(falcon.getPublicKey(sk)), t.pk.toLowerCase());
-        const rng = aes256_ctr_drbg(hexToBytes(t.seed));
-        const realSeed = rng(48);
-        // console.log('SEED', JSON.stringify(Array.from(hexToBytes(t.seed))));
-        // console.log('MSG', JSON.stringify(Array.from(hexToBytes(t.msg))));
-        const keys = falcon.keygen(realSeed);
-        deepStrictEqual(bytesToHex(keys.secretKey), t.sk.toLowerCase());
-        deepStrictEqual(bytesToHex(keys.publicKey), t.pk.toLowerCase());
-        const msg = hexToBytes(t.msg);
-        deepStrictEqual(
-          bytesToHex(falcon.attached.seal(msg, keys.secretKey, { random: rng })),
-          t.sm.toLowerCase()
-        );
-        deepStrictEqual(
-          bytesToHex(falcon.attached.open(hexToBytes(t.sm), keys.publicKey)),
-          t.msg.toLowerCase()
-        );
-        if (!firstSig) {
-          firstSig = hexToBytes(t.sm);
-          firstPk = hexToBytes(t.pk);
-        } else {
-          throws(() => falcon.attached.open(firstSig, keys.publicKey));
+  for (const [file, falcon, skip, count] of falcons) {
+    const chunkSize = count ? 10 : 1;
+    const chunkCount = count ? Math.ceil(count / chunkSize) : 1;
+    for (let chunk = 0; chunk < chunkCount; chunk++) {
+      const start = chunk * chunkSize;
+      const end = Math.min(start + chunkSize, count || chunkSize);
+      const name = count ? `${file} [${start}-${end - 1}]` : file;
+      it(name, async () => {
+        const allVectors = await loadKAT('./' + file);
+        if (count) deepStrictEqual(allVectors.length, count);
+        const vectors = skip
+          ? allVectors.filter((vector) => !skip.includes(vector.count))
+          : allVectors;
+        const firstSig = hexToBytes(vectors[0].sm);
+        for (const t of vectors.slice(start, end)) {
+          //if (!skip || !skip.includes(t.count)) continue;
+          // console.log('---- TEST', file, t);
+          const sk = hexToBytes(t.sk);
+          deepStrictEqual(bytesToHex(falcon.getPublicKey(sk)), t.pk.toLowerCase());
+          const rng = aes256_ctr_drbg(hexToBytes(t.seed));
+          const realSeed = rng(48);
+          // console.log('SEED', JSON.stringify(Array.from(hexToBytes(t.seed))));
+          // console.log('MSG', JSON.stringify(Array.from(hexToBytes(t.msg))));
+          const keys = falcon.keygen(realSeed);
+          deepStrictEqual(bytesToHex(keys.secretKey), t.sk.toLowerCase());
+          deepStrictEqual(bytesToHex(keys.publicKey), t.pk.toLowerCase());
+          const msg = hexToBytes(t.msg);
+          deepStrictEqual(
+            bytesToHex(falcon.attached.seal(msg, keys.secretKey, { random: rng })),
+            t.sm.toLowerCase()
+          );
+          deepStrictEqual(
+            bytesToHex(falcon.attached.open(hexToBytes(t.sm), keys.publicKey)),
+            t.msg.toLowerCase()
+          );
+          if (t !== vectors[0]) throws(() => falcon.attached.open(firstSig, keys.publicKey));
         }
-      }
-    });
+      });
+    }
   }
   it('falcon1024/detached', () => {
     // Note, there is no KAT's for detached signatures! So we do our own.

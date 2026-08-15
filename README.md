@@ -234,8 +234,9 @@ Lattice-based digital signature algorithm, submitted to NIST PQC Round 3 ([websi
 >
 > In particular, do not copy ML-DSA examples that use `extraEntropy: false` into Falcon code.
 
-`attached.open(...)` throws when verification fails and returns a fresh, non-aliased copy of the
-embedded message when it succeeds. Detached `verify(...)` returns `false` for an invalid signature.
+`attached.open(...)` throws when verification fails and returns a zero-copy view of the embedded
+message when it succeeds. That view aliases the caller-provided signature buffer; copy it if
+independent ownership is needed. Detached `verify(...)` returns `false` for an invalid signature.
 
 ### hybrid: X-Wing, KitchenSink and others
 
