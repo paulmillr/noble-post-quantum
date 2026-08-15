@@ -1167,6 +1167,23 @@ function getFloatPoly(logn: number) {
   };
 }
 
+function ldlFFT(logn: number, g00t: CPoly, g01t: CPoly, g11t: CPoly) {
+  // Recursive calls may alias g00t and g11t, and the top-level arrays persist across signing
+  // retries. LDL replaces array entries, so shallow copies keep both kinds of caller state intact.
+  g00t = g00t.slice();
+  g01t = g01t.slice();
+  g11t = g11t.slice();
+  const hn = 1 << (logn - 1);
+  for (let i = 0; i < hn; i++) {
+    const g01 = g01t[i];
+    const g11 = g11t[i];
+    const mu = fComplex.scale(g01, 1.0 / g00t[i].re);
+    g11t[i] = { re: g11.re - (mu.re * g01.re + mu.im * g01.im), im: g11.im };
+    g01t[i] = fComplex.conj(mu);
+  }
+  return { g00: g00t, g01: g01t, g11: g11t };
+}
+
 function ApproxExp(x: number, ccs: number): number {
   // Algorithm 13: ApproxExp(x, ccs), (Page 42)
   // Require: Floating-point values x ∈ [0, ln(2)] and ccs ∈ [0, 1]
@@ -2004,16 +2021,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       // 11:     T.leftchild ← ffLDL*(G₀) ▷ Recursive calls
       // 12:     T.rightchild ← ffLDL*(G₁)
       // 13:     return T
-      g00t = g00t.slice(); // can be same as g11t and everything will break!
-      const hn = 1 << (logn - 1);
-      for (let i = 0; i < hn; i++) {
-        const g01 = g01t[i];
-        const g11 = g11t[i];
-        const mu = fComplex.scale(g01, 1.0 / g00t[i].re);
-        g11t[i] = { re: g11.re - (mu.re * g01.re + mu.im * g01.im), im: g11.im };
-        g01t[i] = fComplex.conj(mu);
-      }
-      return { g00: g00t, g01: g01t, g11: g11t };
+      return ldlFFT(logn, g00t, g01t, g11t);
     }
     private splitFFT(logn: number, f: CPoly) {
       // Algorithm 1: splitfft(FFT(f))
@@ -2532,6 +2540,7 @@ export const __tests: any = /* @__PURE__ */ (() =>
     INV_SIGMA,
     SIGMA_MIN,
     getFloatPoly,
+    ldlFFT,
     cleanCPoly,
     falcon512: (falcon512 as any).__test,
     falcon512padded: (falcon512padded as any).__test,
