@@ -514,8 +514,13 @@ export function combineKEMS(
     decapsulate(ct: TArg<Uint8Array>, seed: TArg<Uint8Array>) {
       const cts = ctCoder.decode(ct);
       const { publicKey, secretKey } = keys.expandDecapsulationKey(seed);
-      const sharedSecret = rawKems.map((i, j) => i.decapsulate(cts[j], secretKey[j]));
+      const sharedSecret: Uint8Array[] = [];
       try {
+        // Child decapsulate() is inside the try: it can throw on an attacker-supplied ciphertext
+        // (e.g. a low-order X25519 point), and by then the expanded child secret keys — plus any
+        // child shared secrets already produced — are live and must still be wiped.
+        for (let i = 0; i < rawKems.length; i++)
+          sharedSecret.push(rawKems[i].decapsulate(cts[i], secretKey[i]));
         // Detach the decapsulation result before cleanup: the combiner may hand back one of the
         // child shared-secret buffers, and those temporary buffers are zeroized below.
         return copyBytes(rawCombiner(publicKey, cts, sharedSecret));
