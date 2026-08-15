@@ -248,6 +248,34 @@ describe('Hybrids', () => {
       }
     );
   });
+  it('combineKEMS/decapsulate-cleanup-on-child-decapsulate-throw', () => {
+    // A child decapsulate() can throw on an attacker-supplied ciphertext, so the expanded child
+    // secret keys and any already-produced child shared secrets must still be wiped.
+    const expanded: Uint8Array[] = [Uint8Array.of(1, 1), Uint8Array.of(2, 2)];
+    const firstSharedSecret = Uint8Array.of(9, 9);
+    const kem = (secretKey: Uint8Array, ss: Uint8Array | undefined) => ({
+      lengths: { seed: 2, secretKey: 2, publicKey: 1, cipherText: 1, msg: 2 },
+      keygen: (_seed?: Uint8Array) => ({ secretKey, publicKey: Uint8Array.of(1) }),
+      getPublicKey: (_secretKey: Uint8Array) => Uint8Array.of(1),
+      encapsulate: () => ({ sharedSecret: Uint8Array.of(1, 1), cipherText: Uint8Array.of(1) }),
+      decapsulate: () => {
+        if (ss === undefined) throw new Error('bad ciphertext');
+        return ss;
+      },
+    });
+    const hybrid = combineKEMS(
+      undefined,
+      2,
+      (seed, _len) => seed,
+      () => Uint8Array.of(0, 0),
+      kem(expanded[0], firstSharedSecret) as any,
+      kem(expanded[1], undefined) as any
+    );
+    throws(() => hybrid.decapsulate(Uint8Array.of(1, 1), Uint8Array.of(1, 2, 3, 4)), /bad ciphertext/);
+    // Both expanded child secret keys, and the shared secret the first child already returned,
+    // must be zeroized despite the throw.
+    eql(Array.from(firstSharedSecret), [0, 0]);
+  });
   it('combineSigners/keygen-cleanup-on-child-keygen-throw', () => {
     const seen: Uint8Array[] = [];
     const ok = {

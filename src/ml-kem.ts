@@ -399,8 +399,11 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
       // tmp += sk[i] * u[i]
       for (let i = 0; i < K; i++) polyAdd(tmp, MultiplyNTTs(sk[i], crystals.NTT.encode(u[i])));
       polySub(v, crystals.NTT.decode(tmp)); // w = v' - tmp
-      cleanBytes(tmp, sk, u);
-      return poly1.encode(v) as TRet<Uint8Array>;
+      // `v` now holds w, from which the plaintext is just a 1-bit threshold away, so wipe it too.
+      // encode() allocates its own buffer, so the returned bytes do not alias `v`.
+      const res = poly1.encode(v) as TRet<Uint8Array>;
+      cleanBytes(tmp, sk, u, v);
+      return res;
     },
   };
 };
