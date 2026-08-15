@@ -298,7 +298,7 @@ describe('AVCP', () => {
               const ctx = t.p.context ? hexx(t.p.context) : undefined;
               if (g.info.p.preHash === 'preHash') {
                 const hash = HASHES[t.p.hashAlg];
-                if (checkStrength(hash) < slhdsa.securityLevel) return;
+                if (checkStrength(hash) < slhdsa.securityLevel) continue;
                 valid = slhdsa
                   .prehash(hash)
                   .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), { context: ctx });
