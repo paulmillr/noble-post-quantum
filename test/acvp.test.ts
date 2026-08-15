@@ -1,6 +1,6 @@
 import { concatBytes, hexToBytes as hexx } from '@noble/hashes/utils.js';
 import { describe, it } from '@paulmillr/jsbt/test.js';
-import { deepStrictEqual as eql } from 'node:assert';
+import { deepStrictEqual as eql, throws } from 'node:assert';
 import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import {
@@ -215,7 +215,10 @@ describe('AVCP', () => {
             const optsCtx = { ...opts, context: ctx };
             if (g.info.p.preHash === 'preHash') {
               const hash = HASHES[t.p.hashAlg];
-              if (checkStrength(hash) < mldsa.securityLevel) continue;
+              if (checkStrength(hash) < mldsa.securityLevel) {
+                throws(() => mldsa.prehash(hash));
+                continue;
+              }
               sig = mldsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), optsCtx);
             } else {
               sig = mldsa.sign(hexx(t.p.message), hexx(t.p.sk), optsCtx);
@@ -242,7 +245,10 @@ describe('AVCP', () => {
             const ctx = t.p.context ? hexx(t.p.context) : undefined;
             if (g.info.p.preHash === 'preHash') {
               const hash = HASHES[t.p.hashAlg];
-              if (checkStrength(hash) < mldsa.securityLevel) continue;
+              if (checkStrength(hash) < mldsa.securityLevel) {
+                throws(() => mldsa.prehash(hash));
+                continue;
+              }
               valid = mldsa
                 .prehash(hash)
                 .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), { context: ctx });
@@ -289,6 +295,13 @@ describe('AVCP', () => {
       for await (const g of loadACVP('SLH-DSA-sigVer-FIPS205')) {
         const slhdsa = NAMES[g.info.p.parameterSet];
         for (const t of g.tests) {
+          if (g.info.p.signatureInterface === 'external' && g.info.p.preHash === 'preHash') {
+            const hash = HASHES[t.p.hashAlg];
+            if (checkStrength(hash) < slhdsa.securityLevel) {
+              throws(() => slhdsa.prehash(hash));
+              continue;
+            }
+          }
           let valid;
           // We throw error on invalid signature size, so this is reason
           try {
@@ -298,7 +311,6 @@ describe('AVCP', () => {
               const ctx = t.p.context ? hexx(t.p.context) : undefined;
               if (g.info.p.preHash === 'preHash') {
                 const hash = HASHES[t.p.hashAlg];
-                if (checkStrength(hash) < slhdsa.securityLevel) continue;
                 valid = slhdsa
                   .prehash(hash)
                   .verify(hexx(t.p.signature), hexx(t.p.message), hexx(t.p.pk), { context: ctx });
@@ -335,13 +347,16 @@ describe('AVCP', () => {
             const ctx = t.p.context ? hexx(t.p.context) : undefined;
             const opts = { context: ctx, extraEntropy: rnd };
             if (info.p.preHash === 'preHash') {
-              if (checkStrength(hash) < slhdsa.securityLevel) return;
-              sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), opts);
+              if (checkStrength(hash) < slhdsa.securityLevel) {
+                throws(() => slhdsa.prehash(hash));
+              } else {
+                sig = slhdsa.prehash(hash).sign(hexx(t.p.message), hexx(t.p.sk), opts);
+              }
             } else {
               sig = slhdsa.sign(hexx(t.p.message), hexx(t.p.sk), opts);
             }
           } else throw new Error('unknown signature interface');
-          eql(sig, hexx(t.er.signature));
+          if (sig !== undefined) eql(sig, hexx(t.er.signature));
         });
       }
     });
