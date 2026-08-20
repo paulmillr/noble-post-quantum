@@ -53,19 +53,21 @@ async function* parseKAT(path) {
   if (test) yield test;
 }
 
+// Caches the promise, so a file split across several `it()` chunks is streamed and parsed once.
 const katCache = new Map();
-async function loadKAT(path) {
-  let vectors = katCache.get(path);
-  if (!vectors) {
-    vectors = (async () => {
-      const result = [];
-      for await (const vector of parseKAT(path)) result.push(vector);
-      return result;
-    })();
-    katCache.set(path, vectors);
+const loadKAT = (path) => {
+  if (!katCache.has(path)) {
+    katCache.set(
+      path,
+      (async () => {
+        const result = [];
+        for await (const vector of parseKAT(path)) result.push(vector);
+        return result;
+      })()
+    );
   }
-  return vectors;
-}
+  return katCache.get(path);
+};
 
 const match = (src, re) => {
   const m = src.match(re);
@@ -236,31 +238,32 @@ describe('Falcon', () => {
     deepStrictEqual([g00, g01, g11], inputs);
   });
 
+  const CHUNK = 10;
   const falcons = [
-    ['vectors/falcon/round3/falcon512-KAT.rsp', falcon.falcon512, undefined, 100],
-    ['vectors/falcon/round3/falcon1024-KAT.rsp', falcon.falcon1024, undefined, 100],
-    // pqclean
+    ['vectors/falcon/round3/falcon512-KAT.rsp', falcon.falcon512, 100],
+    ['vectors/falcon/round3/falcon1024-KAT.rsp', falcon.falcon1024, 100],
+    // pqclean: one vector per file
     ['vectors/falcon/pqclean/nistkat_out_falcon-512_clean', falcon.falcon512],
     ['vectors/falcon/pqclean/nistkat_out_falcon-1024_clean', falcon.falcon1024],
     ['vectors/falcon/pqclean/nistkat_out_falcon-padded-512_clean', falcon.falcon512padded],
     ['vectors/falcon/pqclean/nistkat_out_falcon-padded-1024_clean', falcon.falcon1024padded],
   ];
-  for (const [file, falcon, skip, count] of falcons) {
-    const chunkSize = count ? 10 : 1;
-    const chunkCount = count ? Math.ceil(count / chunkSize) : 1;
-    for (let chunk = 0; chunk < chunkCount; chunk++) {
-      const start = chunk * chunkSize;
-      const end = Math.min(start + chunkSize, count || chunkSize);
+  for (const [file, falcon, count] of falcons) {
+    // Each vector costs a keygen + sign + verify, so counted files are split into chunks that
+    // jsbt's workers run in parallel. `count` is asserted below, to catch a file gaining vectors.
+    const ranges = count
+      ? Array.from({ length: Math.ceil(count / CHUNK) }, (_, i) => [
+          i * CHUNK,
+          Math.min((i + 1) * CHUNK, count),
+        ])
+      : [[0, Infinity]];
+    for (const [start, end] of ranges) {
       const name = count ? `${file} [${start}-${end - 1}]` : file;
       it(name, async () => {
-        const allVectors = await loadKAT('./' + file);
-        if (count) deepStrictEqual(allVectors.length, count);
-        const vectors = skip
-          ? allVectors.filter((vector) => !skip.includes(vector.count))
-          : allVectors;
+        const vectors = await loadKAT('./' + file);
+        if (count) deepStrictEqual(vectors.length, count);
         const firstSig = hexToBytes(vectors[0].sm);
         for (const t of vectors.slice(start, end)) {
-          //if (!skip || !skip.includes(t.count)) continue;
           // console.log('---- TEST', file, t);
           const sk = hexToBytes(t.sk);
           deepStrictEqual(bytesToHex(falcon.getPublicKey(sk)), t.pk.toLowerCase());
