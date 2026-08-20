@@ -157,8 +157,16 @@ const isValidPre = hml.verify(sigPre, msg, keys.publicKey);
 - `context`: domain-separation byte string, up to 255 bytes; must match between `sign` and `verify`
 - `extraEntropy`: hedged-signing randomness. Default is 32 random bytes;
   `false` produces deterministic signatures; custom 32-byte value is also allowed
-- `externalMu`: treat `msg` as the precomputed 64-byte message representative µ
 - `prehash(hash)`: pre-hash variant (HashML-DSA) from FIPS-204
+
+Unknown option keys are rejected rather than ignored, so a misspelling such as
+`{ ctx }` fails loudly instead of silently signing with no domain separation.
+
+`externalMu`, which treats `msg` as the precomputed 64-byte message representative
+µ, is available on `ml_dsa*.internal.sign` / `internal.verify` only. The public
+wrappers reject it: `sign` formats `M'` before the 64-byte check so it could never
+accept a µ, and `verify` did not forward it, returning `false` for a valid
+external-mu signature.
 
 ### SLH-DSA / SPHINCS+ signatures
 
