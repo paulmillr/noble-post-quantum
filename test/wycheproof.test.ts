@@ -6,7 +6,23 @@ import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import { jsonGZGroups } from './util.ts';
 
-const loadWP = (name) => jsonGZGroups(`vectors/wycheproof/${name}.json.gz`);
+/**
+ * Yield a vector file's groups, and fail if it turns out to have none.
+ *
+ * An empty or truncated archive produces zero groups, so every `for await` loop below
+ * runs zero iterations and the test passes having asserted nothing. That is the failure
+ * mode a vector suite most needs to be immune to: the run is green in exactly the case
+ * where it verified nothing at all. Counting on the way past costs nothing and turns a
+ * silent pass into a loud failure.
+ */
+async function* loadWP(name: string) {
+  let groups = 0;
+  for await (const g of jsonGZGroups(`vectors/wycheproof/${name}.json.gz`)) {
+    groups++;
+    yield g;
+  }
+  if (groups === 0) throw new Error(`no test groups in ${name}: vector file empty or corrupt`);
+}
 
 const KEM_LEVELS = [
   { level: '512', kem: ml_kem512 },
@@ -87,8 +103,29 @@ describe('Wycheproof', () => {
             }
           }
         });
-        // semi_expanded_decaps tests skipped: not applicable
-        // (provide semi-expanded dk, not keygen seeds)
+        // The expanded-key import path: `dk` here is the full FIPS 203 decapsulation
+        // key, which is exactly what decapsulate() takes, and it is how a key arriving
+        // from another implementation reaches this library. These vectors were being
+        // skipped as "not applicable"; they are the only negative coverage that path
+        // has, including the malleable-ciphertext cases that catch a bad re-encryption
+        // comparison.
+        it('decaps (expanded key)', async () => {
+          for await (const g of loadWP(`mlkem_${level}_semi_expanded_decaps_test`)) {
+            for (const t of g.tests) {
+              if (t.result === 'valid') {
+                eql(kem.decapsulate(hexx(t.c), hexx(t.dk)), hexx(t.K));
+              } else {
+                let threw = false;
+                try {
+                  kem.decapsulate(hexx(t.c), hexx(t.dk));
+                } catch {
+                  threw = true;
+                }
+                eql(threw, true, `tcId=${t.tcId} ${t.comment}`);
+              }
+            }
+          }
+        });
       });
     }
   });
@@ -139,8 +176,52 @@ describe('Wycheproof', () => {
             }
           }
         });
-        // sign_noseed tests skipped: not applicable
-        // (provide semi-expanded private keys, not seeds)
+        // Signing from an expanded secret key, which is what sign() accepts and how a
+        // key from another implementation arrives. Also the only vector coverage of
+        // external-mu against a third party's expected output. Previously skipped as
+        // "not applicable".
+        it('sign (expanded key)', async () => {
+          for await (const g of loadWP(`mldsa_${level}_sign_noseed_test`)) {
+            const secretKey = hexx(g.privateKey);
+            for (const t of g.tests) {
+              // Most vectors here are deterministic (FIPS 204 rnd = 0^32); a few carry
+              // their own rnd and must be signed hedged with exactly that value.
+              const extraEntropy = t.rnd !== undefined ? hexx(t.rnd) : false;
+              const context = t.ctx !== undefined ? hexx(t.ctx) : undefined;
+              if (t.result === 'valid') {
+                // Some vectors are mu-only: they exercise external-mu against a third
+                // party's expected output and carry no message at all.
+                if (t.msg !== undefined) {
+                  const sig = dsa.sign(hexx(t.msg), secretKey, { extraEntropy, context });
+                  eql(sig, hexx(t.sig), `tcId=${t.tcId} ${t.comment}`);
+                }
+                if (t.mu !== undefined) {
+                  const viaMu = dsa.internal.sign(hexx(t.mu), secretKey, {
+                    extraEntropy,
+                    externalMu: true,
+                  });
+                  eql(viaMu, hexx(t.sig), `tcId=${t.tcId} externalMu ${t.comment}`);
+                }
+              } else {
+                // Invalid vectors (over-long context, or a malformed expanded secret key:
+                // wrong length, s1/s2 coefficients outside the ETA range) must be rejected,
+                // not silently skipped. These sk-range checks are the only coverage of a
+                // third party's malformed expanded key.
+                let threw = false;
+                try {
+                  if (t.msg !== undefined)
+                    dsa.sign(hexx(t.msg), secretKey, { extraEntropy, context });
+                  else if (t.mu !== undefined)
+                    dsa.internal.sign(hexx(t.mu), secretKey, { extraEntropy, externalMu: true });
+                  else dsa.sign(new Uint8Array(), secretKey, { extraEntropy, context });
+                } catch {
+                  threw = true;
+                }
+                eql(threw, true, `tcId=${t.tcId} ${t.comment}`);
+              }
+            }
+          }
+        });
       });
     }
   });
