@@ -439,6 +439,32 @@ describe('Basic', () => {
       });
     }
 
+    it('pre-hash XOFs must produce the length their OID denotes', () => {
+      // getMessagePrehash embeds hash.oid beside hash(msg). RFC 8702 and FIPS 204
+      // §5.4.1 fix id-shake128 to 256-bit output and id-shake256 to 512-bit, so a
+      // bare noble-hashes default, which is half of each, signs an M' claiming a
+      // length it does not have. Only noble would verify it.
+      throws(() => ml_dsa44.prehash(shake256));
+      throws(() => ml_dsa44.prehash(shake128));
+      throws(() => slh_dsa_sha2_128f.prehash(shake256));
+      // Correct lengths still work.
+      const wide = (h: any, len: number) => {
+        const f: any = (m: Uint8Array) => h.create({ dkLen: len }).update(m).digest();
+        f.outputLen = len;
+        f.blockLen = h.blockLen;
+        f.create = () => h.create({ dkLen: len });
+        f.oid = h.oid;
+        return f;
+      };
+      const keys = ml_dsa44.keygen();
+      const msg = new Uint8Array([1, 2, 3]);
+      const signer = ml_dsa44.prehash(wide(shake256, 64));
+      eql(signer.verify(signer.sign(msg, keys.secretKey), msg, keys.publicKey), true);
+      // The strength bound still applies on its own: SHAKE128 at its OID length is
+      // 128-bit collision strength, which is not enough for ML-DSA-87.
+      throws(() => ml_dsa87.prehash(wide(shake128, 32)));
+    });
+
     it('externalMu is internal-only, and says so instead of being ignored', () => {
       const keys = ml_dsa65.keygen();
       const mu = new Uint8Array(64).fill(7);
