@@ -446,13 +446,19 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
   return Object.freeze({
     info: Object.freeze({ type: 'ml-kem' }),
     lengths: kemLengths,
-    keygen: (seed: TArg<Uint8Array> = randomBytes(seedLen)) => {
-      abytes(seed, seedLen, 'seed');
-      const { publicKey, secretKey: sk } = KPKE.keygen(seed.subarray(0, 32));
+    keygen: (seed?: TArg<Uint8Array>) => {
+      // A generated seed carries z (the implicit-rejection secret) and must be wiped once the
+      // secret key holds a copy, matching ml-dsa / slh-dsa / falcon keygen. A caller-supplied
+      // seed is the caller's to manage (and the immutability test requires it stay untouched).
+      const ownSeed = seed === undefined;
+      const s = ownSeed ? randomBytes(seedLen) : (seed as TArg<Uint8Array>);
+      abytes(s, seedLen, 'seed');
+      const { publicKey, secretKey: sk } = KPKE.keygen(s.subarray(0, 32));
       const publicKeyHash = HASH256(publicKey);
       // (dkPKE||ek||H(ek)||z)
-      const secretKey = secretCoder.encode([sk, publicKey, publicKeyHash, seed.subarray(32)]);
+      const secretKey = secretCoder.encode([sk, publicKey, publicKeyHash, s.subarray(32)]);
       cleanBytes(sk, publicKeyHash);
+      if (ownSeed) cleanBytes(s);
       return {
         publicKey: publicKey as TRet<Uint8Array>,
         secretKey: secretKey as TRet<Uint8Array>,
@@ -462,14 +468,20 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
       const [_sk, publicKey, _publicKeyHash, _z] = secretCoder.decode(secretKey);
       return Uint8Array.from(publicKey) as TRet<Uint8Array>;
     },
-    encapsulate: (publicKey: TArg<Uint8Array>, msg: TArg<Uint8Array> = randomBytes(msgLen)) => {
+    encapsulate: (publicKey: TArg<Uint8Array>, msg?: TArg<Uint8Array>) => {
+      // A generated message is the preimage of the shared secret (K = G(m || H(ek))[0:32]) and
+      // must be wiped. A caller-supplied message is the deterministic-randomness hook and the
+      // caller's to manage (the immutability test requires it stay untouched).
+      const ownMsg = msg === undefined;
+      const m = ownMsg ? randomBytes(msgLen) : (msg as TArg<Uint8Array>);
       abytes(publicKey, lengths.publicKey, 'publicKey');
-      abytes(msg, msgLen, 'message');
+      abytes(m, msgLen, 'message');
       validateModulus(publicKey, 'encapsulate');
       // derive randomness
-      const kr = HASH512.create().update(msg).update(HASH256(publicKey)).digest();
-      const cipherText = KPKE.encrypt(publicKey, msg, kr.subarray(32, 64));
+      const kr = HASH512.create().update(m).update(HASH256(publicKey)).digest();
+      const cipherText = KPKE.encrypt(publicKey, m, kr.subarray(32, 64));
       cleanBytes(kr.subarray(32));
+      if (ownMsg) cleanBytes(m);
       return {
         cipherText: cipherText as TRet<Uint8Array>,
         sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
@@ -512,11 +524,16 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
       const cached = KPKE.prepare(ek);
       return Object.freeze({
         publicKey: ek as TRet<Uint8Array>,
-        encapsulate: (msg: TArg<Uint8Array> = randomBytes(msgLen)) => {
-          abytes(msg, msgLen, 'message');
-          const kr = HASH512.create().update(msg).update(publicKeyHash).digest();
-          const cipherText = cached.encrypt(msg, kr.subarray(32, 64));
+        encapsulate: (msg?: TArg<Uint8Array>) => {
+          // As in the non-prepared encapsulate: a generated message is the shared-secret
+          // preimage and is wiped; a caller-supplied one is left untouched.
+          const ownMsg = msg === undefined;
+          const m = ownMsg ? randomBytes(msgLen) : (msg as TArg<Uint8Array>);
+          abytes(m, msgLen, 'message');
+          const kr = HASH512.create().update(m).update(publicKeyHash).digest();
+          const cipherText = cached.encrypt(m, kr.subarray(32, 64));
           cleanBytes(kr.subarray(32));
+          if (ownMsg) cleanBytes(m);
           return {
             cipherText: cipherText as TRet<Uint8Array>,
             sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
