@@ -412,6 +412,11 @@ const genKPKE = (opts_: TArg<KyberOpts>) => {
  * Public ML-KEM wrapper over the internal K-PKE subroutine.
  * `keygen(seed)` and `encapsulate(publicKey, msg)` are deterministic/test-oriented hooks that map
  * more directly to Algorithms 16-17 than to the pure no-input / random-internal Algorithms 19-20.
+ * `encapsulate`'s optional `msg` is the 32-byte message randomness `m` of Algorithm 17, the
+ * pre-image the shared secret is derived from, NOT a plaintext to encrypt: ML-KEM is a key
+ * encapsulation mechanism, not a cipher. Omit it to draw fresh randomness; pass it only to
+ * reproduce a known-answer vector, and only as 32 uniformly random bytes, since a low-entropy or
+ * reused value makes the shared secret predictable. The same holds for `keygen`'s optional `seed`.
  * decapsulate() tries to follow the Algorithms 18/21 implicit-reject structure as closely as
  * practical here by re-encrypting, comparing ciphertexts, returning `Khat` on match or `Kbar` on
  * mismatch, and zeroizing the non-returned shared-secret candidate; JS/JIT still provides no
