@@ -2430,10 +2430,28 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     },
     open(sig: TArg<Uint8Array>, pk: TArg<Uint8Array>, verOpts: TArg<VerOpts> = {}) {
       checkVerOpts(verOpts);
-      const { s2, nonce, msg } = SignatureCoder.decode(sig);
-      // Zero-copy API: returned message aliases the caller-provided signature buffer.
-      // Copy it if ownership is needed.
-      if (verifyRaw(pk, s2, nonce, msg)) return msg;
+      // Wrong argument types are caller bugs and must stay TypeErrors; only what happens
+      // after this is untrusted input. Detached verify() type-checks the public key the same
+      // way, so open() does too: a wrong type is fatal, and a malformed (wrong-length or
+      // non-canonical) key folds into the single rejection below rather than leaking a raw
+      // codec error, exactly as detached verify() folds it into `false`.
+      abytes(sig, undefined, 'signature');
+      abytes(pk, undefined, 'publicKey');
+      // Decode failures and malformed-key failures are rejected signatures, not internal
+      // faults. Letting the codec's own errors out gave a caller handling untrusted input
+      // several different messages for one corrupt byte, including "end of buffer: len=2
+      // buf=0 lastByte=undefined", which reads as a library bug. Detached verify already
+      // treats every such failure uniformly; open() collapses them into one Error (the
+      // original preserved as `cause`). A well-formed signature that simply does not
+      // validate falls through to the same message with no cause.
+      try {
+        const { s2, nonce, msg } = SignatureCoder.decode(sig);
+        // Zero-copy API: returned message aliases the caller-provided signature buffer.
+        // Copy it if ownership is needed.
+        if (verifyRaw(pk, s2, nonce, msg)) return msg;
+      } catch (cause) {
+        throw new Error('invalid signature', { cause });
+      }
       throw new Error('invalid signature');
     },
   });
