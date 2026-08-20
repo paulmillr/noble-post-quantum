@@ -10,6 +10,7 @@ import {
   abytes as abytes_,
   ahash as ahash_,
   anumber,
+  bytesToHex,
   concatBytes,
   isBytes,
   isLE,
@@ -675,6 +676,20 @@ export function getMessage(msg: TArg<Uint8Array>, ctx: TArg<Uint8Array> = EMPTY)
 const oidNistP = /* @__PURE__ */ Uint8Array.from([6, 9, 0x60, 0x86, 0x48, 1, 0x65, 3, 4, 2]);
 
 /**
+ * Output length, in bytes, that each XOF OID under this arc denotes.
+ *
+ * Unlike a fixed hash, an XOF's OID is a promise about the digest length: RFC 8702
+ * defines id-shake128 as SHAKE128 with 256-bit output and id-shake256 as SHAKE256 with
+ * 512-bit output, and FIPS 204 / FIPS 205 use exactly those pairings for pre-hash. Both
+ * bare noble-hashes defaults are half these values, so neither can be signed under its
+ * own OID.
+ */
+const XOF_OID_OUTPUT_LEN: Record<string, number> = /* @__PURE__ */ (() => ({
+  '060960864801650304020b': 32, // id-shake128, SHAKE128(M, 256)
+  '060960864801650304020c': 64, // id-shake256, SHAKE256(M, 512)
+}))();
+
+/**
  * Validates that a hash exposes a NIST hash OID and enough collision resistance.
  * Current accepted surface is broader than the FIPS algorithm tables: any hash/XOF under the NIST
  * `2.16.840.1.101.3.4.2.*` subtree is accepted if its effective `outputLen` is strong enough.
@@ -703,6 +718,20 @@ export function checkHash(hash: CHash, requiredStrength: number = 0): void {
   // FIPS 204 / FIPS 205 require both collision and second-preimage strength; for approved NIST
   // hashes/XOFs under this OID subtree, the collision bound from the configured digest length is
   // the tighter runtime check, so enforce that lower bound here.
+  // XOFs under this arc are identified by an OID that fixes their output length:
+  // FIPS 204 §5.4.1 (SHAKE128) and FIPS 205 §10.2.2 (both SHAKEs), matching RFC 8702, pair
+  // id-shake128 with SHAKE128(M, 256) and id-shake256 with SHAKE256(M, 512). getMessagePrehash embeds
+  // hash.oid beside hash(msg), so a shorter digest signs an M' that claims a length
+  // it does not have: noble-hashes' bare shake256 defaults to 32 bytes and cleared
+  // the collision bound at the 128-bit level, producing signatures a conformant
+  // verifier rejects because it recomputes 512 bits. Check the length the OID
+  // denotes rather than the generic bound.
+  const xofLen = XOF_OID_OUTPUT_LEN[bytesToHex(oid as Uint8Array)];
+  if (xofLen !== undefined && hash.outputLen !== xofLen) {
+    throw new Error(
+      'Pre-hash XOF output length must be ' + xofLen + ' bytes for this OID, got: ' + hash.outputLen
+    );
+  }
   const collisionResistance = (hash.outputLen * 8) / 2;
   if (requiredStrength > collisionResistance) {
     throw new Error(
