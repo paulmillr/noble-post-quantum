@@ -317,11 +317,57 @@ export function validateOpts(opts: object): void {
   aobject(opts, 'opts');
 }
 
+// Frozen because they are exported: an unfrozen array export lets anything in the
+// process push a key onto the accepted set and silently re-open exactly the hole this
+// validation closes.
+/** Keys accepted by `verify`. */
+export const VER_OPT_KEYS: readonly ['context'] = /* @__PURE__ */ Object.freeze([
+  'context',
+] as const);
+/** Keys accepted by `sign`. */
+export const SIG_OPT_KEYS: readonly ['context', 'extraEntropy'] = /* @__PURE__ */ Object.freeze([
+  'context',
+  'extraEntropy',
+] as const);
+
+/**
+ * Rejects option keys the caller did not mean to set.
+ *
+ * Validating the types of known keys while ignoring unknown ones makes a typo
+ * indistinguishable from an omission, and for these options an omission is a
+ * security downgrade rather than a no-op: `{ ctx }` instead of `{ context }` signs
+ * with no domain separation, succeeds, and verifies for anyone who also supplies
+ * none. Nothing at any layer reports it. TypeScript catches this through excess
+ * property checks, so the exposure is JavaScript callers specifically.
+ *
+ * @param opts - Options object to check.
+ * @param allowed - The keys this call site accepts.
+ * @throws If any other key is present. {@link TypeError}
+ * @example
+ * Accept a known option key. A key the list does not name, such as `ctx`, throws instead.
+ * ```ts
+ * import { checkOptKeys } from '@noble/post-quantum/utils.js';
+ * checkOptKeys({ context: new Uint8Array() }, ['context']);
+ * ```
+ */
+export function checkOptKeys(opts: object, allowed: readonly string[]): void {
+  for (const [k, v] of Object.entries(opts)) {
+    // `undefined` means unset everywhere else in these validators, and building an
+    // options bag by spread is a normal way to reach these calls, so a key that is
+    // present but undefined must stay equivalent to omitting it.
+    if (v === undefined) continue;
+    if (!allowed.includes(k))
+      throw new TypeError('unexpected option "' + k + '"; expected one of: ' + allowed.join(', '));
+  }
+}
+
 /**
  * Validates common verification options.
  * `context` itself is validated with `abytes(...)`, and individual algorithms may narrow support
  * further after this shared plain-object gate.
  * @param opts - Verification options. See {@link VerOpts}.
+ * @param allowed - Keys this call site accepts. Defaults to {@link VER_OPT_KEYS}; surfaces that
+ * take extra keys, or take fewer, pass their own list.
  * @throws On wrong argument types. {@link TypeError}
  * @example
  * Validate common verification options.
@@ -329,8 +375,12 @@ export function validateOpts(opts: object): void {
  * validateVerOpts({ context: new Uint8Array([1]) });
  * ```
  */
-export function validateVerOpts(opts: TArg<VerOpts>): void {
+export function validateVerOpts(
+  opts: TArg<VerOpts>,
+  allowed: readonly string[] = VER_OPT_KEYS
+): void {
   validateOpts(opts);
+  checkOptKeys(opts, allowed);
   if (opts.context !== undefined) abytes(opts.context, undefined, 'opts.context');
 }
 
@@ -339,6 +389,8 @@ export function validateVerOpts(opts: TArg<VerOpts>): void {
  * `extraEntropy` is validated with `abytes(...)`; exact lengths and extra algorithm-specific
  * restrictions are enforced later by callers.
  * @param opts - Signing options. See {@link SigOpts}.
+ * @param allowed - Keys this call site accepts. Defaults to {@link SIG_OPT_KEYS}; surfaces that
+ * take extra keys, or take fewer, pass their own list.
  * @throws On wrong argument types. {@link TypeError}
  * @example
  * Validate common signing options.
@@ -346,8 +398,13 @@ export function validateVerOpts(opts: TArg<VerOpts>): void {
  * validateSigOpts({ extraEntropy: new Uint8Array([1]) });
  * ```
  */
-export function validateSigOpts(opts: TArg<SigOpts>): void {
-  validateVerOpts(opts);
+export function validateSigOpts(
+  opts: TArg<SigOpts>,
+  allowed: readonly string[] = SIG_OPT_KEYS
+): void {
+  validateOpts(opts);
+  checkOptKeys(opts, allowed);
+  if (opts.context !== undefined) abytes(opts.context, undefined, 'opts.context');
   if (opts.extraEntropy !== false && opts.extraEntropy !== undefined)
     abytes(opts.extraEntropy, undefined, 'opts.extraEntropy');
 }

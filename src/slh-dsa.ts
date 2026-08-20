@@ -53,6 +53,13 @@ import {
   type VerOpts,
 } from './utils.ts';
 
+// Keys the internal SLH-DSA surface accepts. `context` is deliberately absent: the public
+// wrappers consume it when they format M' and must not forward it, because a key that is
+// accepted and then never read is the same silent downgrade this validation exists to prevent.
+// `extraEntropy` is signing-only, so verification (which takes no options of its own) has none.
+const INTERNAL_SIG_OPT_KEYS = /* @__PURE__ */ Object.freeze(['extraEntropy'] as const);
+const INTERNAL_VER_OPT_KEYS = /* @__PURE__ */ Object.freeze([] as const);
+
 /**
  * * N: Security parameter (in bytes). W: Winternitz parameter
  * * H: Hypertree height. D: Hypertree layers
@@ -547,7 +554,7 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       return Uint8Array.from(pk) as TRet<Uint8Array>;
     },
     sign: (msg: TArg<Uint8Array>, sk: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
-      validateSigOpts(opts);
+      validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
       let { extraEntropy: random } = opts;
       const [skSeed, skPRF, pk] = secretCoder.decode(sk); // todo: fix
       const [pkSeed, _] = publicCoder.decode(pk);
@@ -623,7 +630,16 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       cleanBytes(R, random, treeAddr, wotsAddr, forsLeaf, forsTreeAddr, indices, roots);
       return SIG as TRet<Uint8Array>;
     },
-    verify: (sig: TArg<Uint8Array>, msg: TArg<Uint8Array>, publicKey: TArg<Uint8Array>) => {
+    verify: (
+      sig: TArg<Uint8Array>,
+      msg: TArg<Uint8Array>,
+      publicKey: TArg<Uint8Array>,
+      opts: TArg<VerOpts> = {}
+    ) => {
+      // The internal verify reads no options; reject any so a stray key (e.g. a caller
+      // mistaking this for the public verify and passing `context`) is reported rather than
+      // silently swallowed by this function's arity.
+      validateVerOpts(opts, INTERNAL_VER_OPT_KEYS);
       const [pkSeed, pubRoot] = publicCoder.decode(publicKey);
       const pk = publicKey;
       // FIPS 205 Algorithm 20 step 1: wrong-length signatures return false instead of throwing
@@ -702,7 +718,10 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     sign: (msg: TArg<Uint8Array>, secretKey: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
       validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
-      const res = internal.sign(M, secretKey, opts);
+      // `context` is consumed by getMessage() above; forwarding it would make the internal
+      // surface accept a key it never reads.
+      const { context: _context, ...rest } = opts;
+      const res = internal.sign(M, secretKey, rest);
       cleanBytes(M);
       return res as TRet<Uint8Array>;
     },
@@ -726,7 +745,9 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
         sign: (msg: TArg<Uint8Array>, secretKey: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
           validateSigOpts(opts);
           const M = getMessagePrehash(rawHash, msg, opts.context);
-          const res = internal.sign(M, secretKey, opts);
+          // As above: getMessagePrehash() consumes `context`, so it must not travel further.
+          const { context: _context, ...rest } = opts;
+          const res = internal.sign(M, secretKey, rest);
           cleanBytes(M);
           return res as TRet<Uint8Array>;
         },
