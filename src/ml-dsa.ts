@@ -30,6 +30,7 @@ import {
   validateOpts,
   validateSigOpts,
   validateVerOpts,
+  checkOptKeys,
   vecCoder,
   type VerOpts,
 } from './utils.ts';
@@ -43,8 +44,24 @@ export type DSAInternalOpts = {
    */
   externalMu?: boolean;
 };
-function validateInternalOpts(opts: TArg<DSAInternalOpts>) {
+/**
+ * Keys each internal surface accepts.
+ *
+ * `context` is deliberately absent from both. The internal functions never read it: the
+ * public wrappers consume it when they format `M'` and must not pass it down, because a
+ * key that is accepted and then not acted on is the same silent downgrade this validation
+ * exists to prevent. `externalMu` is the mirror case, existing here and rejected above.
+ * `extraEntropy` is signing-only, so verification does not take it either.
+ */
+const INTERNAL_SIG_OPT_KEYS = /* @__PURE__ */ Object.freeze([
+  'extraEntropy',
+  'externalMu',
+] as const);
+const INTERNAL_VER_OPT_KEYS = /* @__PURE__ */ Object.freeze(['externalMu'] as const);
+
+function validateInternalOpts(opts: TArg<DSAInternalOpts>, allowed: readonly string[]) {
   validateOpts(opts);
+  checkOptKeys(opts, allowed);
   if (opts.externalMu !== undefined) abool(opts.externalMu, 'opts.externalMu');
 }
 
@@ -54,13 +71,13 @@ export type DSAInternal = CryptoKeys & {
   sign: (
     msg: TArg<Uint8Array>,
     secretKey: TArg<Uint8Array>,
-    opts?: TArg<SigOpts & DSAInternalOpts>
+    opts?: TArg<Omit<SigOpts, 'context'> & DSAInternalOpts>
   ) => TRet<Uint8Array>;
   verify: (
     sig: TArg<Uint8Array>,
     msg: TArg<Uint8Array>,
     pubKey: TArg<Uint8Array>,
-    opts?: TArg<VerOpts & DSAInternalOpts>
+    opts?: TArg<DSAInternalOpts>
   ) => boolean;
 };
 /** Public ML-DSA signer surface. */
@@ -539,8 +556,8 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       secretKey: TArg<Uint8Array>,
       opts: TArg<SigOpts & DSAInternalOpts> = {}
     ): TRet<Uint8Array> => {
-      validateSigOpts(opts);
-      validateInternalOpts(opts);
+      validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
+      validateInternalOpts(opts, INTERNAL_SIG_OPT_KEYS);
       const { extraEntropy: random, externalMu = false } = opts;
       // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
       if (externalMu) abytes(msg, CRH_BYTES, 'mu');
@@ -664,7 +681,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       publicKey: TArg<Uint8Array>,
       opts: TArg<DSAInternalOpts> = {}
     ) => {
-      validateInternalOpts(opts);
+      validateInternalOpts(opts, INTERNAL_VER_OPT_KEYS);
       const { externalMu = false } = opts;
       // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
       if (externalMu) abytes(msg, CRH_BYTES, 'mu');
@@ -731,7 +748,10 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     ): TRet<Uint8Array> => {
       validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
-      const res = internal.sign(M, secretKey, opts);
+      // `context` is consumed by getMessage() above; forwarding it would make the internal
+      // surface accept a key it never reads.
+      const { context: _context, ...rest } = opts;
+      const res = internal.sign(M, secretKey, rest);
       cleanBytes(M);
       return res as TRet<Uint8Array>;
     },
@@ -761,7 +781,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         ): TRet<Uint8Array> => {
           validateSigOpts(opts);
           const M = getMessagePrehash(rawHash, msg, opts.context);
-          const res = internal.sign(M, secretKey, opts);
+          // As above: getMessagePrehash() consumes `context`, so it must not travel further.
+          const { context: _context, ...rest } = opts;
+          const res = internal.sign(M, secretKey, rest);
           cleanBytes(M);
           return res as TRet<Uint8Array>;
         },

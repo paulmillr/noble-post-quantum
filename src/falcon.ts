@@ -37,6 +37,7 @@ import {
   type TRet,
   validateSigOpts,
   validateVerOpts,
+  SIG_OPT_KEYS,
   type VerOpts,
 } from './utils.ts';
 /*
@@ -2325,10 +2326,15 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     publicKey: publicKeyCoder.bytesLen,
     secretKey: secretKeyCoder.bytesLen,
   });
+  // Falcon takes a sampler callback the other schemes do not, and rejects `context`
+  // with its own message; both stay in the accepted set so the specific errors fire.
+  const FALCON_SIG_OPT_KEYS = [...SIG_OPT_KEYS, 'random'] as const;
   // Noble exposes a 48-byte sampler-seed hook,
   // but Falcon still samples/encodes a separate 40-byte nonce per signature.
   const getRnd = (opts: TArg<FalconSigOpts> = {}): TRet<FalconRandom> => {
-    validateSigOpts(opts);
+    // `context` stays in the accepted set so the specific "not supported" error below
+    // still fires, rather than the generic unexpected-option one.
+    validateSigOpts(opts, FALCON_SIG_OPT_KEYS);
     if (opts.context !== undefined) throw new Error('context is not supported');
     if (opts.random !== undefined && typeof opts.random !== 'function')
       throw new TypeError('"opts.random" expected function, got type=' + typeof opts.random);
