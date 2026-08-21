@@ -38,7 +38,8 @@
     "./ml-dsa.js": "./ml-dsa.js",
     "./ml-kem.js": "./ml-kem.js",
     "./slh-dsa.js": "./slh-dsa.js",
-    "./utils.js": "./utils.js"
+    "./utils.js": "./utils.js",
+    "./webcrypto.js": "./webcrypto.js"
   },
   "engines": {
     "node": ">= 20.19.0"
