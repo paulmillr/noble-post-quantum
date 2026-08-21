@@ -347,6 +347,39 @@ describe('Falcon', () => {
       );
     }
   });
+  it('attached/open rejects uniformly', () => {
+    // A caller handling attacker-supplied signatures needs one rejection, not a tour
+    // of the codec's internals. Corrupting single bytes used to surface at least five
+    // different messages, among them "end of buffer: len=2 buf=0 lastByte=undefined",
+    // which reads as a library defect rather than as input being refused.
+    const keys = falcon.falcon512.keygen(new Uint8Array(48).fill(3));
+    const msg = hexToBytes('68656c6c6f00');
+    const sealed = falcon.falcon512.attached.seal(msg, keys.secretKey, {
+      random: (len) => new Uint8Array(len).fill(7),
+    });
+    const messages = new Set();
+    for (let i = 0; i < sealed.length; i += 7) {
+      const bad = Uint8Array.from(sealed);
+      bad[i] ^= 0x40;
+      try {
+        falcon.falcon512.attached.open(bad, keys.publicKey);
+      } catch (e) {
+        messages.add(e.message);
+      }
+    }
+    deepStrictEqual([...messages], ['invalid signature']);
+    // A malformed public key (the caller's own key) is refused the same uniform way, not as
+    // a raw codec error; a non-bytes key stays a TypeError, like any caller-argument bug.
+    let pkMsg;
+    try {
+      falcon.falcon512.attached.open(sealed, keys.publicKey.subarray(0, keys.publicKey.length - 1));
+    } catch (e) {
+      pkMsg = (e as Error).message;
+    }
+    deepStrictEqual(pkMsg, 'invalid signature');
+    throws(() => falcon.falcon512.attached.open(sealed, new Uint16Array([1]) as any), TypeError);
+  });
+
   it('attached/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
     const rnd = (len) => new Uint8Array(len).fill(7);

@@ -20,9 +20,11 @@ import {
   getMessage,
   getMessagePrehash,
   randomBytes,
+  SIG_OPT_KEYS,
   validateOpts,
   validateSigOpts,
   validateVerOpts,
+  VER_OPT_KEYS,
   vecCoder,
 } from '../src/utils.ts';
 
@@ -421,8 +423,116 @@ describe('Basic', () => {
         throws(() => v.verify(sig, msg, keys.publicKey, false));
         throws(() => v.verify(sig, msg, keys.publicKey, context));
         throws(() => v.sign(msg, keys.secretKey, { extraEntropy: true }));
+        // A misspelled option must not be silently dropped. Ignoring it made
+        // `{ ctx }` sign with no domain separation, succeed, and verify for anyone
+        // who also supplied none: a security parameter lost with no signal.
+        throws(() => v.sign(msg, keys.secretKey, { ctx: context }));
+        throws(() => v.verify(sig, msg, keys.publicKey, { ctx: context }));
+        throws(() => v.sign(msg, keys.secretKey, { context, extraEntopy: false }));
+        // `undefined` means unset everywhere else in these validators, and building
+        // an options bag by spread is a normal way to reach them, so a present-but
+        // -undefined key must stay equivalent to omitting it.
+        eql(
+          v.verify(v.sign(msg, keys.secretKey, { context: undefined }), msg, keys.publicKey),
+          true
+        );
       });
     }
+
+    it('pre-hash XOFs must produce the length their OID denotes', () => {
+      // getMessagePrehash embeds hash.oid beside hash(msg). RFC 8702 and FIPS 204
+      // §5.4.1 fix id-shake128 to 256-bit output and id-shake256 to 512-bit, so a
+      // bare noble-hashes default, which is half of each, signs an M' claiming a
+      // length it does not have. Only noble would verify it.
+      throws(() => ml_dsa44.prehash(shake256));
+      throws(() => ml_dsa44.prehash(shake128));
+      throws(() => slh_dsa_sha2_128f.prehash(shake256));
+      // Correct lengths still work.
+      const wide = (h: any, len: number) => {
+        const f: any = (m: Uint8Array) => h.create({ dkLen: len }).update(m).digest();
+        f.outputLen = len;
+        f.blockLen = h.blockLen;
+        f.create = () => h.create({ dkLen: len });
+        f.oid = h.oid;
+        return f;
+      };
+      const keys = ml_dsa44.keygen();
+      const msg = new Uint8Array([1, 2, 3]);
+      const signer = ml_dsa44.prehash(wide(shake256, 64));
+      eql(signer.verify(signer.sign(msg, keys.secretKey), msg, keys.publicKey), true);
+      // The strength bound still applies on its own: SHAKE128 at its OID length is
+      // 128-bit collision strength, which is not enough for ML-DSA-87.
+      throws(() => ml_dsa87.prehash(wide(shake128, 32)));
+    });
+
+    it('externalMu is internal-only, and says so instead of being ignored', () => {
+      const keys = ml_dsa65.keygen();
+      const mu = new Uint8Array(64).fill(7);
+      // The public wrappers cannot honour it: sign wraps the message before the
+      // 64-byte check, and verify never forwarded opts at all, so it returned false
+      // for a perfectly valid external-mu signature. Rejecting is the honest answer.
+      throws(() => ml_dsa65.sign(mu, keys.secretKey, { externalMu: true }));
+      throws(() => ml_dsa65.verify(new Uint8Array(3309), mu, keys.publicKey, { externalMu: true }));
+      // The internal surface still accepts it.
+      const sig = ml_dsa65.internal.sign(mu, keys.secretKey, { externalMu: true });
+      eql(ml_dsa65.internal.verify(sig, mu, keys.publicKey, { externalMu: true }), true);
+    });
+
+    it('the internal surface rejects keys it does not read', () => {
+      // The public wrappers consume `context` when they format M', so it must not travel
+      // down with the rest of the bag: accepting a key and then not acting on it is the
+      // same silent downgrade a misspelling causes. `extraEntropy` is signing-only.
+      const keys = ml_dsa65.keygen();
+      const mu = new Uint8Array(64).fill(7);
+      const context = new Uint8Array([1, 2, 3]);
+      const sig = ml_dsa65.internal.sign(mu, keys.secretKey, { externalMu: true });
+      throws(() =>
+        ml_dsa65.internal.sign(mu, keys.secretKey, { externalMu: true, context } as any)
+      );
+      throws(() =>
+        ml_dsa65.internal.verify(sig, mu, keys.publicKey, { externalMu: true, context } as any)
+      );
+      throws(() =>
+        ml_dsa65.internal.verify(sig, mu, keys.publicKey, {
+          externalMu: true,
+          extraEntropy: false,
+        } as any)
+      );
+      // The public wrappers keep working, which is what forwards the stripped bag.
+      const msg = new Uint8Array([9, 9]);
+      const pubSig = ml_dsa65.sign(msg, keys.secretKey, { context });
+      eql(ml_dsa65.verify(pubSig, msg, keys.publicKey, { context }), true);
+      eql(ml_dsa65.verify(pubSig, msg, keys.publicKey), false);
+    });
+
+    it('the SLH-DSA internal surface rejects keys it does not read', () => {
+      // SLH-DSA has no externalMu; its internal surface reads only `extraEntropy`. `context`
+      // is consumed by the public wrappers when they format M', so forwarding it down would
+      // be the same silent accept-and-ignore downgrade the ML-DSA fix removes.
+      const slh = slh_dsa_sha2_128f;
+      const keys = slh.keygen();
+      const msg = new Uint8Array([9, 9]);
+      const context = new Uint8Array([1, 2, 3]);
+      const M = getMessage(msg);
+      const isig = slh.internal.sign(M, keys.secretKey);
+      throws(() => slh.internal.sign(M, keys.secretKey, { context } as any));
+      throws(() => slh.internal.sign(M, keys.secretKey, { ctx: context } as any));
+      throws(() => slh.internal.verify(isig, M, keys.publicKey, { context } as any));
+      // The public wrappers keep working (they strip `context` before forwarding), and
+      // context separation is real.
+      const sig = slh.sign(msg, keys.secretKey, { context });
+      eql(slh.verify(sig, msg, keys.publicKey, { context }), true);
+      eql(slh.verify(sig, msg, keys.publicKey), false);
+    });
+
+    it('the accepted-key lists cannot be widened at runtime', () => {
+      // They are exported, so leaving them mutable would let anything in the process push
+      // a key onto the accepted set and re-open the hole this validation closes.
+      eql(Object.isFrozen(SIG_OPT_KEYS), true);
+      eql(Object.isFrozen(VER_OPT_KEYS), true);
+      throws(() => (SIG_OPT_KEYS as unknown as string[]).push('ctx'));
+      throws(() => (VER_OPT_KEYS as unknown as string[]).push('ctx'));
+    });
   });
 });
 

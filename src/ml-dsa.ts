@@ -30,6 +30,7 @@ import {
   validateOpts,
   validateSigOpts,
   validateVerOpts,
+  checkOptKeys,
   vecCoder,
   type VerOpts,
 } from './utils.ts';
@@ -43,8 +44,24 @@ export type DSAInternalOpts = {
    */
   externalMu?: boolean;
 };
-function validateInternalOpts(opts: TArg<DSAInternalOpts>) {
+/**
+ * Keys each internal surface accepts.
+ *
+ * `context` is deliberately absent from both. The internal functions never read it: the
+ * public wrappers consume it when they format `M'` and must not pass it down, because a
+ * key that is accepted and then not acted on is the same silent downgrade this validation
+ * exists to prevent. `externalMu` is the mirror case, existing here and rejected above.
+ * `extraEntropy` is signing-only, so verification does not take it either.
+ */
+const INTERNAL_SIG_OPT_KEYS = /* @__PURE__ */ Object.freeze([
+  'extraEntropy',
+  'externalMu',
+] as const);
+const INTERNAL_VER_OPT_KEYS = /* @__PURE__ */ Object.freeze(['externalMu'] as const);
+
+function validateInternalOpts(opts: TArg<DSAInternalOpts>, allowed: readonly string[]) {
   validateOpts(opts);
+  checkOptKeys(opts, allowed);
   if (opts.externalMu !== undefined) abool(opts.externalMu, 'opts.externalMu');
 }
 
@@ -54,13 +71,13 @@ export type DSAInternal = CryptoKeys & {
   sign: (
     msg: TArg<Uint8Array>,
     secretKey: TArg<Uint8Array>,
-    opts?: TArg<SigOpts & DSAInternalOpts>
+    opts?: TArg<Omit<SigOpts, 'context'> & DSAInternalOpts>
   ) => TRet<Uint8Array>;
   verify: (
     sig: TArg<Uint8Array>,
     msg: TArg<Uint8Array>,
     pubKey: TArg<Uint8Array>,
-    opts?: TArg<VerOpts & DSAInternalOpts>
+    opts?: TArg<DSAInternalOpts>
   ) => boolean;
 };
 /** Public ML-DSA signer surface. */
@@ -539,8 +556,8 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       secretKey: TArg<Uint8Array>,
       opts: TArg<SigOpts & DSAInternalOpts> = {}
     ): TRet<Uint8Array> => {
-      validateSigOpts(opts);
-      validateInternalOpts(opts);
+      validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
+      validateInternalOpts(opts, INTERNAL_SIG_OPT_KEYS);
       const { extraEntropy: random, externalMu = false } = opts;
       // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
       if (externalMu) abytes(msg, CRH_BYTES, 'mu');
@@ -627,7 +644,13 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         const cs1 = s1.map((i) => MultiplyNTTs(i, cHat));
         for (let i = 0; i < L; i++) {
           polyAdd(crystals.NTT.decode(cs1[i]), y[i]); // z ← y + ⟨⟨cs1⟩⟩
-          if (polyChknorm(cs1[i], GAMMA1 - BETA)) continue main_loop; // ||z||∞ ≥ γ1 − β
+          if (polyChknorm(cs1[i], GAMMA1 - BETA)) {
+            // Rejected. Wipe this iteration's secret-derived buffers before retrying; the
+            // accepted path wipes the same set, and only the persistent key material (s1, s2,
+            // t0, A, rhoprime) is kept for the next iteration and cleaned at the very end.
+            cleanBytes(cTilde, cs1, cHat, w1, w, z, y);
+            continue main_loop; // ||z||∞ ≥ γ1 − β
+          }
         }
         // cs1 is now z (▷ Signer’s response)
         let cnt = 0;
@@ -635,16 +658,25 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         for (let i = 0; i < K; i++) {
           const cs2 = crystals.NTT.decode(MultiplyNTTs(s2[i], cHat)); // ⟨⟨cs2⟩⟩ ← NTT−1(cˆ◦ sˆ2)
           const r0 = polySub(w[i], cs2).map(LowBits); // r0 ← LowBits(w − ⟨⟨cs2⟩⟩)
-          if (polyChknorm(r0, GAMMA2 - BETA)) continue main_loop; // ||r0||∞ ≥ γ2 − β
+          if (polyChknorm(r0, GAMMA2 - BETA)) {
+            cleanBytes(cTilde, cs1, cHat, w1, w, z, y, h, cs2, r0);
+            continue main_loop; // ||r0||∞ ≥ γ2 − β
+          }
           const ct0 = crystals.NTT.decode(MultiplyNTTs(t0[i], cHat)); // ⟨⟨ct0⟩⟩ ← NTT−1(cˆ◦ tˆ0)
-          if (polyChknorm(ct0, GAMMA2)) continue main_loop;
+          if (polyChknorm(ct0, GAMMA2)) {
+            cleanBytes(cTilde, cs1, cHat, w1, w, z, y, h, cs2, r0, ct0);
+            continue main_loop;
+          }
           polyAdd(r0, ct0);
           // ▷ Signer’s hint
           const hint = polyMakeHint(r0, w1[i]); // h ← MakeHint(−⟨⟨ct0⟩⟩, w− ⟨⟨cs2⟩⟩ + ⟨⟨ct0⟩⟩)
           h.push(hint.v);
           cnt += hint.cnt;
         }
-        if (cnt > OMEGA) continue; // the number of 1’s in h is greater than ω
+        if (cnt > OMEGA) {
+          cleanBytes(cTilde, cs1, cHat, w1, w, z, y, h);
+          continue; // the number of 1’s in h is greater than ω
+        }
         x256.clean();
         const res = sigCoder.encode([cTilde, cs1, h]); // σ ← sigEncode(c˜, z mod±q, h)
         // rho, _K, tr is subarray of secretKey, cannot clean.
@@ -664,7 +696,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       publicKey: TArg<Uint8Array>,
       opts: TArg<DSAInternalOpts> = {}
     ) => {
-      validateInternalOpts(opts);
+      validateInternalOpts(opts, INTERNAL_VER_OPT_KEYS);
       const { externalMu = false } = opts;
       // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
       if (externalMu) abytes(msg, CRH_BYTES, 'mu');
@@ -731,7 +763,10 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     ): TRet<Uint8Array> => {
       validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
-      const res = internal.sign(M, secretKey, opts);
+      // `context` is consumed by getMessage() above; forwarding it would make the internal
+      // surface accept a key it never reads.
+      const { context: _context, ...rest } = opts;
+      const res = internal.sign(M, secretKey, rest);
       cleanBytes(M);
       return res as TRet<Uint8Array>;
     },
@@ -761,7 +796,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         ): TRet<Uint8Array> => {
           validateSigOpts(opts);
           const M = getMessagePrehash(rawHash, msg, opts.context);
-          const res = internal.sign(M, secretKey, opts);
+          // As above: getMessagePrehash() consumes `context`, so it must not travel further.
+          const { context: _context, ...rest } = opts;
+          const res = internal.sign(M, secretKey, rest);
           cleanBytes(M);
           return res as TRet<Uint8Array>;
         },

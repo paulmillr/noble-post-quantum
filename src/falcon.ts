@@ -37,6 +37,7 @@ import {
   type TRet,
   validateSigOpts,
   validateVerOpts,
+  SIG_OPT_KEYS,
   type VerOpts,
 } from './utils.ts';
 /*
@@ -2325,10 +2326,15 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     publicKey: publicKeyCoder.bytesLen,
     secretKey: secretKeyCoder.bytesLen,
   });
+  // Falcon takes a sampler callback the other schemes do not, and rejects `context`
+  // with its own message; both stay in the accepted set so the specific errors fire.
+  const FALCON_SIG_OPT_KEYS = [...SIG_OPT_KEYS, 'random'] as const;
   // Noble exposes a 48-byte sampler-seed hook,
   // but Falcon still samples/encodes a separate 40-byte nonce per signature.
   const getRnd = (opts: TArg<FalconSigOpts> = {}): TRet<FalconRandom> => {
-    validateSigOpts(opts);
+    // `context` stays in the accepted set so the specific "not supported" error below
+    // still fires, rather than the generic unexpected-option one.
+    validateSigOpts(opts, FALCON_SIG_OPT_KEYS);
     if (opts.context !== undefined) throw new Error('context is not supported');
     if (opts.random !== undefined && typeof opts.random !== 'function')
       throw new TypeError('"opts.random" expected function, got type=' + typeof opts.random);
@@ -2424,10 +2430,28 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     },
     open(sig: TArg<Uint8Array>, pk: TArg<Uint8Array>, verOpts: TArg<VerOpts> = {}) {
       checkVerOpts(verOpts);
-      const { s2, nonce, msg } = SignatureCoder.decode(sig);
-      // Zero-copy API: returned message aliases the caller-provided signature buffer.
-      // Copy it if ownership is needed.
-      if (verifyRaw(pk, s2, nonce, msg)) return msg;
+      // Wrong argument types are caller bugs and must stay TypeErrors; only what happens
+      // after this is untrusted input. Detached verify() type-checks the public key the same
+      // way, so open() does too: a wrong type is fatal, and a malformed (wrong-length or
+      // non-canonical) key folds into the single rejection below rather than leaking a raw
+      // codec error, exactly as detached verify() folds it into `false`.
+      abytes(sig, undefined, 'signature');
+      abytes(pk, undefined, 'publicKey');
+      // Decode failures and malformed-key failures are rejected signatures, not internal
+      // faults. Letting the codec's own errors out gave a caller handling untrusted input
+      // several different messages for one corrupt byte, including "end of buffer: len=2
+      // buf=0 lastByte=undefined", which reads as a library bug. Detached verify already
+      // treats every such failure uniformly; open() collapses them into one Error (the
+      // original preserved as `cause`). A well-formed signature that simply does not
+      // validate falls through to the same message with no cause.
+      try {
+        const { s2, nonce, msg } = SignatureCoder.decode(sig);
+        // Zero-copy API: returned message aliases the caller-provided signature buffer.
+        // Copy it if ownership is needed.
+        if (verifyRaw(pk, s2, nonce, msg)) return msg;
+      } catch (cause) {
+        throw new Error('invalid signature', { cause });
+      }
       throw new Error('invalid signature');
     },
   });
