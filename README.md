@@ -123,6 +123,25 @@ Old, incompatible version (Kyber) is not provided. Open an issue if you need it.
 > `decapsulate` will simply return a different shared secret.
 > ML-KEM is also probabilistic and relies on quality of CSPRNG.
 
+#### webcrypto: friendly wrapper
+
+WebCrypto-backed ML-KEM and `ml_kem768_x25519` wrappers are also available. Their methods are async
+and require a runtime that implements the corresponding experimental WebCrypto API.
+
+```ts
+import { ml_kem768 } from '@noble/post-quantum/webcrypto.js';
+
+if (await ml_kem768.isSupported()) {
+  const aliceKeys = await ml_kem768.keygen();
+  const { cipherText, sharedSecret: bobShared } = await ml_kem768.encapsulate(aliceKeys.publicKey);
+  const aliceShared = await ml_kem768.decapsulate(cipherText, aliceKeys.secretKey);
+}
+```
+
+The ML-KEM wrappers serialize private keys as 64-byte `raw-seed` values; the X25519 hybrid uses a
+32-byte seed. They can be passed to the corresponding synchronous implementation's `keygen(seed)`,
+but are not expanded decapsulation keys.
+
 ### ML-DSA / Dilithium signatures
 
 ```ts

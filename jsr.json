@@ -9,7 +9,8 @@
     "./ml-dsa.js": "./src/ml-dsa.ts",
     "./ml-kem.js": "./src/ml-kem.ts",
     "./slh-dsa.js": "./src/slh-dsa.ts",
-    "./utils.js": "./src/utils.ts"
+    "./utils.js": "./src/utils.ts",
+    "./webcrypto.js": "./src/webcrypto.ts"
   },
   "imports": {
     "@noble/ciphers": "jsr:@noble/ciphers@~2.3.0",
