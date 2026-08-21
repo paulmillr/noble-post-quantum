@@ -457,17 +457,25 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
       // seed is the caller's to manage (and the immutability test requires it stay untouched).
       const ownSeed = seed === undefined;
       const s = ownSeed ? randomBytes(seedLen) : (seed as TArg<Uint8Array>);
-      abytes(s, seedLen, 'seed');
-      const { publicKey, secretKey: sk } = KPKE.keygen(s.subarray(0, 32));
-      const publicKeyHash = HASH256(publicKey);
-      // (dkPKE||ek||H(ek)||z)
-      const secretKey = secretCoder.encode([sk, publicKey, publicKeyHash, s.subarray(32)]);
-      cleanBytes(sk, publicKeyHash);
-      if (ownSeed) cleanBytes(s);
-      return {
-        publicKey: publicKey as TRet<Uint8Array>,
-        secretKey: secretKey as TRet<Uint8Array>,
-      };
+      let sk: Uint8Array | undefined;
+      let publicKeyHash: Uint8Array | undefined;
+      try {
+        abytes(s, seedLen, 'seed');
+        const keys = KPKE.keygen(s.subarray(0, 32));
+        const publicKey = keys.publicKey;
+        sk = keys.secretKey as Uint8Array;
+        publicKeyHash = HASH256(publicKey);
+        // (dkPKE||ek||H(ek)||z)
+        const secretKey = secretCoder.encode([sk, publicKey, publicKeyHash, s.subarray(32)]);
+        return {
+          publicKey: publicKey as TRet<Uint8Array>,
+          secretKey: secretKey as TRet<Uint8Array>,
+        };
+      } finally {
+        if (sk !== undefined) cleanBytes(sk);
+        if (publicKeyHash !== undefined) cleanBytes(publicKeyHash);
+        if (ownSeed) cleanBytes(s);
+      }
     },
     getPublicKey: (secretKey: TArg<Uint8Array>): TRet<Uint8Array> => {
       const [_sk, publicKey, _publicKeyHash, _z] = secretCoder.decode(secretKey);
@@ -479,18 +487,22 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
       // caller's to manage (the immutability test requires it stay untouched).
       const ownMsg = msg === undefined;
       const m = ownMsg ? randomBytes(msgLen) : (msg as TArg<Uint8Array>);
-      abytes(publicKey, lengths.publicKey, 'publicKey');
-      abytes(m, msgLen, 'message');
-      validateModulus(publicKey, 'encapsulate');
-      // derive randomness
-      const kr = HASH512.create().update(m).update(HASH256(publicKey)).digest();
-      const cipherText = KPKE.encrypt(publicKey, m, kr.subarray(32, 64));
-      cleanBytes(kr.subarray(32));
-      if (ownMsg) cleanBytes(m);
-      return {
-        cipherText: cipherText as TRet<Uint8Array>,
-        sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
-      };
+      let kr: Uint8Array | undefined;
+      try {
+        abytes(publicKey, lengths.publicKey, 'publicKey');
+        abytes(m, msgLen, 'message');
+        validateModulus(publicKey, 'encapsulate');
+        // derive randomness
+        kr = HASH512.create().update(m).update(HASH256(publicKey)).digest();
+        const cipherText = KPKE.encrypt(publicKey, m, kr.subarray(32, 64));
+        return {
+          cipherText: cipherText as TRet<Uint8Array>,
+          sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
+        };
+      } finally {
+        if (kr !== undefined) cleanBytes(kr.subarray(32));
+        if (ownMsg) cleanBytes(m);
+      }
     },
     decapsulate: (cipherText: TArg<Uint8Array>, secretKey: TArg<Uint8Array>): TRet<Uint8Array> => {
       abytes(secretKey, secretCoder.bytesLen, 'secretKey'); // 768*k + 96
@@ -534,15 +546,19 @@ function createKyber(opts: TArg<KyberOpts>): TRet<MLKEM> {
           // preimage and is wiped; a caller-supplied one is left untouched.
           const ownMsg = msg === undefined;
           const m = ownMsg ? randomBytes(msgLen) : (msg as TArg<Uint8Array>);
-          abytes(m, msgLen, 'message');
-          const kr = HASH512.create().update(m).update(publicKeyHash).digest();
-          const cipherText = cached.encrypt(m, kr.subarray(32, 64));
-          cleanBytes(kr.subarray(32));
-          if (ownMsg) cleanBytes(m);
-          return {
-            cipherText: cipherText as TRet<Uint8Array>,
-            sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
-          };
+          let kr: Uint8Array | undefined;
+          try {
+            abytes(m, msgLen, 'message');
+            kr = HASH512.create().update(m).update(publicKeyHash).digest();
+            const cipherText = cached.encrypt(m, kr.subarray(32, 64));
+            return {
+              cipherText: cipherText as TRet<Uint8Array>,
+              sharedSecret: kr.subarray(0, 32) as TRet<Uint8Array>,
+            };
+          } finally {
+            if (kr !== undefined) cleanBytes(kr.subarray(32));
+            if (ownMsg) cleanBytes(m);
+          }
         },
         decapsulate: (
           cipherText: TArg<Uint8Array>,

@@ -765,8 +765,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       const M = getMessage(msg, opts.context);
       // `context` is consumed by getMessage() above; forwarding it would make the internal
       // surface accept a key it never reads.
-      const { context: _context, ...rest } = opts;
-      const res = internal.sign(M, secretKey, rest);
+      // Read the remaining supported value explicitly: object rest would silently drop a valid
+      // inherited or non-enumerable `extraEntropy` property after the validator accepted it.
+      const res = internal.sign(M, secretKey, { extraEntropy: opts.extraEntropy });
       cleanBytes(M);
       return res as TRet<Uint8Array>;
     },
@@ -797,8 +798,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           validateSigOpts(opts);
           const M = getMessagePrehash(rawHash, msg, opts.context);
           // As above: getMessagePrehash() consumes `context`, so it must not travel further.
-          const { context: _context, ...rest } = opts;
-          const res = internal.sign(M, secretKey, rest);
+          const res = internal.sign(M, secretKey, { extraEntropy: opts.extraEntropy });
           cleanBytes(M);
           return res as TRet<Uint8Array>;
         },

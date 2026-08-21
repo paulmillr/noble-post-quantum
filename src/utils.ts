@@ -352,13 +352,43 @@ export const SIG_OPT_KEYS: readonly ['context', 'extraEntropy'] = /* @__PURE__ *
  * ```
  */
 export function checkOptKeys(opts: object, allowed: readonly string[]): void {
-  for (const [k, v] of Object.entries(opts)) {
-    // `undefined` means unset everywhere else in these validators, and building an
-    // options bag by spread is a normal way to reach these calls, so a key that is
-    // present but undefined must stay equivalent to omitting it.
-    if (v === undefined) continue;
-    if (!allowed.includes(k))
-      throw new TypeError('unexpected option "' + k + '"; expected one of: ' + allowed.join(', '));
+  // Object.entries() sees only own enumerable string keys, while property reads below also see
+  // non-enumerable and inherited keys. Walk the effective option bag so validation and use cannot
+  // disagree. Stop before the terminal Object.prototype (from whichever realm supplied `opts`),
+  // whose built-ins are not options; class/custom prototypes before it are part of the bag.
+  const seenObjects = new Set<object>();
+  const seenKeys = new Set<PropertyKey>();
+  for (let cur: object | null = opts; cur !== null && !seenObjects.has(cur); ) {
+    seenObjects.add(cur);
+    const parent = Object.getPrototypeOf(cur);
+    const constructor =
+      parent === null ? Object.getOwnPropertyDescriptor(cur, 'constructor')?.value : undefined;
+    // A null-prototype object can itself carry inherited options, so identify Object.prototype by
+    // its self-referential constructor instead of assuming every terminal prototype is built-in.
+    if (
+      cur !== opts &&
+      parent === null &&
+      typeof constructor === 'function' &&
+      constructor.prototype === cur
+    )
+      break;
+    for (const k of Reflect.ownKeys(cur)) {
+      // Class prototypes always contribute this non-option bookkeeping property.
+      if (cur !== opts && k === 'constructor') continue;
+      // A nearer property shadows the same key further up the prototype chain.
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+      const v = Reflect.get(opts, k);
+      // `undefined` means unset everywhere else in these validators, and building an
+      // options bag by spread is a normal way to reach these calls, so a key that is
+      // present but undefined must stay equivalent to omitting it.
+      if (v === undefined) continue;
+      if (typeof k !== 'string' || !allowed.includes(k))
+        throw new TypeError(
+          'unexpected option "' + String(k) + '"; expected one of: ' + allowed.join(', ')
+        );
+    }
+    cur = parent;
   }
 }
 

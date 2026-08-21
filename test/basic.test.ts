@@ -98,6 +98,23 @@ describe('Basic', () => {
       eql(cipherText, enc.cipherText);
       eql(secretKey, keys.secretKey);
     });
+    it('ML-KEM wipes generated randomness when encapsulation throws', () => {
+      const crypto = globalThis.crypto as any;
+      const getRandomValues = crypto.getRandomValues;
+      let generated: Uint8Array | undefined;
+      crypto.getRandomValues = (buf: Uint8Array) => {
+        generated = buf;
+        buf.fill(7);
+        return buf;
+      };
+      try {
+        // The public key fails validation after encapsulate() has allocated its own random m.
+        throws(() => ml_kem512.encapsulate(new Uint8Array()));
+      } finally {
+        crypto.getRandomValues = getRandomValues;
+      }
+      eql(generated, new Uint8Array(32));
+    });
     it('ML-DSA', () => {
       // keygen
       const seed = randomBytes(32);
@@ -503,6 +520,35 @@ describe('Basic', () => {
       const pubSig = ml_dsa65.sign(msg, keys.secretKey, { context });
       eql(ml_dsa65.verify(pubSig, msg, keys.publicKey, { context }), true);
       eql(ml_dsa65.verify(pubSig, msg, keys.publicKey), false);
+    });
+
+    it('validates and preserves non-enumerable and inherited option properties', () => {
+      const keys = ml_dsa44.keygen(new Uint8Array(32));
+      const msg = new Uint8Array([1, 2, 3]);
+      // Prototype accessors are visible through normal property reads, so validation and
+      // forwarding must see them too. In particular, deterministic signing must stay deterministic.
+      class DeterministicOpts {
+        get extraEntropy() {
+          return false as const;
+        }
+      }
+      const inherited = new DeterministicOpts();
+      eql(ml_dsa44.sign(msg, keys.secretKey, inherited), ml_dsa44.sign(msg, keys.secretKey, inherited));
+      const hidden = {};
+      Object.defineProperty(hidden, 'extraEntropy', { value: false });
+      eql(ml_dsa44.sign(msg, keys.secretKey, hidden), ml_dsa44.sign(msg, keys.secretKey, hidden));
+
+      // Unknown/unsupported keys cannot bypass validation through the same property shapes.
+      const inheritedTypo = Object.create({ ctx: new Uint8Array([1]) });
+      throws(() => ml_dsa44.sign(msg, keys.secretKey, inheritedTypo));
+      const nullProto = Object.create(null);
+      nullProto.ctx = new Uint8Array([1]);
+      throws(() => ml_dsa44.sign(msg, keys.secretKey, Object.create(nullProto)));
+      const hiddenExternalMu = {};
+      Object.defineProperty(hiddenExternalMu, 'externalMu', { value: true });
+      throws(() => ml_dsa44.sign(new Uint8Array(64), keys.secretKey, hiddenExternalMu));
+      const inheritedContext = Object.create({ context: new Uint8Array([1]) });
+      throws(() => ml_dsa44.internal.sign(msg, keys.secretKey, inheritedContext));
     });
 
     it('the SLH-DSA internal surface rejects keys it does not read', () => {
