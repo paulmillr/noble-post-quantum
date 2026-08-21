@@ -55,7 +55,7 @@ const HASHES = {
 // These tests are from 'https://github.com/usnistgov/ACVP-Server/tree/master/gen-val/json-files'
 // We can generate even more tests from server, but it is already super slow.
 const acvpFile = (name, fname, gzipped = true) =>
-  `vectors/acvp-vectors/gen-val/json-files/${name}/${fname}.json${gzipped ? '.gz' : ''}`;
+  `vectors/acvp-vectors/acvp/${name}/${fname}.json${gzipped ? '.gz' : ''}`;
 const jsonACVP = (name, fname, gzipped = true) => jsonGZ(acvpFile(name, fname, gzipped));
 const includeACVPTest = (is205, tid) => !(is205 && tid > 0 && ignoreSlowTests);
 const caseKey = (gid, tid) => `${gid}:${tid}`;

@@ -6,7 +6,8 @@ import { ml_dsa44, ml_dsa65, ml_dsa87 } from '../src/ml-dsa.ts';
 import { ml_kem1024, ml_kem512, ml_kem768 } from '../src/ml-kem.ts';
 import { jsonGZGroups } from './util.ts';
 
-const loadWP = (name) => jsonGZGroups(`vectors/wycheproof/${name}.json.gz`);
+const loadWP = (name) =>
+  jsonGZGroups(`vectors/acvp-vectors/wycheproof/testvectors_v1/${name}.json.gz`);
 
 const KEM_LEVELS = [
   { level: '512', kem: ml_kem512 },
@@ -33,6 +34,8 @@ function dsaSign(dsa, secretKey, t) {
   };
   return dsa.sign(hexx(t.msg), secretKey, opts);
 }
+
+const verifyOpts = (t) => ({ context: t.ctx !== undefined ? hexx(t.ctx) : undefined });
 
 describe('Wycheproof', () => {
   describe('ML-KEM', () => {
@@ -125,6 +128,11 @@ describe('Wycheproof', () => {
             eql(keys.publicKey, hexx(g.publicKey));
             for (const t of g.tests) {
               if (t.result === 'valid') {
+                if (t.flags?.includes('Randomized')) {
+                  // Hedged signature: not reproducible deterministically, verify instead.
+                  eql(dsa.verify(hexx(t.sig), hexx(t.msg), keys.publicKey, verifyOpts(t)), true);
+                  continue;
+                }
                 const sig = dsaSign(dsa, keys.secretKey, t);
                 eql(sig, hexx(t.sig));
               } else {
