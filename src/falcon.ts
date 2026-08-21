@@ -1169,6 +1169,37 @@ function getFloatPoly(logn: number) {
 }
 
 function ldlFFT(logn: number, g00t: CPoly, g01t: CPoly, g11t: CPoly) {
+  // Algorithm 8: LDL*(G)
+  // (Page 37)
+  // Require: A full-rank self-adjoint matrix G = (Gᵢⱼ) ∈ FFT(Q[x]/(φ))²ˣ²
+  // Ensure: The LDL* decomposition G = LDL* over FFT(Q[x]/(φ))
+  // Format: All polynomials are in FFT representation.
+  // 1: D₀₀ ← G₀₀
+  // 2: L₁₀ ← G₁₀/G₀₀
+  // 3: D₁₁ ← G₁₁ - L₁₀ ⊙ L₁₀* ⊙ G₀₀
+  // 4: L ← [ 1 0 ; L₁₀ 1 ], D ← [ D₀₀ 0 ; 0 D₁₁ ]
+  // 5: return (L, D)
+
+  // Algorithm 9: ffLDL*(G)
+  // (Page 37)
+  // Require: A full-rank Gram matrix G ∈ FFT(Q[x]/(xⁿ + 1))²ˣ²
+  // Ensure: A binary tree T
+  // Format: All polynomials are in FFT representation.
+  // 1: (L, D) ← LDL*(G) ▷ L = [ 1 0 ; L₁₀ 1 ], D = [ D₀₀ 0 ; 0 D₁₁ ]
+  // 2: T.value ← L₁₀
+  // 3: if (n = 2) then
+  // 4:     T.leftchild ← D₀₀
+  // 5:     T.rightchild ← D₁₁
+  // 6:     return T
+  // 7: else
+  // 8:     d₀₀, d₀₁ ← splitfft(D₀₀) ▷ dᵢⱼ ∈ FFT(Q[x]/(x^{n/2} + 1))
+  // 9:     d₁₀, d₁₁ ← splitfft(D₁₁)
+  // 10:     G₀ ← [ d₀₀ d₀₁ ; d₀₁* d₀₀ ], G₁ ← [ d₁₀ d₁₁ ; d₁₁* d₁₀ ]
+  //         ▷ Since D₀₀, D₁₁ are self-adjoint, (3.30) applies
+  // 11:     T.leftchild ← ffLDL*(G₀) ▷ Recursive calls
+  // 12:     T.rightchild ← ffLDL*(G₁)
+  // 13:     return T
+
   // Recursive calls may alias g00t and g11t, and the top-level arrays persist across signing
   // retries. LDL replaces array entries, so shallow copies keep both kinds of caller state intact.
   g00t = g00t.slice();
@@ -1813,7 +1844,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     // Round-3 Falcon keeps 16-bit draws only in 0..61444, i.e. below 61445 = 5*q, the largest
     // 16-bit multiple of q below 2^16; a literal ceil(2^16/q)*q would accept every sample.
     const kQ = 5 * Q;
-    for (let i = 0; i < N; ) {
+    for (let i = 0; i < N;) {
       const tmp = h.xof(2); // 6:     t ← SHAKE-256-Extract(ctx, 16)
       let w = (tmp[0] << 8) | tmp[1];
       if (w < kQ) c[i++] = w % Q; // 8:         cᵢ ← t mod q
@@ -1991,39 +2022,6 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         if (this.berExp(x, ccs)) return s + z;
       }
     }
-    private ldlFFT(logn: number, g00t: CPoly, g01t: CPoly, g11t: CPoly) {
-      // Algorithm 8: LDL*(G)
-      // (Page 37)
-      // Require: A full-rank self-adjoint matrix G = (Gᵢⱼ) ∈ FFT(Q[x]/(φ))²ˣ²
-      // Ensure: The LDL* decomposition G = LDL* over FFT(Q[x]/(φ))
-      // Format: All polynomials are in FFT representation.
-      // 1: D₀₀ ← G₀₀
-      // 2: L₁₀ ← G₁₀/G₀₀
-      // 3: D₁₁ ← G₁₁ - L₁₀ ⊙ L₁₀* ⊙ G₀₀
-      // 4: L ← [ 1 0 ; L₁₀ 1 ], D ← [ D₀₀ 0 ; 0 D₁₁ ]
-      // 5: return (L, D)
-
-      // Algorithm 9: ffLDL*(G)
-      // (Page 37)
-      // Require: A full-rank Gram matrix G ∈ FFT(Q[x]/(xⁿ + 1))²ˣ²
-      // Ensure: A binary tree T
-      // Format: All polynomials are in FFT representation.
-      // 1: (L, D) ← LDL*(G) ▷ L = [ 1 0 ; L₁₀ 1 ], D = [ D₀₀ 0 ; 0 D₁₁ ]
-      // 2: T.value ← L₁₀
-      // 3: if (n = 2) then
-      // 4:     T.leftchild ← D₀₀
-      // 5:     T.rightchild ← D₁₁
-      // 6:     return T
-      // 7: else
-      // 8:     d₀₀, d₀₁ ← splitfft(D₀₀) ▷ dᵢⱼ ∈ FFT(Q[x]/(x^{n/2} + 1))
-      // 9:     d₁₀, d₁₁ ← splitfft(D₁₁)
-      // 10:     G₀ ← [ d₀₀ d₀₁ ; d₀₁* d₀₀ ], G₁ ← [ d₁₀ d₁₁ ; d₁₁* d₁₀ ]
-      //         ▷ Since D₀₀, D₁₁ are self-adjoint, (3.30) applies
-      // 11:     T.leftchild ← ffLDL*(G₀) ▷ Recursive calls
-      // 12:     T.rightchild ← ffLDL*(G₁)
-      // 13:     return T
-      return ldlFFT(logn, g00t, g01t, g11t);
-    }
     private splitFFT(logn: number, f: CPoly) {
       // Algorithm 1: splitfft(FFT(f))
       // (Page 29)
@@ -2153,7 +2151,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
         return { t0: [{ re: t0re, im: 0.0 }], t1: [{ re: t1re, im: 0.0 }] };
       }
       // 6: (l, T₀, T₁) ← (T.value, T.leftchild, T.rightchild)
-      const { g00, g01, g11 } = this.ldlFFT(logn, g00i, g01i, g11i);
+      const { g00, g01, g11 } = ldlFFT(logn, g00i, g01i, g11i);
       const { f0: g00f0, f1: g00f1 } = this.splitSelfAdjFFT(logn, g00);
       const { f0: g11f0, f1: g11f1 } = this.splitSelfAdjFFT(logn, g11);
       // 7: t'₁ ← splitfft(t₁)
