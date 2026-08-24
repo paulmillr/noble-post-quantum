@@ -30,6 +30,24 @@ const PRIVATE_USAGES = ['decapsulateBits'];
 const PUBLIC_USAGES = ['encapsulateBits'];
 const ALL_USAGES = ['encapsulateBits', 'decapsulateBits'];
 const PROBED_METHODS = ['encapsulateBits', 'decapsulateBits', 'getPublicKey'];
+const SHARED_SECRET_LENGTH = 32;
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength'
+)?.get;
+
+// Typed-array constructors also accept numbers and array-like objects, which would turn malformed
+// provider results into newly allocated all-zero buffers. Use the intrinsic getter as a cross-realm
+// ArrayBuffer brand check before constructing a view.
+function providerBytes(value: unknown, title: string): TRet<Uint8Array> {
+  try {
+    if (arrayBufferByteLength === undefined) throw new TypeError('missing ArrayBuffer getter');
+    arrayBufferByteLength.call(value);
+  } catch {
+    throw new TypeError(`WebCrypto "${title}" expected ArrayBuffer`);
+  }
+  return new Uint8Array(value as ArrayBuffer) as TRet<Uint8Array>;
+}
 
 /** Byte lengths for a WebCrypto wrapper's serialized keys and ciphertexts. */
 type KEMLengths = {
@@ -205,10 +223,22 @@ function createWebCryptoKEM(
       abytes(publicKey, frozen.publicKey, 'publicKey')
     );
     const { ciphertext, sharedKey } = await subtle.encapsulateBits(algorithm, key);
-    return {
-      cipherText: new Uint8Array(ciphertext) as TRet<Uint8Array>,
-      sharedSecret: new Uint8Array(sharedKey) as TRet<Uint8Array>,
-    };
+    // Provider outputs cross a trust boundary: some runtimes expose experimental methods with
+    // incomplete implementations. Materialize the secret first so every later rejection can wipe
+    // it, including a malformed ciphertext result.
+    const sharedSecret = providerBytes(sharedKey, 'sharedKey');
+    try {
+      const cipherText = abytes(
+        providerBytes(ciphertext, 'ciphertext'),
+        frozen.cipherText,
+        'cipherText'
+      ) as TRet<Uint8Array>;
+      abytes(sharedSecret, SHARED_SECRET_LENGTH, 'sharedSecret');
+      return { cipherText, sharedSecret: sharedSecret as TRet<Uint8Array> };
+    } catch (error) {
+      cleanBytes(sharedSecret);
+      throw error;
+    }
   };
 
   const decapsulate = async (
@@ -219,7 +249,16 @@ function createWebCryptoKEM(
     const cipher = copyBytes(abytes(cipherText, frozen.cipherText, 'cipherText'));
     const subtle = _subtle();
     const key = await importSecret(subtle, secretKey);
-    return new Uint8Array(await subtle.decapsulateBits(algorithm, key, cipher)) as TRet<Uint8Array>;
+    const sharedSecret = providerBytes(
+      await subtle.decapsulateBits(algorithm, key, cipher),
+      'sharedKey'
+    );
+    try {
+      return abytes(sharedSecret, SHARED_SECRET_LENGTH, 'sharedSecret') as TRet<Uint8Array>;
+    } catch (error) {
+      cleanBytes(sharedSecret);
+      throw error;
+    }
   };
 
   return Object.freeze({
@@ -227,20 +266,31 @@ function createWebCryptoKEM(
     lengths: frozen,
     async isSupported(): Promise<boolean> {
       if (supported !== undefined) return supported;
+      let secretKey: Uint8Array | undefined;
+      let encapsulatedSecret: Uint8Array | undefined;
+      let decapsulatedSecret: Uint8Array | undefined;
       try {
         const subtle = _subtle();
         for (const method of PROBED_METHODS)
           if (typeof subtle[method] !== 'function') return (supported = false);
-        const { secretKey, publicKey } = await keygen();
+        const generated = await keygen();
+        secretKey = generated.secretKey;
+        const { publicKey } = generated;
         const encapsulated = await encapsulate(publicKey);
-        const decapsulated = await decapsulate(encapsulated.cipherText, secretKey);
+        encapsulatedSecret = encapsulated.sharedSecret;
+        decapsulatedSecret = await decapsulate(encapsulated.cipherText, secretKey);
         const ok =
           equalBytes(await getPublicKey(secretKey), publicKey) &&
-          equalBytes(encapsulated.sharedSecret, decapsulated);
-        cleanBytes(secretKey, encapsulated.sharedSecret, decapsulated);
+          equalBytes(encapsulatedSecret, decapsulatedSecret);
         return (supported = ok);
       } catch {
         return (supported = false);
+      } finally {
+        // A failed provider can throw at any point after producing secret material. Never let the
+        // support probe retain a generated seed or shared-secret output that it received.
+        if (secretKey !== undefined) cleanBytes(secretKey);
+        if (encapsulatedSecret !== undefined) cleanBytes(encapsulatedSecret);
+        if (decapsulatedSecret !== undefined) cleanBytes(decapsulatedSecret);
       }
     },
     keygen,
