@@ -17,7 +17,9 @@ import { jsonGZGroups } from './util.ts';
  */
 async function* loadWP(name: string) {
   let groups = 0;
-  for await (const g of jsonGZGroups(`vectors/acvp-vectors/wycheproof/testvectors_v1/${name}.json.gz`)) {
+  for await (const g of jsonGZGroups(
+    `vectors/acvp-vectors/wycheproof/testvectors_v1/${name}.json.gz`
+  )) {
     groups++;
     yield g;
   }

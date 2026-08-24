@@ -112,7 +112,7 @@ export const genCrystals = <T extends TypedArray>(opts: CrystalOpts<T>): TRet<Cr
   // Normalize JS `%` into the canonical Z_m representative `[0, modulo-1]` expected by
   // FIPS 203 §2.3 / FIPS 204 §2.3 before downstream mod-q arithmetic.
   const mod = (a: number, modulo = Q): number => {
-    const result = a % modulo | 0;
+    const result = (a % modulo) | 0;
     return (result >= 0 ? result | 0 : (modulo + result) | 0) | 0;
   };
   // FIPS 204 §7.4 uses the centered `mod ±` representative for low bits, keeping the

@@ -222,7 +222,7 @@ function SampleNTT(xof_: TArg<XofGet>): TRet<Poly> {
   // The reader must already bind the Algorithm 7 seed||j||i bytes
   // and return block lengths divisible by 3.
   const r: Poly = new Uint16Array(N);
-  for (let j = 0; j < N; ) {
+  for (let j = 0; j < N;) {
     const b = xof();
     if (b.length % 3) throw new Error('SampleNTT: unaligned block');
     for (let i = 0; j < N && i + 3 <= b.length; i += 3) {

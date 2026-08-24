@@ -28,6 +28,8 @@
     "build:clean": "rm *.{js,d.ts} 2> /dev/null",
     "format": "prettier --write 'src/**/*.{js,ts}' 'test/**/*.{js,ts,mjs}'",
     "test": "node --no-warnings test/index.ts",
+    "test:bun": "bun test/index.ts",
+    "test:deno": "deno --allow-env --allow-read test/index.ts",
     "test:slow": "SLOW_TESTS=1 node test/index.ts"
   },
   "exports": {

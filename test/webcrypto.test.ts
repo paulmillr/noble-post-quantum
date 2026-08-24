@@ -37,6 +37,13 @@ async function withSubtle<T>(subtle: any, run: () => Promise<T>): Promise<T> {
   }
 }
 
+// TypeScript preserves dynamic import paths verbatim, so select the source or compiled extension
+// from the current test module before adding a cache-busting query.
+function importFreshWebCrypto(cacheKey: string) {
+  const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
+  return import(`../src/webcrypto.${extension}?${cacheKey}`);
+}
+
 describe('WebCrypto', () => {
   it('lengths match the synchronous implementations', () => {
     for (const { name, noble, web } of KEMS) {
@@ -148,8 +155,7 @@ describe('WebCrypto', () => {
     await withSubtle(subtle, async () => {
       // A cache-busted module has a fresh per-wrapper support memo, independent of the real-runtime
       // probes performed at module initialization above.
-      const freshPath = '../src/webcrypto.ts?malformed-support-probe';
-      const fresh = await import(freshPath);
+      const fresh = await importFreshWebCrypto('malformed-support-probe');
       eql(await fresh.ml_kem512.isSupported(), false);
       if (exportedSeed === undefined || providerSecret === undefined)
         throw new Error('expected malformed provider outputs');
@@ -189,8 +195,7 @@ describe('WebCrypto', () => {
       },
     };
     await withSubtle(subtle, async () => {
-      const freshPath = '../src/webcrypto.ts?malformed-decapsulation-probe';
-      const fresh = await import(freshPath);
+      const fresh = await importFreshWebCrypto('malformed-decapsulation-probe');
       eql(await fresh.ml_kem512.isSupported(), false);
       eql(decapsulateCalls, 1);
       if (

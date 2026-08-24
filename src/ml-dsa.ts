@@ -231,7 +231,7 @@ function RejNTTPoly(xof_: TArg<XofGet>): TRet<Poly> {
   // Samples a polynomial ∈ Tq. xof() must return byte lengths divisible by 3.
   const r = newPoly(N);
   // NOTE: we can represent 3xu24 as 4xu32, but it doesn't improve perf :(
-  for (let j = 0; j < N; ) {
+  for (let j = 0; j < N;) {
     const b = xof();
     if (b.length % 3) throw new Error('RejNTTPoly: unaligned block');
     for (let i = 0; j < N && i <= b.length - 3; i += 3) {
@@ -393,7 +393,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     const xof = xof_ as XofGet;
     // Samples an element a ∈ Rq with coeffcients in [−η, η] computed via rejection sampling from ρ.
     const r: Poly = newPoly(N);
-    for (let j = 0; j < N; ) {
+    for (let j = 0; j < N;) {
       const b = xof();
       for (let i = 0; j < N && i < b.length; i += 1) {
         // half byte. Should be superfast with vector instructions. But very slow with js :(
@@ -417,7 +417,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
     const masks = buf.slice(0, 8);
     for (let i = N - TAU, pos = 8, maskPos = 0, maskBit = 0; i < N; i++) {
       let b = i + 1;
-      for (; b > i; ) {
+      for (; b > i;) {
         b = buf[pos++];
         if (pos < shake256.blockLen) continue;
         s.xofInto(buf);
@@ -618,7 +618,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       abytes(rhoprime, CRH_BYTES);
       const x256 = XOF256(rhoprime, ZCoder.bytesLen);
       //  Rejection sampling loop
-      main_loop: for (let kappa = 0; ; ) {
+      main_loop: for (let kappa = 0; ;) {
         const y = [];
         // y ← ExpandMask(ρ , κ)
         for (let i = 0; i < L; i++, kappa++)

@@ -262,8 +262,7 @@ const compCoder = (n: number) => {
         // Waiting for the terminating one first lets an invalid coefficient scan the entire input.
         while (!readBits(1)) {
           high++;
-          if (high > (LIMIT >>> 7))
-            throw new Error(`limit: ${low | (high << 7)} > ${LIMIT}`);
+          if (high > LIMIT >>> 7) throw new Error(`limit: ${low | (high << 7)} > ${LIMIT}`);
         }
         const v = low | (high << 7);
         if (sign && v === 0) throw new Error('negative zero encoding');
