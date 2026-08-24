@@ -285,6 +285,12 @@ The hybrid submodule combines post-quantum algorithms with elliptic curve crypto
 - `QSF_ml_kem768_p256`, `QSF_ml_kem1024_p384`: legacy compatibility presets for the older
   QSF/C2PRI naming and labels. New code should use `ml_kem768_p256` and `ml_kem1024_p384`.
 
+> **Security note:** `_ecdhKem(curve)` is an internal raw-ECDH component adapter, not a standalone
+> IND-CCA-secure KEM. It has no KDF and does not bind the encapsulation or recipient public key, so
+> different accepted point encodings can derive the same bytes. Use it only within a specified
+> combiner that performs that binding, or use a standardized DHKEM. The built-in hybrid presets
+> retain their specified combiners and test-vector-compatible behavior.
+
 The current `ml_kem*` presets are tested against these work-in-progress specifications:
 
 - [irtf-cfrg-hybrid-kems-12](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-hybrid-kems-12)

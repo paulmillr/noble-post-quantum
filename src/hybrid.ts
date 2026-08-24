@@ -91,7 +91,7 @@ import {
 import { expand, extract } from '@noble/hashes/hkdf.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
-import { abytes, ahash, anumber, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
+import { abytes, ahash, anumber, isBytes, type CHash, type CHashXOF } from '@noble/hashes/utils.js';
 import { ml_kem1024, ml_kem768 } from './ml-kem.ts';
 import {
   aobject,
@@ -181,6 +181,12 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
 /**
  * Wraps an ECDH-capable curve as a KEM.
  * Shared secrets stay in the wrapped curve's raw ECDH byte format with no built-in KDF.
+ *
+ * SECURITY: this is a low-level component adapter, not a standalone IND-CCA-secure KEM. It does
+ * not bind the encapsulation or recipient public key into the secret, so distinct accepted point
+ * encodings can produce the same output. Use it only inside a construction whose specified
+ * combiner binds those values, or use a standardized DHKEM with labeled extract-and-expand.
+ *
  * On SEC 1 / Weierstrass curves, that means the compressed shared-point body without the
  * 1-byte `0x02` / `0x03` prefix.
  * The X25519 path also leaves RFC 7748's optional all-zero shared-secret check to callers.
@@ -196,12 +202,12 @@ function ecKeygen(curve: CurveAll, allowZeroKey: boolean = false) {
  * Wrap an ECDH-capable curve as a generic KEM.
  * ```ts
  * import { x25519 } from '@noble/curves/ed25519.js';
- * import { ecdhKem } from '@noble/post-quantum/hybrid.js';
- * const kem = ecdhKem(x25519);
+ * import { _ecdhKem } from '@noble/post-quantum/hybrid.js';
+ * const kem = _ecdhKem(x25519);
  * const publicKeyLen = kem.lengths.publicKey;
  * ```
  */
-export function ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): TRet<KEM> {
+export function _ecdhKem(curve: CurveECDH, allowZeroKey: boolean = false): TRet<KEM> {
   const kg = ecKeygen(curve, allowZeroKey);
   if (!curve.getSharedSecret) throw new Error('wrong curve'); // ed25519 doesn't have one!
   // Standalone (not `this.decapsulate`) so encapsulate works even when methods are destructured.
@@ -266,7 +272,7 @@ export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): TRet<
     keygen: kg.keygen,
     getPublicKey: kg.getPublicKey,
     sign: (message, secretKey, opts = {}) => {
-      validateSigOpts(opts);
+      opts = validateSigOpts(opts);
       // This generic wrapper intentionally keeps the Signer contract to message + key only.
       // Backend-specific knobs like ECDSA extraEntropy or Ed25519ctx context cannot be forwarded
       // uniformly through combineSigners(), so callers that need them must use the curve directly.
@@ -283,7 +289,7 @@ export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): TRet<
      * generic opts and lets wrapped-curve malformed-input errors escape unchanged.
      */
     verify: (signature, message, publicKey, opts = {}) => {
-      validateVerOpts(opts);
+      opts = validateVerOpts(opts);
       if (opts.context !== undefined)
         throw new Error('ecSigner does not support context; use the underlying curve directly');
       return curve.verify(signature, message, publicKey);
@@ -291,18 +297,26 @@ export function ecSigner(curve: CurveSign, allowZeroKey: boolean = false): TRet<
   };
 }
 
+function positiveLength(value: number, title: string): number {
+  const length = anumber(value, title);
+  if (length === 0) throw new RangeError(`"${title}" expected integer greater than 0, got 0`);
+  return length;
+}
+
 function splitLengths<K extends string, T extends { lengths: Partial<Record<K, number>> }>(
   lst: T[],
   name: K
 ) {
   // Preserve caller order exactly; raw numeric fields still decode as splitCoder() subarray views.
-  return splitCoder(
+  const coder = splitCoder(
     name,
     ...lst.map((i) => {
       if (typeof i.lengths[name] !== 'number') throw new Error('wrong length: ' + name);
-      return i.lengths[name];
+      return positiveLength(i.lengths[name], name);
     })
   );
+  positiveLength(coder.bytesLen, name);
+  return coder;
 }
 
 /** Seed-expansion callback used by the hybrid combiners. */
@@ -348,13 +362,15 @@ function combineKeys(
   const seedCoder = splitLengths(ck, 'seed');
   const pkCoder = splitLengths(ck, 'publicKey');
   // Allows to use identity functions for combiner/expandSeed
-  if (realSeedLen === undefined) realSeedLen = seedCoder.bytesLen;
-  anumber(realSeedLen);
+  const rootSeedLen = positiveLength(
+    realSeedLen === undefined ? seedCoder.bytesLen : realSeedLen,
+    'realSeedLen'
+  );
   function expandDecapsulationKey(seed: TArg<Uint8Array>): TRet<{
     secretKey: Uint8Array[];
     publicKey: Uint8Array[];
   }> {
-    abytes(seed, realSeedLen!);
+    abytes(seed, rootSeedLen);
     const expandedRaw = expandSeed(seed, seedCoder.bytesLen);
     // Identity/subarray expanders can hand back caller-owned seed storage. Detach those outputs so
     // later cleanup can wipe the expanded schedule without mutating the caller's root seed bytes.
@@ -392,7 +408,7 @@ function combineKeys(
   const keygen = (seed?: TArg<Uint8Array>) => {
     // Detach the root: the exported secretKey must not alias caller-owned seed bytes, so later
     // caller mutation of the seed cannot silently change the secret key (and vice versa).
-    const root = seed === undefined ? randomBytes(realSeedLen!) : copyBytes(seed);
+    const root = seed === undefined ? randomBytes(rootSeedLen) : copyBytes(seed);
     let res;
     try {
       const { publicKey: pk, secretKey } = expandDecapsulationKey(root);
@@ -412,7 +428,7 @@ function combineKeys(
     }
   };
   return {
-    info: { lengths: { seed: realSeedLen, publicKey: pkCoder.bytesLen, secretKey: realSeedLen } },
+    info: { lengths: { seed: rootSeedLen, publicKey: pkCoder.bytesLen, secretKey: rootSeedLen } },
     // Composite secret keys are root seeds, so public-key derivation reruns key expansion from
     // that seed instead of decoding a packed child-secret-key structure.
     getPublicKey: (secretKey: TArg<Uint8Array>) => {
@@ -423,19 +439,25 @@ function combineKeys(
     },
     keygen,
     expandDecapsulationKey,
-    realSeedLen,
+    realSeedLen: rootSeedLen,
   };
 }
 
 // This generic function that combines multiple KEMs into single one
 /**
  * Combines multiple KEMs into one composite KEM.
- * @param realSeedLen - Input seed length expected by `expandSeed`.
- * @param realMsgLen - Shared-secret length returned by `combiner`.
+ * @param realSeedLen - Positive input seed length expected by `expandSeed`, or `undefined` to use
+ * the sum of component seed lengths. Callers remain responsible for choosing a security-appropriate
+ * size.
+ * @param realMsgLen - Positive shared-secret length returned by `combiner`, or `undefined` to use
+ * the sum of component message lengths.
  * @param expandSeed - Seed expander used to derive per-KEM seeds.
  * @param combiner - Combines the per-KEM outputs into one shared secret.
- * @param kems - KEM implementations to combine.
+ * @param kems - At least one KEM implementation. A construction advertised as hybrid normally
+ * supplies two or more.
  * @returns Composite KEM.
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws If there are no components or any required length resolves to zero. {@link RangeError}
  * @example
  * Combine multiple KEMs into one composite KEM.
  * ```ts
@@ -460,27 +482,56 @@ export function combineKEMS(
   combiner: TArg<Combiner>,
   ...kems: TArg<KEM[]>
 ): TRet<KEM> {
-  if (realSeedLen !== undefined) anumber(realSeedLen, 'realSeedLen');
-  if (realMsgLen !== undefined) anumber(realMsgLen, 'realMsgLen');
+  if (realSeedLen !== undefined) positiveLength(realSeedLen, 'realSeedLen');
+  if (realMsgLen !== undefined) positiveLength(realMsgLen, 'realMsgLen');
   if (typeof expandSeed !== 'function')
     throw new TypeError('"expandSeed" expected function, got type=' + typeof expandSeed);
   if (typeof combiner !== 'function')
     throw new TypeError('"combiner" expected function, got type=' + typeof combiner);
   const rawCombiner = combiner as Combiner;
   const rawKems = kems as KEM[];
+  if (rawKems.length === 0) throw new RangeError('combineKEMS requires at least one KEM');
   for (let i = 0; i < rawKems.length; i++) validateKEM(rawKems[i], `kems[${i}]`);
   const keys = combineKeys(realSeedLen, expandSeed, ...rawKems);
   const ctCoder = splitLengths(rawKems, 'cipherText');
   const pkCoder = splitLengths(rawKems, 'publicKey');
   const msgCoder = splitLengths(rawKems, 'msg');
-  if (realMsgLen === undefined) realMsgLen = msgCoder.bytesLen;
-  anumber(realMsgLen, 'realMsgLen');
+  const sharedSecretLen = positiveLength(
+    realMsgLen === undefined ? msgCoder.bytesLen : realMsgLen,
+    'realMsgLen'
+  );
   const lengths = Object.freeze({
     ...keys.info.lengths,
-    msg: realMsgLen,
+    msg: sharedSecretLen,
     msgRand: msgCoder.bytesLen,
     cipherText: ctCoder.bytesLen,
   });
+  const combine = (
+    publicKeys: TArg<Uint8Array[]>,
+    cipherTexts: TArg<Uint8Array[]>,
+    sharedSecrets: TArg<Uint8Array[]>
+  ): TRet<Uint8Array> => {
+    const combined = rawCombiner(publicKeys, cipherTexts, sharedSecrets);
+    try {
+      return copyBytes(abytes(combined, sharedSecretLen, 'sharedSecret'));
+    } catch (error) {
+      if (isBytes(combined)) {
+        // A combiner may return any callback argument. Public keys during encapsulation and
+        // ciphertexts during decapsulation are views into caller-owned inputs, so wipe an invalid
+        // byte result only when its range does not overlap either public argument vector. Child
+        // shared-secret aliases are already wiped by the operation's outer finally block.
+        const overlaps = (value: TArg<Uint8Array>) =>
+          combined.buffer === value.buffer &&
+          combined.byteOffset < value.byteOffset + value.byteLength &&
+          value.byteOffset < combined.byteOffset + combined.byteLength;
+        const aliasesPublicInput =
+          (publicKeys as Uint8Array[]).some(overlaps) ||
+          (cipherTexts as Uint8Array[]).some(overlaps);
+        if (!aliasesPublicInput) cleanBytes(combined);
+      }
+      throw error;
+    }
+  };
   return Object.freeze({
     lengths,
     getPublicKey: keys.getPublicKey,
@@ -499,11 +550,14 @@ export function combineKEMS(
           sharedSecret.push(enc.sharedSecret);
           cipherText.push(enc.cipherText);
         }
+        // Validate and detach public ciphertexts before deriving a final secret from them. This
+        // also ensures a malformed child cannot make us allocate and then strand a combined key.
+        const encodedCipherText = ctCoder.encode(cipherText) as TRet<Uint8Array>;
         return {
           // Detach the combiner result before cleanup: a caller-provided combiner may alias one of
           // the child sharedSecret buffers, and those child buffers are zeroized immediately below.
-          sharedSecret: copyBytes(rawCombiner(pks, cipherText, sharedSecret)),
-          cipherText: ctCoder.encode(cipherText) as TRet<Uint8Array>,
+          sharedSecret: combine(pks, cipherText, sharedSecret),
+          cipherText: encodedCipherText,
         };
       } finally {
         // Child encapsulation or combiner failures can happen after some components already
@@ -523,7 +577,7 @@ export function combineKEMS(
           sharedSecret.push(rawKems[i].decapsulate(cts[i], secretKey[i]));
         // Detach the decapsulation result before cleanup: the combiner may hand back one of the
         // child shared-secret buffers, and those temporary buffers are zeroized below.
-        return copyBytes(rawCombiner(publicKey, cts, sharedSecret));
+        return combine(publicKey, cts, sharedSecret);
       } finally {
         // Decapsulation only needs the expanded child secret keys and child shared secrets for this
         // call; keep the caller/root seed intact, but wipe all derived material even on errors.
@@ -536,10 +590,15 @@ export function combineKEMS(
 // realSeedLen: how much bytes expandSeed expects.
 /**
  * Combines multiple signers into one composite signer.
- * @param realSeedLen - Input seed length expected by `expandSeed`.
+ * @param realSeedLen - Positive input seed length expected by `expandSeed`, or `undefined` to use
+ * the sum of component seed lengths. Callers remain responsible for choosing a security-appropriate
+ * size.
  * @param expandSeed - Seed expander used to derive per-signer seeds.
- * @param signers - Signers to combine.
+ * @param signers - At least one signer. A construction advertised as hybrid normally supplies two
+ * or more.
  * @returns Composite signer.
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws If there are no components or any required length resolves to zero. {@link RangeError}
  * @example
  * Combine multiple signers into one composite signer.
  * ```ts
@@ -559,10 +618,11 @@ export function combineSigners(
   expandSeed: TArg<ExpandSeed>,
   ...signers: TArg<Signer[]>
 ): TRet<Signer> {
-  if (realSeedLen !== undefined) anumber(realSeedLen, 'realSeedLen');
+  if (realSeedLen !== undefined) positiveLength(realSeedLen, 'realSeedLen');
   if (typeof expandSeed !== 'function')
     throw new TypeError('"expandSeed" expected function, got type=' + typeof expandSeed);
   const rawSigners = signers as Signer[];
+  if (rawSigners.length === 0) throw new RangeError('combineSigners requires at least one signer');
   for (let i = 0; i < rawSigners.length; i++) validateSigner(rawSigners[i], `signers[${i}]`);
   const keys = combineKeys(realSeedLen, expandSeed, ...rawSigners);
   const sigCoder = splitLengths(rawSigners, 'signature');
@@ -572,7 +632,7 @@ export function combineSigners(
     getPublicKey: keys.getPublicKey,
     keygen: keys.keygen,
     sign(message, seed, opts = {}) {
-      validateSigOpts(opts);
+      opts = validateSigOpts(opts);
       // This generic wrapper intentionally keeps the composite signer contract to message + root
       // seed only. Per-signer opts like context or extraEntropy cannot be preserved uniformly
       // across mixed backends, so callers that need them must use the underlying signer directly.
@@ -599,7 +659,7 @@ export function combineSigners(
      * does any failing child verify. Throws on unsupported generic opts or malformed publicKey.
      */
     verify: (signature, message, publicKey, opts = {}) => {
-      validateVerOpts(opts);
+      opts = validateVerOpts(opts);
       if (opts.context !== undefined)
         throw new Error(
           'combineSigners does not support context; use the underlying signer directly'
@@ -633,14 +693,16 @@ export function combineSigners(
  * @param xof - XOF used for seed expansion.
  * @param kdf - Hash used for the final combiner.
  * @returns Hybrid KEM.
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
  * @example
  * Build a QSF hybrid KEM preset from a PQ KEM and an elliptic-curve KEM.
  * ```ts
  * import { p256 } from '@noble/curves/nist.js';
  * import { sha3_256, shake256 } from '@noble/hashes/sha3.js';
- * import { QSF, ecdhKem } from '@noble/post-quantum/hybrid.js';
+ * import { QSF, _ecdhKem } from '@noble/post-quantum/hybrid.js';
  * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
- * const kem = QSF('example', ml_kem768, ecdhKem(p256, true), shake256, sha3_256);
+ * const kem = QSF('example', ml_kem768, _ecdhKem(p256, true), shake256, sha3_256);
  * const publicKeyLen = kem.lengths.publicKey;
  * ```
  */
@@ -676,7 +738,7 @@ export const QSF_ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
   QSF(
     'QSF-KEM(ML-KEM-768,P-256)-XOF(SHAKE256)-KDF(SHA3-256)',
     ml_kem768,
-    ecdhKem(p256, true),
+    _ecdhKem(p256, true),
     shake256,
     sha3_256
   ))();
@@ -685,7 +747,7 @@ export const QSF_ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
   QSF(
     'QSF-KEM(ML-KEM-1024,P-384)-XOF(SHAKE256)-KDF(SHA3-256)',
     ml_kem1024,
-    ecdhKem(p384, true),
+    _ecdhKem(p384, true),
     shake256,
     sha3_256
   ))();
@@ -704,15 +766,17 @@ export const QSF_ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
  * @param xof - XOF used for seed expansion.
  * @param hash - Hash used for HKDF extraction and expansion.
  * @returns Hybrid KEM.
+ * @throws On wrong argument types. {@link TypeError}
+ * @throws On wrong argument ranges or values. {@link RangeError}
  * @example
  * Build the "KitchenSink" hybrid KEM combiner.
  * ```ts
  * import { sha256 } from '@noble/hashes/sha2.js';
  * import { shake256 } from '@noble/hashes/sha3.js';
- * import { createKitchenSink, ecdhKem } from '@noble/post-quantum/hybrid.js';
+ * import { createKitchenSink, _ecdhKem } from '@noble/post-quantum/hybrid.js';
  * import { ml_kem768 } from '@noble/post-quantum/ml-kem.js';
  * import { x25519 } from '@noble/curves/ed25519.js';
- * const kem = createKitchenSink('example', ml_kem768, ecdhKem(x25519), shake256, sha256);
+ * const kem = createKitchenSink('example', ml_kem768, _ecdhKem(x25519), shake256, sha256);
  * const publicKeyLen = kem.lengths.publicKey;
  * ```
  */
@@ -755,9 +819,9 @@ export function createKitchenSink(
   );
 }
 
-// Internal alias only: this stays exactly `ecdhKem(x25519)`
+// Internal alias only: this stays exactly `_ecdhKem(x25519)`
 // and inherits that wrapper's mutation/oracle behavior.
-const x25519kem = /* @__PURE__ */ ecdhKem(x25519);
+const x25519kem = /* @__PURE__ */ _ecdhKem(x25519);
 /** KitchenSink preset combining ML-KEM-768 with X25519.
  * Caller randomness splits into 32 ML-KEM coins plus a 32-byte X25519 ephemeral-secret seed.
  */
