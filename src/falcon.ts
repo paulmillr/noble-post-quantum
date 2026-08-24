@@ -27,6 +27,7 @@ import {
   baswap64If,
   type BytesCoderLen,
   cleanBytes,
+  copyBytes,
   type Coder,
   type CryptoKeys,
   getMask,
@@ -257,7 +258,13 @@ const compCoder = (n: number) => {
         const sign = readBits(1);
         const low = readBits(7);
         let high = 0;
-        for (; !readBits(1); high++);
+        // Reference comp_decode adds 128 for each unary zero and rejects immediately above 2047.
+        // Waiting for the terminating one first lets an invalid coefficient scan the entire input.
+        while (!readBits(1)) {
+          high++;
+          if (high > (LIMIT >>> 7))
+            throw new Error(`limit: ${low | (high << 7)} > ${LIMIT}`);
+        }
         const v = low | (high << 7);
         if (sign && v === 0) throw new Error('negative zero encoding');
         if (v > LIMIT) throw new Error(`limit: ${v} > ${LIMIT}`);
@@ -1247,19 +1254,16 @@ function ApproxExp(x: number, ccs: number): number {
 // Actual api
 type FalconOpts = {
   N: number;
-  // Table 3.3 total padded detached bytes; kept as reference config, not read by genFalcon() today.
-  // In padded mode it still drives `.lengths.signature`
-  // and the payload width `sigLen - 1 - NONCELEN`.
+  // Table 3.3 total padded detached bytes. In padded mode it drives `.lengths.signature` and the
+  // payload width `sigLen - 1 - NONCELEN`.
   sigLen: number;
-  padded?: boolean;
+  padded: boolean;
   fgBits: number;
   FGBits: number;
   // Compressed-s payload bytes only, excluding the detached header byte and 40-byte nonce.
   paddedLen: number;
-  // Max compressed-s payload bytes only, excluding the detached header byte and 40-byte nonce.
-  // Reference unpadded payload ceiling only: detached encode/decode use each signature's runtime
-  // `s2` length, while signRaw() enforces `maxS2Len` separately.
-  detachedLen: number;
+  // Maximum compressed-s payload emitted by sign(). Unpadded detached verification enforces the
+  // same Round-3 ceiling before decoding.
   maxS2Len: number;
 };
 
@@ -1282,7 +1286,7 @@ export type FalconAttached = CryptoKeys & {
    * @param sig Attached Falcon signature bytes.
    * @param publicKey Falcon public key bytes.
    * @param opts Optional verification options.
-   * @returns Embedded message bytes when the signature is valid.
+   * @returns Fresh message bytes that do not alias either input when the signature is valid.
    */
   open(sig: Uint8Array, publicKey: Uint8Array, opts?: VerOpts): Uint8Array;
 };
@@ -1752,25 +1756,30 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
   };
   // [ 1B header ] [ 40B nonce ] [ compressed_sig ]
   const SignatureCoderDetached = (logn: number) => {
-    const sigLen = opts.padded ? opts.sigLen - 1 - NONCELEN : opts.detachedLen;
-    const getSigLen = (s2: TArg<Uint8Array>) => (opts.padded ? sigLen : s2.length);
+    const paddedSigLen = opts.sigLen - 1 - NONCELEN;
+    const getSigLen = (s2: TArg<Uint8Array>) => (opts.padded ? paddedSigLen : s2.length);
     return {
       encode({ nonce, s2 }: TArg<{ nonce: Uint8Array; s2: Uint8Array }>): TRet<Uint8Array> {
         return headerCoder(
           0x30 + logn,
           splitCoder('falcon.detachedSignature', NONCELEN, getSigLen(s2))
-        ).encode([nonce, opts.padded ? pad(sigLen).encode(s2) : s2]);
+        ).encode([nonce, opts.padded ? pad(paddedSigLen).encode(s2) : s2]);
       },
       decode(data: TArg<Uint8Array>): TRet<{
         nonce: Uint8Array;
         s2: Uint8Array;
       }> {
+        // Unpadded Round-3 signatures have parameter-set maxima (header + nonce + s2):
+        // 752 bytes for Falcon-512 and 1462 for Falcon-1024. Reject before creating views or
+        // entering the bit decoder so attacker-sized inputs cannot cause proportional work.
+        if (!opts.padded && data.length > 1 + NONCELEN + opts.maxS2Len)
+          throw new Error('detached signature too long');
         // Padded detached signatures are fixed-length (`lengths.signature`), so the payload width
         // must come from the parameter set, not from the input: deriving it would accept appended
         // zero bytes and truncated padding as extra valid encodings of the same signature.
         // Unpadded signatures are variable-length; decodeUnpaddedSig() enforces the exact canonical
         // bitlength of whatever remains.
-        const payloadLen = opts.padded ? sigLen : data.length - NONCELEN - 1;
+        const payloadLen = opts.padded ? paddedSigLen : data.length - NONCELEN - 1;
         const [nonce, raw] = headerCoder(
           0x30 + logn,
           splitCoder('falcon.detachedSignature', NONCELEN, payloadLen)
@@ -2332,7 +2341,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
   const getRnd = (opts: TArg<FalconSigOpts> = {}): TRet<FalconRandom> => {
     // `context` stays in the accepted set so the specific "not supported" error below
     // still fires, rather than the generic unexpected-option one.
-    validateSigOpts(opts, FALCON_SIG_OPT_KEYS);
+    opts = validateSigOpts(opts, FALCON_SIG_OPT_KEYS);
     if (opts.context !== undefined) throw new Error('context is not supported');
     if (opts.random !== undefined && typeof opts.random !== 'function')
       throw new TypeError('"opts.random" expected function, got type=' + typeof opts.random);
@@ -2344,8 +2353,8 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     return (len = 0) => drbg.randomBytes(len) as TRet<Uint8Array>;
   };
   const checkVerOpts = (opts: TArg<VerOpts> = {}) => {
-    validateVerOpts(opts);
-    if (opts.context !== undefined) throw new Error('context is not supported');
+    const normalized = validateVerOpts(opts);
+    if (normalized.context !== undefined) throw new Error('context is not supported');
   };
   const tests = Object.freeze({
     publicKeyCoder: Object.freeze(publicKeyCoder),
@@ -2435,6 +2444,11 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       // codec error, exactly as detached verify() folds it into `false`.
       abytes(sig, undefined, 'signature');
       abytes(pk, undefined, 'publicKey');
+      // Decode and verify owned snapshots. Apart from keeping the authenticated result stable
+      // after open() returns, this ensures every verification step observes the same bytes when
+      // an input is backed by SharedArrayBuffer or has subclass-overridden view methods.
+      const ownedSig = copyBytes(sig);
+      const ownedPk = copyBytes(pk);
       // Decode failures and malformed-key failures are rejected signatures, not internal
       // faults. Letting the codec's own errors out gave a caller handling untrusted input
       // several different messages for one corrupt byte, including "end of buffer: len=2
@@ -2443,14 +2457,19 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       // original preserved as `cause`). A well-formed signature that simply does not
       // validate falls through to the same message with no cause.
       try {
-        const { s2, nonce, msg } = SignatureCoder.decode(sig);
-        // Zero-copy API: returned message aliases the caller-provided signature buffer.
-        // Copy it if ownership is needed.
-        if (verifyRaw(pk, s2, nonce, msg)) return msg;
-      } catch (cause) {
-        throw new Error('invalid signature', { cause });
+        let verifiedMsg: Uint8Array | undefined;
+        try {
+          const { s2, nonce, msg } = SignatureCoder.decode(ownedSig);
+          if (verifyRaw(ownedPk, s2, nonce, msg)) verifiedMsg = msg;
+        } catch (cause) {
+          throw new Error('invalid signature', { cause });
+        }
+        if (verifiedMsg === undefined) throw new Error('invalid signature');
+        // Do not retain or expose the full attached-signature allocation through `.buffer`.
+        return copyBytes(verifiedMsg);
+      } finally {
+        cleanBytes(ownedSig, ownedPk);
       }
-      throw new Error('invalid signature');
     },
   });
   const res = {
@@ -2468,14 +2487,14 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
 
 const falcon512opts = {
   N: 512,
+  // Keep the mode an own property: omitted config fields must not inherit from Object.prototype.
+  padded: false,
   // Table 3.3 fixed padded detached bytes, including the detached header byte and 40-byte nonce.
   sigLen: 666,
   fgBits: 6,
   FGBits: 8,
   // Compressed-s payload bytes only, excluding the detached header byte and 40-byte nonce.
   paddedLen: 625,
-  // Payload-only budget: genFalcon() adds the detached header byte and 40-byte nonce around it.
-  detachedLen: 690,
 };
 /**
  * Falcon-512 detached-signature API with the attached helper exposed as `.attached`.
@@ -2510,14 +2529,13 @@ export const falcon512padded: TRet<Falcon> = /* @__PURE__ */ (() =>
 
 const falcon1024opts = {
   N: 1024,
+  padded: false,
   // Table 3.3 fixed padded detached bytes, including the detached header byte and 40-byte nonce.
   sigLen: 1280,
   fgBits: 5,
   FGBits: 8,
   // Compressed-s payload bytes only, excluding the detached header byte and 40-byte nonce.
   paddedLen: 1239,
-  // Payload-only budget: genFalcon() adds the detached header byte and 40-byte nonce around it.
-  detachedLen: 1280,
 };
 /**
  * Falcon-1024 detached-signature API with the attached helper exposed as `.attached`.

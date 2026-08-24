@@ -2,7 +2,7 @@ import { rngAesCtrDrbg256 } from '@noble/ciphers/aes.js';
 import { reverseBits } from '@noble/curves/abstract/fft.js';
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js';
 import { describe, it } from '@paulmillr/jsbt/test.js';
-import { deepStrictEqual, throws } from 'node:assert';
+import { deepStrictEqual, notDeepStrictEqual, throws } from 'node:assert';
 import { createReadStream, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -383,6 +383,52 @@ describe('Falcon', () => {
     throws(() => falcon.falcon512.attached.open(sealed, new Uint16Array([1]) as any), TypeError);
   });
 
+  it('attached/open snapshots inputs and owns its output', () => {
+    // Simulate typed-array inputs whose view operation mutates their backing storage. Snapshotting
+    // into a plain Uint8Array before any decoding makes those hooks irrelevant to verification.
+    class MutatingBytes extends Uint8Array {
+      [Symbol.iterator](): ArrayIterator<number> {
+        throw new Error('input iterator must not be used');
+      }
+      subarray(begin?: number, end?: number) {
+        const view = super.subarray(begin, end);
+        this.fill(0);
+        return view;
+      }
+    }
+    const msg = hexToBytes('737461626c652061757468656e74696361746564206d657373616765');
+    const random = (len = 0) => new Uint8Array(len).fill(7);
+    const keys = falcon.falcon512.keygen(new Uint8Array(48).fill(3));
+    for (const scheme of [falcon.falcon512, falcon.falcon512padded]) {
+      const sealed = scheme.attached.seal(msg, keys.secretKey, { random });
+      const opened = scheme.attached.open(sealed, keys.publicKey);
+      sealed.fill(0);
+      deepStrictEqual(opened, msg);
+
+      const sealed2 = scheme.attached.seal(msg, keys.secretKey, { random });
+      const before = sealed2.slice();
+      const opened2 = scheme.attached.open(sealed2, keys.publicKey);
+      opened2.fill(0xff);
+      deepStrictEqual(sealed2, before);
+
+      const sealed3 = scheme.attached.seal(msg, keys.secretKey, { random });
+      deepStrictEqual(scheme.attached.open(new MutatingBytes(sealed3), keys.publicKey), msg);
+      deepStrictEqual(scheme.attached.open(sealed3, new MutatingBytes(keys.publicKey)), msg);
+
+      if (typeof SharedArrayBuffer !== 'undefined') {
+        const sharedSig = new Uint8Array(new SharedArrayBuffer(sealed3.length));
+        const sharedPk = new Uint8Array(new SharedArrayBuffer(keys.publicKey.length));
+        sharedSig.set(sealed3);
+        sharedPk.set(keys.publicKey);
+        const sharedOpened = scheme.attached.open(sharedSig, sharedPk);
+        sharedSig.fill(0);
+        sharedPk.fill(0);
+        deepStrictEqual(sharedOpened, msg);
+        deepStrictEqual(sharedOpened.buffer instanceof ArrayBuffer, true);
+      }
+    }
+  });
+
   it('attached/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
     const rnd = (len) => new Uint8Array(len).fill(7);
@@ -448,6 +494,53 @@ describe('Falcon', () => {
         falcon1024: 1421,
       }
     );
+  });
+  it('detached rejects oversized inputs before parsing', () => {
+    const msg = new Uint8Array([1, 2, 3]);
+    const cases = [
+      [falcon.falcon512, new Uint8Array(48).fill(1)],
+      [falcon.falcon1024, new Uint8Array(48).fill(2)],
+    ];
+    for (const [scheme, seed] of cases) {
+      const { publicKey } = scheme.keygen(seed);
+      const maxLen = 1 + 40 + coders(scheme).maxS2Len;
+      let subarrayCalls = 0;
+      class TrackingSignature extends Uint8Array {
+        subarray(begin?: number, end?: number) {
+          subarrayCalls++;
+          return super.subarray(begin, end);
+        }
+      }
+
+      const oversized = new TrackingSignature(maxLen + 1);
+      oversized[0] = scheme === falcon.falcon512 ? 0x39 : 0x3a;
+      deepStrictEqual(scheme.verify(oversized, msg, publicKey), false);
+      deepStrictEqual(subarrayCalls, 0);
+
+      const boundary = new TrackingSignature(maxLen);
+      boundary[0] = oversized[0];
+      deepStrictEqual(scheme.verify(boundary, msg, publicKey), false);
+      deepStrictEqual(subarrayCalls > 0, true);
+    }
+  });
+  it('compressed signatures reject over-limit unary values immediately', () => {
+    const scheme = falcon.falcon512;
+    const { publicKey } = scheme.keygen(new Uint8Array(48).fill(1));
+    // Empty-message attached form with s2=[sign+low=0, 16 unary zero bits]. The 16th zero already
+    // proves a value >= 2048; a decoder must reject there instead of searching for a terminator.
+    const malformed = concatBytes(
+      new Uint8Array([0, 4]),
+      new Uint8Array(40),
+      new Uint8Array([0x29, 0, 0, 0])
+    );
+    let caught: (Error & { cause?: Error }) | undefined;
+    try {
+      scheme.attached.open(malformed, publicKey);
+    } catch (error) {
+      caught = error as Error & { cause?: Error };
+    }
+    deepStrictEqual(caught?.message, 'invalid signature');
+    deepStrictEqual(caught?.cause?.message, 'limit: 2048 > 2047');
   });
   it('padded/validation', () => {
     const msg = hexToBytes('68656c6c6f00');
@@ -758,6 +851,56 @@ describe('Falcon', () => {
         detached.verify(sig, new Uint8Array([1, 2, 3]), publicKey, { context: new Uint8Array([1]) })
       );
     }
+  });
+  it('ignores Object.prototype pollution in signing and mode options', () => {
+    const withPoison = (key: PropertyKey, value: unknown, run: () => void) => {
+      const previous = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      Object.defineProperty(Object.prototype, key, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value,
+      });
+      try {
+        run();
+      } finally {
+        if (previous === undefined) delete (Object.prototype as any)[key];
+        else Object.defineProperty(Object.prototype, key, previous);
+      }
+    };
+    const scheme = falcon.falcon512;
+    const keys = scheme.keygen(new Uint8Array(48).fill(3));
+    const msg = new Uint8Array([1, 2, 3]);
+    const deterministic = scheme.sign(msg, keys.secretKey, { extraEntropy: false });
+
+    // Inherited false previously selected the zero-seeded DRBG for an optionless signature.
+    withPoison('extraEntropy', false, () => {
+      const sig = scheme.sign(msg, keys.secretKey);
+      notDeepStrictEqual(sig, deterministic);
+      deepStrictEqual(scheme.verify(sig, msg, keys.publicKey), true);
+    });
+
+    // A polluted callback previously supplied both the public nonce and sampler seed.
+    let calls = 0;
+    withPoison(
+      'random',
+      (len = 0) => {
+        calls++;
+        return new Uint8Array(len).fill(7);
+      },
+      () => {
+        const sig = scheme.sign(msg, keys.secretKey);
+        deepStrictEqual(scheme.verify(sig, msg, keys.publicKey), true);
+      }
+    );
+    deepStrictEqual(calls, 0);
+
+    // The factory configuration also keeps its unpadded mode as an own value.
+    withPoison('padded', true, () => {
+      const sig = scheme.sign(msg, keys.secretKey, { extraEntropy: false });
+      deepStrictEqual(sig, deterministic);
+      deepStrictEqual(scheme.verify(sig, msg, keys.publicKey), true);
+    });
   });
   it('secretKey/validation', () => {
     const msg = new Uint8Array([1, 2, 3]);
