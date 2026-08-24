@@ -522,33 +522,113 @@ describe('Basic', () => {
       eql(ml_dsa65.verify(pubSig, msg, keys.publicKey), false);
     });
 
-    it('validates and preserves non-enumerable and inherited option properties', () => {
+    it('copies enumerable own option properties', () => {
       const keys = ml_dsa44.keygen(new Uint8Array(32));
       const msg = new Uint8Array([1, 2, 3]);
-      // Prototype accessors are visible through normal property reads, so validation and
-      // forwarding must see them too. In particular, deterministic signing must stay deterministic.
+      // Class/inherited options are rejected: silently ignoring them is unsafe, while consuming
+      // them would make shared-prototype pollution a cryptographic control surface.
       class DeterministicOpts {
         get extraEntropy() {
           return false as const;
         }
       }
       const inherited = new DeterministicOpts();
-      eql(ml_dsa44.sign(msg, keys.secretKey, inherited), ml_dsa44.sign(msg, keys.secretKey, inherited));
+      throws(() => ml_dsa44.sign(msg, keys.secretKey, inherited));
+
+      // Like noble-hashes checkOpts(), non-enumerable properties are not part of the option bag.
       const hidden = {};
       Object.defineProperty(hidden, 'extraEntropy', { value: false });
-      eql(ml_dsa44.sign(msg, keys.secretKey, hidden), ml_dsa44.sign(msg, keys.secretKey, hidden));
+      eql(validateSigOpts(hidden).extraEntropy, undefined);
 
-      // Unknown/unsupported keys cannot bypass validation through the same property shapes.
+      // Null-prototype bags and their enumerable own values remain supported.
+      const nullProto = Object.create(null);
+      nullProto.extraEntropy = false;
+      eql(
+        ml_dsa44.sign(msg, keys.secretKey, nullProto),
+        ml_dsa44.sign(msg, keys.secretKey, nullProto)
+      );
+
+      // Object.assign snapshots an enumerable accessor exactly once before later validation/use.
+      let getterCalls = 0;
+      const accessor = {};
+      Object.defineProperty(accessor, 'extraEntropy', {
+        enumerable: true,
+        get() {
+          getterCalls++;
+          return false;
+        },
+      });
+      eql(validateSigOpts(accessor).extraEntropy, false);
+      eql(getterCalls, 1);
+
+      // Inherited/custom-prototype keys are rejected; hidden keys never enter the snapshot.
       const inheritedTypo = Object.create({ ctx: new Uint8Array([1]) });
       throws(() => ml_dsa44.sign(msg, keys.secretKey, inheritedTypo));
-      const nullProto = Object.create(null);
-      nullProto.ctx = new Uint8Array([1]);
-      throws(() => ml_dsa44.sign(msg, keys.secretKey, Object.create(nullProto)));
+      const inheritedNullProto = Object.create(null);
+      inheritedNullProto.ctx = new Uint8Array([1]);
+      throws(() => ml_dsa44.sign(msg, keys.secretKey, Object.create(inheritedNullProto)));
       const hiddenExternalMu = {};
       Object.defineProperty(hiddenExternalMu, 'externalMu', { value: true });
-      throws(() => ml_dsa44.sign(new Uint8Array(64), keys.secretKey, hiddenExternalMu));
+      eql((validateSigOpts(hiddenExternalMu) as any).externalMu, undefined);
       const inheritedContext = Object.create({ context: new Uint8Array([1]) });
       throws(() => ml_dsa44.internal.sign(msg, keys.secretKey, inheritedContext));
+    });
+
+    it('ignores Object.prototype pollution in signing options and internals', () => {
+      const withPoison = (key: PropertyKey, value: unknown, run: () => void) => {
+        const previous = Object.getOwnPropertyDescriptor(Object.prototype, key);
+        Object.defineProperty(Object.prototype, key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value,
+        });
+        try {
+          run();
+        } finally {
+          if (previous === undefined) delete (Object.prototype as any)[key];
+          else Object.defineProperty(Object.prototype, key, previous);
+        }
+      };
+
+      // The validators return detached option records; omitted keys cannot fall through.
+      withPoison('extraEntropy', false, () => {
+        const normalized = validateSigOpts({});
+        eql(Object.getPrototypeOf(normalized), null);
+        eql(normalized.extraEntropy, undefined);
+      });
+
+      const seed = new Uint8Array(32);
+      const keys = ml_dsa44.keygen(seed);
+      const msg = new Uint8Array([1, 2, 3]);
+      const expected = ml_dsa44.sign(msg, keys.secretKey, { extraEntropy: false });
+      const prehash = ml_dsa44.prehash(sha3_256);
+      const expectedPrehash = prehash.sign(msg, keys.secretKey, { extraEntropy: false });
+
+      withPoison('context', new Uint8Array([9]), () => {
+        eql(ml_dsa44.sign(msg, keys.secretKey, { extraEntropy: false }), expected);
+        eql(ml_dsa44.verify(expected, msg, keys.publicKey), true);
+        eql(prehash.sign(msg, keys.secretKey, { extraEntropy: false }), expectedPrehash);
+        eql(prehash.verify(expectedPrehash, msg, keys.publicKey), true);
+      });
+
+      const M = getMessage(msg);
+      const expectedInternal = ml_dsa44.internal.sign(M, keys.secretKey, { extraEntropy: false });
+      withPoison('externalMu', true, () => {
+        eql(ml_dsa44.sign(msg, keys.secretKey, { extraEntropy: false }), expected);
+        eql(ml_dsa44.verify(expected, msg, keys.publicKey), true);
+        eql(ml_dsa44.internal.sign(M, keys.secretKey, { extraEntropy: false }), expectedInternal);
+        eql(ml_dsa44.internal.verify(expectedInternal, M, keys.publicKey), true);
+      });
+
+      // Internal address options are also immune to inherited fields.
+      const slh = slh_dsa_shake_128f;
+      const slhKeys = slh.keygen(new Uint8Array(slh.lengths.seed!));
+      const expectedSlh = slh.sign(msg, slhKeys.secretKey, { extraEntropy: false });
+      withPoison('layer', 1, () => {
+        eql(slh.sign(msg, slhKeys.secretKey, { extraEntropy: false }), expectedSlh);
+        eql(slh.verify(expectedSlh, msg, slhKeys.publicKey), true);
+      });
     });
 
     it('the SLH-DSA internal surface rejects keys it does not read', () => {

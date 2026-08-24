@@ -90,6 +90,8 @@ export type SphincsHashOpts = {
   getContext: GetContext;
 };
 
+type InternalSphincsHashOpts = SphincsHashOpts & { isCompressed: boolean };
+
 /** Winternitz signature params. */
 /**
  * Built-in SLH-DSA Table 2 subset keyed by strength/profile.
@@ -225,8 +227,8 @@ export type SphincsSigner = Signer & {
  * and `getPublicKey(secretKey)` only extracts the embedded public key
  * instead of recomputing `PK.root`.
  */
-function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsSigner> {
-  const hashOpts = hashOpts_ as SphincsHashOpts;
+function gen(opts: SphincsOpts, hashOpts_: TArg<InternalSphincsHashOpts>): TRet<SphincsSigner> {
+  const hashOpts = hashOpts_ as InternalSphincsHashOpts;
   const { N, W, H, D, K, A, securityLevel: securityLevel } = opts;
   const getContext = hashOpts.getContext(opts);
   if (W !== 16) throw new Error('Unsupported Winternitz parameter');
@@ -277,8 +279,18 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     }>,
     addr: TArg<ADRS> = new Uint8Array(ADDR_BYTES)
   ) => {
-    const { type, height, tree, layer, index, chain, hash, keypair } = opts;
-    const { subtreeAddr, keypairAddr } = opts;
+    // These objects are created in hot internal loops, so avoid cloning them. Read only own fields:
+    // absent address words must stay absent even if Object.prototype was polluted.
+    const type = Object.hasOwn(opts, 'type') ? opts.type : undefined;
+    const height = Object.hasOwn(opts, 'height') ? opts.height : undefined;
+    const tree = Object.hasOwn(opts, 'tree') ? opts.tree : undefined;
+    const layer = Object.hasOwn(opts, 'layer') ? opts.layer : undefined;
+    const index = Object.hasOwn(opts, 'index') ? opts.index : undefined;
+    const chain = Object.hasOwn(opts, 'chain') ? opts.chain : undefined;
+    const hash = Object.hasOwn(opts, 'hash') ? opts.hash : undefined;
+    const keypair = Object.hasOwn(opts, 'keypair') ? opts.keypair : undefined;
+    const subtreeAddr = Object.hasOwn(opts, 'subtreeAddr') ? opts.subtreeAddr : undefined;
+    const keypairAddr = Object.hasOwn(opts, 'keypairAddr') ? opts.keypairAddr : undefined;
 
     if (height !== undefined) addr[OFFSET_CHAIN_ADDR] = height;
     if (layer !== undefined) addr[OFFSET_LAYER] = layer;
@@ -554,7 +566,7 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       return Uint8Array.from(pk) as TRet<Uint8Array>;
     },
     sign: (msg: TArg<Uint8Array>, sk: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
-      validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
+      opts = validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
       let { extraEntropy: random } = opts;
       const [skSeed, skPRF, pk] = secretCoder.decode(sk); // todo: fix
       const [pkSeed, _] = publicCoder.decode(pk);
@@ -716,12 +728,10 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
     keygen: internal.keygen,
     getPublicKey: internal.getPublicKey,
     sign: (msg: TArg<Uint8Array>, secretKey: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
-      validateSigOpts(opts);
+      opts = validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
       // `context` is consumed by getMessage() above; forwarding it would make the internal
       // surface accept a key it never reads.
-      // Read the remaining supported value explicitly: object rest would silently drop a valid
-      // inherited or non-enumerable `extraEntropy` property after the validator accepted it.
       const res = internal.sign(M, secretKey, { extraEntropy: opts.extraEntropy });
       cleanBytes(M);
       return res as TRet<Uint8Array>;
@@ -732,7 +742,7 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
       publicKey: TArg<Uint8Array>,
       opts: TArg<VerOpts> = {}
     ) => {
-      validateVerOpts(opts);
+      opts = validateVerOpts(opts);
       return internal.verify(sig, getMessage(msg, opts.context), publicKey);
     },
     prehash: (hash: TArg<CHash>): TRet<Signer> => {
@@ -744,7 +754,7 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
         keygen: internal.keygen,
         getPublicKey: internal.getPublicKey,
         sign: (msg: TArg<Uint8Array>, secretKey: TArg<Uint8Array>, opts: TArg<SigOpts> = {}) => {
-          validateSigOpts(opts);
+          opts = validateSigOpts(opts);
           const M = getMessagePrehash(rawHash, msg, opts.context);
           // As above: getMessagePrehash() consumes `context`, so it must not travel further.
           const res = internal.sign(M, secretKey, { extraEntropy: opts.extraEntropy });
@@ -757,7 +767,7 @@ function gen(opts: SphincsOpts, hashOpts_: TArg<SphincsHashOpts>): TRet<SphincsS
           publicKey: TArg<Uint8Array>,
           opts: TArg<VerOpts> = {}
         ) => {
-          validateVerOpts(opts);
+          opts = validateVerOpts(opts);
           return internal.verify(sig, getMessagePrehash(rawHash, msg, opts.context), publicKey);
         },
       });
@@ -833,7 +843,7 @@ const genShake =
     } as TRet<Context>;
   };
 
-const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ getContext: genShake() }))();
+const SHAKE_SIMPLE = /* @__PURE__ */ (() => ({ isCompressed: false, getContext: genShake() }))();
 
 /**
  * SLH-DSA-SHAKE-128f: Table 2 row `n=16, h=66, d=22, h'=3, a=6, k=33, lg w=4, m=34`;

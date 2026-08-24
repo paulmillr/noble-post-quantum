@@ -27,7 +27,6 @@ import {
   splitCoder,
   type TArg,
   type TRet,
-  validateOpts,
   validateSigOpts,
   validateVerOpts,
   checkOptKeys,
@@ -59,10 +58,13 @@ const INTERNAL_SIG_OPT_KEYS = /* @__PURE__ */ Object.freeze([
 ] as const);
 const INTERNAL_VER_OPT_KEYS = /* @__PURE__ */ Object.freeze(['externalMu'] as const);
 
-function validateInternalOpts(opts: TArg<DSAInternalOpts>, allowed: readonly string[]) {
-  validateOpts(opts);
-  checkOptKeys(opts, allowed);
-  if (opts.externalMu !== undefined) abool(opts.externalMu, 'opts.externalMu');
+function validateInternalOpts<T extends TArg<DSAInternalOpts>>(
+  opts: T,
+  allowed: readonly string[]
+): T {
+  const normalized = checkOptKeys(opts, allowed);
+  if (normalized.externalMu !== undefined) abool(normalized.externalMu, 'opts.externalMu');
+  return normalized;
 }
 
 /** ML-DSA signer surface with access to the internal message formatting mode. */
@@ -556,8 +558,8 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       secretKey: TArg<Uint8Array>,
       opts: TArg<SigOpts & DSAInternalOpts> = {}
     ): TRet<Uint8Array> => {
-      validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
-      validateInternalOpts(opts, INTERNAL_SIG_OPT_KEYS);
+      opts = validateSigOpts(opts, INTERNAL_SIG_OPT_KEYS);
+      opts = validateInternalOpts(opts, INTERNAL_SIG_OPT_KEYS);
       const { extraEntropy: random, externalMu = false } = opts;
       // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
       if (externalMu) abytes(msg, CRH_BYTES, 'mu');
@@ -696,7 +698,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       publicKey: TArg<Uint8Array>,
       opts: TArg<DSAInternalOpts> = {}
     ) => {
-      validateInternalOpts(opts, INTERNAL_VER_OPT_KEYS);
+      opts = validateInternalOpts(opts, INTERNAL_VER_OPT_KEYS);
       const { externalMu = false } = opts;
       // FIPS 204 external-mu mode expects the 64-byte message representative µ = H(tr || M).
       if (externalMu) abytes(msg, CRH_BYTES, 'mu');
@@ -761,13 +763,14 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       secretKey: TArg<Uint8Array>,
       opts: TArg<SigOpts> = {}
     ): TRet<Uint8Array> => {
-      validateSigOpts(opts);
+      opts = validateSigOpts(opts);
       const M = getMessage(msg, opts.context);
       // `context` is consumed by getMessage() above; forwarding it would make the internal
       // surface accept a key it never reads.
-      // Read the remaining supported value explicitly: object rest would silently drop a valid
-      // inherited or non-enumerable `extraEntropy` property after the validator accepted it.
-      const res = internal.sign(M, secretKey, { extraEntropy: opts.extraEntropy });
+      const res = internal.sign(M, secretKey, {
+        extraEntropy: opts.extraEntropy,
+        externalMu: false,
+      });
       cleanBytes(M);
       return res as TRet<Uint8Array>;
     },
@@ -777,9 +780,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       publicKey: TArg<Uint8Array>,
       opts: TArg<VerOpts> = {}
     ) => {
-      validateVerOpts(opts);
+      opts = validateVerOpts(opts);
       abytes(sig, undefined, 'signature');
-      return internal.verify(sig, getMessage(msg, opts.context), publicKey);
+      return internal.verify(sig, getMessage(msg, opts.context), publicKey, { externalMu: false });
     },
     prehash: (hash: TArg<CHash>): TRet<Signer> => {
       checkHash(hash as CHash, securityLevel);
@@ -795,10 +798,13 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           secretKey: TArg<Uint8Array>,
           opts: TArg<SigOpts> = {}
         ): TRet<Uint8Array> => {
-          validateSigOpts(opts);
+          opts = validateSigOpts(opts);
           const M = getMessagePrehash(rawHash, msg, opts.context);
           // As above: getMessagePrehash() consumes `context`, so it must not travel further.
-          const res = internal.sign(M, secretKey, { extraEntropy: opts.extraEntropy });
+          const res = internal.sign(M, secretKey, {
+            extraEntropy: opts.extraEntropy,
+            externalMu: false,
+          });
           cleanBytes(M);
           return res as TRet<Uint8Array>;
         },
@@ -808,9 +814,11 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
           publicKey: TArg<Uint8Array>,
           opts: TArg<VerOpts> = {}
         ) => {
-          validateVerOpts(opts);
+          opts = validateVerOpts(opts);
           abytes(sig, undefined, 'signature');
-          return internal.verify(sig, getMessagePrehash(rawHash, msg, opts.context), publicKey);
+          return internal.verify(sig, getMessagePrehash(rawHash, msg, opts.context), publicKey, {
+            externalMu: false,
+          });
         },
       });
     },

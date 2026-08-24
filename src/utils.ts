@@ -216,9 +216,10 @@ export function equalBytes(a: TArg<Uint8Array>, b: TArg<Uint8Array>): boolean {
  * ```
  */
 export function copyBytes(bytes: TArg<Uint8Array>): TRet<Uint8Array> {
-  // `Uint8Array.from(...)` would also accept arrays / other typed arrays. Keep this helper strict
-  // because callers use it at byte-validation boundaries before mutating the detached copy.
-  return Uint8Array.from(abytes(bytes)) as TRet<Uint8Array>;
+  // The typed-array constructor copies a typed-array source through its internal byte storage.
+  // Unlike `Uint8Array.from`, it does not invoke a subclass-overridden iterator. Keep the explicit
+  // validation because the constructor itself would also accept arrays and other typed arrays.
+  return new Uint8Array(abytes(bytes)) as TRet<Uint8Array>;
 }
 
 /**
@@ -316,6 +317,12 @@ export function validateOpts(opts: object): void {
   // Arrays silently passed here before, but these call sites expect named option-bag fields.
   if (isBytes(opts)) throw new TypeError('"opts" expected object, got Uint8Array');
   aobject(opts, 'opts');
+  const proto = Object.getPrototypeOf(opts);
+  // Options are security parameters, not general class instances. Restricting the bag to own
+  // properties prevents values injected through Object.prototype (or a custom shared prototype)
+  // from silently changing signing behavior. Null-prototype records remain supported.
+  if (proto !== null && proto !== Object.prototype)
+    throw new TypeError('"opts" expected a plain object');
 }
 
 // Frozen because they are exported: an unfrozen array export lets anything in the
@@ -343,7 +350,10 @@ export const SIG_OPT_KEYS: readonly ['context', 'extraEntropy'] = /* @__PURE__ *
  *
  * @param opts - Options object to check.
  * @param allowed - The keys this call site accepts.
- * @throws If any other key is present. {@link TypeError}
+ * Returns a frozen null-prototype snapshot so later reads cannot fall through to a polluted
+ * prototype. Like `checkOpts()` in noble-hashes, only enumerable own properties are copied.
+ * @throws If any other copied key is present or the bag has a custom prototype. {@link TypeError}
+ * @returns Sanitized snapshot of the enumerable own options.
  * @example
  * Accept a known option key. A key the list does not name, such as `ctx`, throws instead.
  * ```ts
@@ -351,45 +361,22 @@ export const SIG_OPT_KEYS: readonly ['context', 'extraEntropy'] = /* @__PURE__ *
  * checkOptKeys({ context: new Uint8Array() }, ['context']);
  * ```
  */
-export function checkOptKeys(opts: object, allowed: readonly string[]): void {
-  // Object.entries() sees only own enumerable string keys, while property reads below also see
-  // non-enumerable and inherited keys. Walk the effective option bag so validation and use cannot
-  // disagree. Stop before the terminal Object.prototype (from whichever realm supplied `opts`),
-  // whose built-ins are not options; class/custom prototypes before it are part of the bag.
-  const seenObjects = new Set<object>();
-  const seenKeys = new Set<PropertyKey>();
-  for (let cur: object | null = opts; cur !== null && !seenObjects.has(cur); ) {
-    seenObjects.add(cur);
-    const parent = Object.getPrototypeOf(cur);
-    const constructor =
-      parent === null ? Object.getOwnPropertyDescriptor(cur, 'constructor')?.value : undefined;
-    // A null-prototype object can itself carry inherited options, so identify Object.prototype by
-    // its self-referential constructor instead of assuming every terminal prototype is built-in.
-    if (
-      cur !== opts &&
-      parent === null &&
-      typeof constructor === 'function' &&
-      constructor.prototype === cur
-    )
-      break;
-    for (const k of Reflect.ownKeys(cur)) {
-      // Class prototypes always contribute this non-option bookkeeping property.
-      if (cur !== opts && k === 'constructor') continue;
-      // A nearer property shadows the same key further up the prototype chain.
-      if (seenKeys.has(k)) continue;
-      seenKeys.add(k);
-      const v = Reflect.get(opts, k);
-      // `undefined` means unset everywhere else in these validators, and building an
-      // options bag by spread is a normal way to reach these calls, so a key that is
-      // present but undefined must stay equivalent to omitting it.
-      if (v === undefined) continue;
-      if (typeof k !== 'string' || !allowed.includes(k))
-        throw new TypeError(
-          'unexpected option "' + String(k) + '"; expected one of: ' + allowed.join(', ')
-        );
-    }
-    cur = parent;
+export function checkOptKeys<T extends object>(opts: T, allowed: readonly string[]): T {
+  validateOpts(opts);
+  // Snapshot once before validation: Object.assign follows the same own-enumerable option-bag
+  // semantics as noble-hashes, while the null prototype keeps omitted fields immune to pollution.
+  const normalized = Object.assign(Object.create(null), opts) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(normalized)) {
+    // `undefined` means unset everywhere else in these validators, and building an options bag by
+    // spread is a normal way to reach these calls, so present-but-undefined stays equivalent to
+    // omission.
+    if (v === undefined) continue;
+    if (!allowed.includes(k))
+      throw new TypeError(
+        'unexpected option "' + String(k) + '"; expected one of: ' + allowed.join(', ')
+      );
   }
+  return Object.freeze(normalized) as T;
 }
 
 /**
@@ -400,19 +387,20 @@ export function checkOptKeys(opts: object, allowed: readonly string[]): void {
  * @param allowed - Keys this call site accepts. Defaults to {@link VER_OPT_KEYS}; surfaces that
  * take extra keys, or take fewer, pass their own list.
  * @throws On wrong argument types. {@link TypeError}
+ * @returns Frozen null-prototype snapshot of the validated options.
  * @example
  * Validate common verification options.
  * ```ts
  * validateVerOpts({ context: new Uint8Array([1]) });
  * ```
  */
-export function validateVerOpts(
-  opts: TArg<VerOpts>,
+export function validateVerOpts<T extends TArg<VerOpts>>(
+  opts: T,
   allowed: readonly string[] = VER_OPT_KEYS
-): void {
-  validateOpts(opts);
-  checkOptKeys(opts, allowed);
-  if (opts.context !== undefined) abytes(opts.context, undefined, 'opts.context');
+): T {
+  const normalized = checkOptKeys(opts, allowed);
+  if (normalized.context !== undefined) abytes(normalized.context, undefined, 'opts.context');
+  return normalized;
 }
 
 /**
@@ -423,21 +411,22 @@ export function validateVerOpts(
  * @param allowed - Keys this call site accepts. Defaults to {@link SIG_OPT_KEYS}; surfaces that
  * take extra keys, or take fewer, pass their own list.
  * @throws On wrong argument types. {@link TypeError}
+ * @returns Frozen null-prototype snapshot of the validated options.
  * @example
  * Validate common signing options.
  * ```ts
  * validateSigOpts({ extraEntropy: new Uint8Array([1]) });
  * ```
  */
-export function validateSigOpts(
-  opts: TArg<SigOpts>,
+export function validateSigOpts<T extends TArg<SigOpts>>(
+  opts: T,
   allowed: readonly string[] = SIG_OPT_KEYS
-): void {
-  validateOpts(opts);
-  checkOptKeys(opts, allowed);
-  if (opts.context !== undefined) abytes(opts.context, undefined, 'opts.context');
-  if (opts.extraEntropy !== false && opts.extraEntropy !== undefined)
-    abytes(opts.extraEntropy, undefined, 'opts.extraEntropy');
+): T {
+  const normalized = checkOptKeys(opts, allowed);
+  if (normalized.context !== undefined) abytes(normalized.context, undefined, 'opts.context');
+  if (normalized.extraEntropy !== false && normalized.extraEntropy !== undefined)
+    abytes(normalized.extraEntropy, undefined, 'opts.extraEntropy');
+  return normalized;
 }
 
 /** Generic signature interface with key generation, signing, and verification. */
