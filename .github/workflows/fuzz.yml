@@ -1,4 +1,4 @@
-name: Run scheduled tests
+name: Fuzz
 on:
   schedule:
     - cron: '0 21 * * *'
