@@ -13,9 +13,9 @@
     "./webcrypto.js": "./src/webcrypto.ts"
   },
   "imports": {
-    "@noble/ciphers": "jsr:@noble/ciphers@~2.3.0",
-    "@noble/curves": "jsr:@noble/curves@~2.3.0",
-    "@noble/hashes": "jsr:@noble/hashes@~2.3.0"
+    "@noble/ciphers": "jsr:@noble/ciphers@2.4.0",
+    "@noble/curves": "jsr:@noble/curves@2.4.0",
+    "@noble/hashes": "jsr:@noble/hashes@2.4.0"
   },
   "publish": {
     "include": [
