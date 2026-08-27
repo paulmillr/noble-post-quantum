@@ -2,7 +2,7 @@
 
 ## 0.7.1 (2026-08-27)
 
-- Added `@noble/post-quantum/webcrypto.js`, an async noble-style wrapper around the experimental built-in WebCrypto implementations of ML-KEM-512, ML-KEM-768, ML-KEM-1024, and ML-KEM-768 + X25519. It supports deterministic raw-seed key generation, public-key derivation, encapsulation, decapsulation, and a memoized `isSupported()` probe that performs a complete round trip instead of checking method presence alone.
+- Added `@noble/post-quantum/gwebcrypto.js`, an async noble-style wrapper around the experimental built-in WebCrypto implementations of ML-KEM-512, ML-KEM-768, ML-KEM-1024, and ML-KEM-768 + X25519. It supports deterministic raw-seed key generation, public-key derivation, encapsulation, decapsulation, and a memoized `isSupported()` probe that performs a complete round trip instead of checking method presence alone.
 - Snapshot all options to ensure they're not mutated later
 - Snapshot msg in `falcon*.attached.open()`
 - Ensure `falcon*.attached.open()` throws correct error for malformed sig / pubkey
@@ -11,6 +11,7 @@
 - Improve zeroization
 - Improve Falcon signing and parsing: imported compact secret keys are rejected when the reconstructed sampler deviation is outside Falcon's proof interval
 - Harden WebCrypto input validation
+- Upgraded noble dependencies to 2.4.0
 
 Special thanks to Leon Acosta (from QuantaKrypto audits).
 
