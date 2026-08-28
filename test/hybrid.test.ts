@@ -15,6 +15,7 @@ import {
   expandSeedXof,
   KitchenSink_ml_kem768_x25519 as KitchenSinkMLKEM768X25519,
   ml_kem1024_p384 as MLKEM1024P384,
+  ml_kem1024_x25519 as MLKEM1024X25519,
   ml_kem768_p256 as MLKEM768P256,
   ml_kem768_x25519 as MLKEM768X25519,
   QSF,
@@ -63,6 +64,13 @@ const VECTORS = {
   'MLKEM768-X25519': {
     lib: MLKEM768X25519,
     tests: () => vectorTests('./vectors/hybrids/test-vectors-MLKEM768X25519.json'),
+  },
+  // Not a standardized suite, so these vectors have no external anchor: they were produced by
+  // https://github.com/quantakrypto/hybrid-kem-combiner and are reproduced by its independent
+  // Rust and TypeScript implementations. They pin the encoding; they cannot prove conformance.
+  'MLKEM1024-X25519': {
+    lib: MLKEM1024X25519,
+    tests: () => vectorTests('./vectors/hybrids/test-vectors-MLKEM1024X25519.json'),
   },
   XWing: {
     lib: XWing,

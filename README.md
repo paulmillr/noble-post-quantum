@@ -269,7 +269,7 @@ Detached `verify(...)` returns `false` for an invalid signature.
 
 ```js
 import {
-  ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384,
+  ml_kem768_x25519, ml_kem768_p256, ml_kem1024_p384, ml_kem1024_x25519,
   KitchenSink_ml_kem768_x25519,
   QSF_ml_kem768_p256, QSF_ml_kem1024_p384,
 } from '@noble/post-quantum/hybrid.js';
@@ -281,6 +281,13 @@ The hybrid submodule combines post-quantum algorithms with elliptic curve crypto
   `ml_kem768_x25519` export name. There is no separate `XWing` alias.
 - `ml_kem768_p256`: ML-KEM-768 + P-256 using the current CG framework construction
 - `ml_kem1024_p384`: ML-KEM-1024 + P-384 using the current CG framework construction
+- `ml_kem1024_x25519`: ML-KEM-1024 + X25519 using the same CG framework construction.
+  **Not standardized:** no CFRG draft or other standards body specifies this pairing, and it is
+  not level-matched, since X25519 is ~128-bit classically while ML-KEM-1024 is category 5. It is
+  specified by [quantakrypto/hybrid-kem-combiner](https://github.com/quantakrypto/hybrid-kem-combiner),
+  which is also where its test vectors come from, and its label is namespaced accordingly:
+  `quantakrypto.com/hybrid-kem/MLKEM1024-X25519/v1`. Use `ml_kem1024_p384` unless you specifically
+  need category 5 without a NIST curve.
 - `KitchenSink_ml_kem768_x25519`: ML-KEM-768 + X25519 with HKDF-SHA256 combiner
 - `QSF_ml_kem768_p256`, `QSF_ml_kem1024_p384`: legacy compatibility presets for the older
   QSF/C2PRI naming and labels. New code should use `ml_kem768_p256` and `ml_kem1024_p384`.

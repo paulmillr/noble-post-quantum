@@ -965,3 +965,36 @@ export const ml_kem768_p256: TRet<KEM> = /* @__PURE__ */ (() =>
 /** P-384 + ML-KEM-1024 hybrid preset. */
 export const ml_kem1024_p384: TRet<KEM> = /* @__PURE__ */ (() =>
   concreteHybridKem('MLKEM1024-P384', ml_kem1024, p384, 48))();
+
+/**
+ * X25519 + ML-KEM-1024 hybrid preset.
+ *
+ * NOT STANDARDIZED. The CG framework construction is the same one `ml_kem768_x25519` and
+ * `ml_kem1024_p384` use, but no standards body specifies this pairing: it comes from
+ * https://github.com/quantakrypto/hybrid-kem-combiner (`docs/mlkem1024-x25519.md`).
+ * Every published category 5 hybrid pairs ML-KEM-1024 with P-384, so this one is not
+ * level-matched: X25519 is ~128-bit classically, ML-KEM-1024 is category 5.
+ * Use `ml_kem1024_p384` unless a deployment specifically needs category 5 without a NIST curve.
+ *
+ * The label is namespaced instead of a bare `MLKEM1024-X25519` because the hybrid KEM label
+ * registry is managed and suffix-free: if that name were later registered for a different
+ * construction, two implementations would derive different secrets from one label with no error.
+ */
+export const ml_kem1024_x25519: TRet<KEM> = /* @__PURE__ */ (() =>
+  combineKEMS(
+    32,
+    32,
+    expandSeedXof(shake256),
+    (pk: TArg<Uint8Array[]>, ct: TArg<Uint8Array[]>, ss: TArg<Uint8Array[]>) =>
+      sha3_256(
+        concatBytes(
+          ss[0],
+          ss[1],
+          ct[1],
+          pk[1],
+          asciiToBytes('quantakrypto.com/hybrid-kem/MLKEM1024-X25519/v1')
+        )
+      ),
+    ml_kem1024,
+    x25519kem
+  ))();
