@@ -337,6 +337,7 @@ The library has not been independently audited yet.
 - at version 0.6.1, in Apr 2026, it was audited by ourselves (self-audited)
   - Scope: everything
   - [Changes since audit](https://github.com/paulmillr/noble-post-quantum/compare/0.6.1..main)
+- Independent ACVP-based reproducibility evidence for ML-KEM/ML-DSA/SLH-DSA against noble 0.7.0 on pinned public NIST vectors (reproducibility study, not an audit): [study](https://arxiv.org/abs/2608.13784), [artifact](https://doi.org/10.5281/zenodo.21910571)
 
 If you see anything unusual: investigate and report.
 
