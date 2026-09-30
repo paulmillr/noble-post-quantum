@@ -265,6 +265,18 @@ Lattice-based digital signature algorithm, submitted to NIST PQC Round 3 ([websi
 message when it succeeds. The result does not alias the attached signature or public-key buffers.
 Detached `verify(...)` returns `false` for an invalid signature.
 
+```ts
+// hashPoint: Uint16Array of N coefficients mod q, computed by the caller's own hash-to-point
+const s2 = falcon512.internal.sign(hashPoint, keys3.secretKey); // raw s2, Int16Array
+const isValid4 = falcon512.internal.verify(s2, hashPoint, keys3.publicKey);
+```
+
+`internal.sign` / `internal.verify` work on an externally computed hash point and the raw s2,
+like ML-DSA `internal` + `externalMu`. They exist for protocols that replace the SHAKE256
+hash-to-point, such as on-chain verifiers using a VM-friendly hash. A signature is also valid for
+points close to the signed one: the hash point must come from a cryptographic hash, never from raw
+or attacker-chosen input. This API may change or be removed once FN-DSA (FIPS-206) is out.
+
 ### hybrid: X-Wing, KitchenSink and others
 
 ```js

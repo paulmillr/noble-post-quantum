@@ -979,6 +979,71 @@ describe('Falcon', () => {
   });
 });
 
+describe('Falcon internal (external hash point)', () => {
+  const Q = 12289;
+  // Deterministic points: the caller's hash-to-point is out of scope here.
+  const point = (n, shift = 0) => Uint16Array.from({ length: n }, (_, i) => (i * 7919 + shift) % Q);
+  const variants = [
+    ['falcon512', falcon.falcon512, 512],
+    ['falcon512padded', falcon.falcon512padded, 512],
+    ['falcon1024', falcon.falcon1024, 1024],
+    ['falcon1024padded', falcon.falcon1024padded, 1024],
+  ];
+  for (const [name, scheme, n] of variants) {
+    it(`${name}: sign/verify round trip, rejected for another point`, () => {
+      const { secretKey, publicKey } = scheme.keygen(new Uint8Array(48).fill(1));
+      const hp = point(n);
+      const s2 = scheme.internal.sign(hp, secretKey);
+      deepStrictEqual(s2.length, n);
+      deepStrictEqual(scheme.internal.verify(s2, hp, publicKey), true);
+      // A distant point (shift ~q/2 per coefficient): Falcon accepts points close to the signed one
+      // (s1 only has to stay short), so the caller's hash-to-point must be a real hash.
+      deepStrictEqual(scheme.internal.verify(s2, point(n, (Q - 1) / 2), publicKey), false);
+    });
+  }
+  const { secretKey, publicKey } = falcon.falcon512.keygen(new Uint8Array(48).fill(2));
+  it('sign is deterministic with opts.random, drawn once for 48 bytes', () => {
+    const calls = [];
+    const random = (len) => {
+      calls.push(len);
+      return new Uint8Array(len).fill(7);
+    };
+    const a = falcon.falcon512.internal.sign(point(512), secretKey, { random });
+    const b = falcon.falcon512.internal.sign(point(512), secretKey, { random });
+    deepStrictEqual(a, b);
+    deepStrictEqual(calls, [48, 48]);
+    notDeepStrictEqual(falcon.falcon512.internal.sign(point(512), secretKey), a);
+  });
+  it('sign does not modify the hash point', () => {
+    const hp = point(512);
+    const copy = hp.slice();
+    falcon.falcon512.internal.sign(hp, secretKey);
+    deepStrictEqual(hp, copy);
+  });
+  it('sign throws when the iteration cap is exhausted', () => {
+    throws(
+      () => falcon.falcon512.internal.sign(point(512), secretKey, { maxIterations: 0 }),
+      /iteration cap/
+    );
+  });
+  it('rejects malformed inputs and options', () => {
+    const hp = point(512);
+    const bad = hp.slice();
+    bad[3] = Q;
+    throws(() => falcon.falcon512.internal.sign(hp.slice(1), secretKey));
+    throws(() => falcon.falcon512.internal.sign(bad, secretKey));
+    throws(() => falcon.falcon512.internal.sign(Array.from(hp), secretKey));
+    throws(() => falcon.falcon512.internal.sign(hp, secretKey.slice(1)));
+    throws(() => falcon.falcon512.internal.sign(hp, secretKey, { extraEntropy: false }));
+    throws(() => falcon.falcon512.internal.sign(hp, secretKey, { random: 1 }));
+    throws(() => falcon.falcon512.internal.sign(hp, secretKey, { maxIterations: -1 }));
+    const s2 = falcon.falcon512.internal.sign(hp, secretKey);
+    throws(() => falcon.falcon512.internal.verify(s2.slice(1), hp, publicKey));
+    throws(() => falcon.falcon512.internal.verify(s2, bad, publicKey));
+    throws(() => falcon.falcon512.internal.verify(s2, hp, publicKey.slice(1)));
+  });
+});
+
 // should.opts.FAST = false;
 
 it.runWhen(import.meta.url);
