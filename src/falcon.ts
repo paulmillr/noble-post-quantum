@@ -26,6 +26,7 @@ import { genCrystals, type TypedCons } from './_crystals.ts';
 import {
   baswap64If,
   type BytesCoderLen,
+  checkOptKeys,
   cleanBytes,
   copyBytes,
   type Coder,
@@ -1289,10 +1290,44 @@ export type FalconAttached = CryptoKeys & {
    */
   open(sig: Uint8Array, publicKey: Uint8Array, opts?: VerOpts): Uint8Array;
 };
+/** Options of `internal.sign`. */
+export type FalconInternalSignOpts = {
+  /** Source of the 48-byte sampler seed. Default: `randomBytes`. For tests only. */
+  random?: FalconRandom;
+  /** Maximum number of sampling attempts before throwing. Default: 1000. */
+  maxIterations?: number;
+};
+/**
+ * Falcon on an externally computed hash point, for protocols that replace the SHAKE256
+ * hash-to-point (e.g. on-chain verifiers). Same idea as ML-DSA `internal` + `externalMu`.
+ * A signature is also valid for any point close to the signed one (s1 only has to stay short):
+ * the caller's hash-to-point must be a cryptographic hash, never a raw or attacker-chosen point.
+ * May change or be removed once FN-DSA (FIPS-206) is out.
+ */
+export type FalconInternal = {
+  /**
+   * Signs a hash point.
+   * @param hashPoint N coefficients in [0, q), output of the caller's hash-to-point.
+   * @param secretKey Falcon secret key bytes.
+   * @param opts Optional internal signing options.
+   * @returns Raw signed s2 polynomial (uncompressed).
+   */
+  sign(hashPoint: Uint16Array, secretKey: Uint8Array, opts?: FalconInternalSignOpts): Int16Array;
+  /**
+   * Checks a raw s2 polynomial against a hash point.
+   * @param s2 Raw signed s2 polynomial.
+   * @param hashPoint N coefficients in [0, q).
+   * @param publicKey Falcon public key bytes.
+   * @returns Whether s2 is a valid signature of the hash point.
+   */
+  verify(s2: Int16Array, hashPoint: Uint16Array, publicKey: Uint8Array): boolean;
+};
 /** Falcon detached-signature API with an attached-signature helper. */
 export type Falcon = Signer & {
   /** Attached-signature helper for the same Falcon parameter set. */
   attached: FalconAttached;
+  /** Sign / verify an externally computed hash point. */
+  internal: FalconInternal;
 };
 
 function genFalcon(opts: FalconOpts): TRet<Falcon> {
@@ -2471,6 +2506,93 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
       }
     },
   });
+  // Sign / verify an externally computed hash point (e.g. a VM-friendly hash-to-point used by
+  // on-chain verifiers), like ML-DSA `internal` + `externalMu`. Public API above is unchanged.
+  const INTERNAL_MAX_ITERATIONS = 1000;
+  const INTERNAL_SIGN_OPT_KEYS = ['random', 'maxIterations'] as const;
+  const checkHashPoint = (hashPoint: TArg<Uint16Array>): void => {
+    if (!(hashPoint instanceof Uint16Array) || hashPoint.length !== N)
+      throw new Error(`hashPoint: expected Uint16Array(${N})`);
+    for (let i = 0; i < N; i++)
+      if (hashPoint[i] >= Q) throw new Error('hashPoint: coefficient out of range');
+  };
+  const internal: TRet<FalconInternal> = Object.freeze({
+    sign(
+      hashPoint: TArg<Uint16Array>,
+      sk: TArg<Uint8Array>,
+      signOpts: TArg<FalconInternalSignOpts> = {}
+    ): TRet<Int16Array> {
+      const internalOpts = checkOptKeys(signOpts, INTERNAL_SIGN_OPT_KEYS);
+      if (internalOpts.random !== undefined && typeof internalOpts.random !== 'function')
+        throw new TypeError(
+          '"opts.random" expected function, got type=' + typeof internalOpts.random
+        );
+      const maxIterations = internalOpts.maxIterations ?? INTERNAL_MAX_ITERATIONS;
+      if (!Number.isSafeInteger(maxIterations) || maxIterations < 0)
+        throw new TypeError('"opts.maxIterations" expected non-negative integer');
+      checkHashPoint(hashPoint);
+      abytes(sk, secretKeyCoder.bytesLen, 'secretKey');
+      const rnd = (internalOpts.random ?? randomBytes) as FalconRandom;
+      const hm = Uint16Array.from(hashPoint) as IPoly;
+      const seed = rnd(48);
+      abytes(seed, 48, 'seed');
+      try {
+        const [f, g, F] = secretKeyCoder.decode(sk);
+        try {
+          const G = completePrivate(f, g, F);
+          const b00 = floatPoly.FFT(floatPoly.convSmall(g));
+          const b01 = floatPoly.FFT(floatPoly.neg(floatPoly.convSmall(f)));
+          const b10 = floatPoly.FFT(floatPoly.convSmall(G));
+          const b11 = floatPoly.FFT(floatPoly.neg(floatPoly.convSmall(F)));
+          const sampler = new FFSampler(logn, seed, b00, b01, b10, b11);
+          const s2 = new Int16Array(N);
+          try {
+            for (let iteration = 0; iteration < maxIterations; iteration++) {
+              const { t0, t1 } = sampler.sample(hm);
+              const t2 = floatPoly.add(floatPoly.mul(t0, b00), floatPoly.mul(t1, b10));
+              const t3 = floatPoly.mul(t0, b01);
+              const t4 = floatPoly.iFFT(t2);
+              const t5 = floatPoly.iFFT(floatPoly.add(floatPoly.mul(t1, b11), t3));
+              const hn = N >> 1;
+              let sqn = 0;
+              for (let i = 0; i < hn; i++) {
+                sqn += (hm[i] - (Math.round(t4[i].re) | 0)) ** 2;
+                sqn += (hm[hn + i] - (Math.round(t4[i].im) | 0)) ** 2;
+                const z = -Math.round(t5[i].re);
+                sqn += z * z;
+                s2[i] = z & 0xffff;
+                const z2 = -Math.round(t5[i].im);
+                sqn += z2 * z2;
+                s2[i + hn] = z2 & 0xffff;
+              }
+              cleanCPoly(t0, t1, t2, t3, t4, t5);
+              if (sqn <= L2BOUND[logn]) return s2.slice() as TRet<Int16Array>;
+            }
+            throw new Error('internal.sign: no short signature found within the iteration cap');
+          } finally {
+            cleanBytes(s2);
+            sampler.destroy();
+            cleanCPoly(b00, b01, b10, b11);
+            cleanBytes(G);
+          }
+        } finally {
+          cleanBytes(f, g, F);
+        }
+      } finally {
+        cleanBytes(seed);
+      }
+    },
+    verify(s2: TArg<Int16Array>, hashPoint: TArg<Uint16Array>, pk: TArg<Uint8Array>): boolean {
+      checkHashPoint(hashPoint);
+      if (!(s2 instanceof Int16Array) || s2.length !== N)
+        throw new Error(`s2: expected Int16Array(${N})`);
+      abytes(pk, publicKeyCoder.bytesLen, 'publicKey');
+      const h = intPoly.toMontgomery(intPoly.ntt(publicKeyCoder.decode(pk)));
+      const s1 = intPoly.intt(intPoly.mul(intPoly.ntt(signedCoder.decode(s2 as Int16Array)), h));
+      intPoly.sub(s1, hashPoint as IPoly);
+      return intPoly.isShort(signedCoder.encode(s1), s2 as Int16Array);
+    },
+  });
   const res = {
     info,
     lengths,
@@ -2479,6 +2601,7 @@ function genFalcon(opts: FalconOpts): TRet<Falcon> {
     getPublicKey,
     sign,
     verify,
+    internal,
   };
   (res as any).__test = tests;
   return Object.freeze(res);
