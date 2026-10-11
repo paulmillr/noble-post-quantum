@@ -225,6 +225,17 @@ const MultiplyNTTs = (a_: TArg<Poly>, b_: TArg<Poly>): TRet<Poly> => {
   return c as TRet<Poly>;
 };
 
+// Canonical NTT coefficients and at most 7 columns: each sum is < 2^49.
+// Reduce once per coefficient; output must not alias either input vector.
+const DotNTTs = (row: Poly[], vec: Poly[], out = newPoly(N)): TRet<Poly> => {
+  for (let i = 0; i < N; i++) {
+    let sum = 0;
+    for (let j = 0; j < row.length; j++) sum += row[j][i] * vec[j][i];
+    out[i] = crystals.mod(sum);
+  }
+  return out;
+};
+
 // Return poly in NTT representation
 function RejNTTPoly(xof_: TArg<XofGet>): TRet<Poly> {
   const xof = xof_ as XofGet;
@@ -504,10 +515,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       for (let i = 0; i < K; i++) {
         // t ← NTT−1(A*NTT(s1)) + s2
         cleanBytes(t); // don't-reallocate
-        for (let j = 0; j < L; j++) {
-          const aij = RejNTTPoly(xof.get(j, i)); // super slow!
-          polyAdd(t, MultiplyNTTs(aij, s1Hat[j]));
-        }
+        const row = [];
+        for (let j = 0; j < L; j++) row.push(RejNTTPoly(xof.get(j, i)));
+        DotNTTs(row, s1Hat, t);
         crystals.NTT.decode(t);
         const { r0, r1 } = polyPowerRound(polyAdd(t, s2[i])); // (t1, t0) ← Power2Round(t, d)
         t0.push(r0);
@@ -539,10 +549,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       const tmp = newPoly(N);
       for (let i = 0; i < K; i++) {
         tmp.fill(0);
-        for (let j = 0; j < L; j++) {
-          const aij = RejNTTPoly(xof.get(j, i)); // A_ij in NTT
-          polyAdd(tmp, MultiplyNTTs(aij, s1Hat[j])); // += A_ij * s1_j
-        }
+        const row = [];
+        for (let j = 0; j < L; j++) row.push(RejNTTPoly(xof.get(j, i)));
+        DotNTTs(row, s1Hat, tmp);
         crystals.NTT.decode(tmp); // NTT⁻¹
         polyAdd(tmp, s2[i]); // t_i = A·s1 + s2
         const { r1 } = polyPowerRound(tmp); // r1 = t1, r0 ≈ t0
@@ -627,8 +636,7 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
         const w = [];
         for (let i = 0; i < K; i++) {
           // w ← NTT−1(A ◦ NTT(y))
-          const wi = newPoly(N);
-          for (let j = 0; j < L; j++) polyAdd(wi, MultiplyNTTs(A[i][j], z[j]));
+          const wi = DotNTTs(A[i], z);
           crystals.NTT.decode(wi);
           w.push(wi);
         }
@@ -725,10 +733,9 @@ function getDilithium(opts_: TArg<DilithiumOpts>): TRet<DSA> {
       for (let i = 0; i < K; i++) {
         const ct12d = MultiplyNTTs(crystals.NTT.encode(polyShiftl(t1[i])), c); //c * t1 * (2**d)
         const Az = newPoly(N); // // A * z
-        for (let j = 0; j < L; j++) {
-          const aij = RejNTTPoly(xof.get(j, i)); // A[i][j] inplace
-          polyAdd(Az, MultiplyNTTs(aij, zNtt[j]));
-        }
+        const row = [];
+        for (let j = 0; j < L; j++) row.push(RejNTTPoly(xof.get(j, i)));
+        DotNTTs(row, zNtt, Az);
         // wApprox = A*z - c*t1 * (2**d)
         const wApprox = crystals.NTT.decode(polySub(Az, ct12d));
         // Reconstruction of signer’s commitment
