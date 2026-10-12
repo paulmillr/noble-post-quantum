@@ -8,6 +8,7 @@ import {
   shake128_32,
   shake256,
 } from '@noble/hashes/sha3.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { describe, it } from '@paulmillr/jsbt/test.js';
 import { deepStrictEqual as eql, notDeepStrictEqual, throws } from 'node:assert';
 import { genCrystals } from '../src/_crystals.ts';
@@ -72,6 +73,70 @@ describe('Basic', () => {
         }),
       /expected <= 32/
     );
+  });
+  describe('ML-DSA row accumulation', () => {
+    // SHA3-256 output digests from the pre-row-dot implementation at 48e4933.
+    const cases = {
+      ml_dsa44: {
+        dsa: ml_dsa44,
+        hashes: [
+          '373c7bf2cac5bd2a6c35933bab0fa1c951f22247e1333383fcb618822080373f',
+          'da0665a6d807669d06aeb7010507aa6bd4640641055462e38e37344a274f36a6',
+          '0fcbdd83feefdceef90df5f54040bc45b860b267ae02713c50fa730bf19ed545',
+        ],
+      },
+      ml_dsa65: {
+        dsa: ml_dsa65,
+        hashes: [
+          '1800725067e388d837d911fe4f66101cc1961b1bb755030dc574272cfb00013f',
+          '4ecfbd119980b1090a7feda39c225539ffa3ef3ff673b239b60189bfd4541170',
+          'b7a91f0d413a9684e0a2c20e075d9dac3b0289573708dc10490f12f67ac98614',
+        ],
+      },
+      ml_dsa87: {
+        dsa: ml_dsa87,
+        hashes: [
+          'e6cf50a9c2fa5234f59949ff61f8161db4d629532127f4aefa8bb10811ecfb1e',
+          'db6218a2eeae53e567d25222055251eab0ba85d1c69aeb8a62253d2096fd96a2',
+          'c1f78fa33769b76e73f6ef3432e425ed20d54cc15e3dc5a5d0d3c3651a036422',
+        ],
+      },
+    };
+    for (const [name, { dsa, hashes }] of Object.entries(cases)) {
+      it(name, () => {
+        const seed = Uint8Array.from({ length: 32 }, (_, i) => i);
+        const seedCopy = Uint8Array.from(seed);
+        const { publicKey, secretKey } = dsa.keygen(seed);
+        eql(seed, seedCopy);
+        eql(
+          [publicKey, secretKey].map((x) => bytesToHex(sha3_256(x))),
+          hashes.slice(0, 2)
+        );
+        const secretCopy = Uint8Array.from(secretKey);
+        eql(dsa.getPublicKey(secretKey), publicKey);
+        eql(secretKey, secretCopy);
+
+        const msg = Uint8Array.from({ length: 1024 }, (_, i) => i * 7 + 1);
+        const context = Uint8Array.from({ length: 255 }, (_, i) => i);
+        const extraEntropy = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+        const inputs = [secretKey, msg, context, extraEntropy];
+        const copies = inputs.map((x) => Uint8Array.from(x));
+        const sig = dsa.sign(msg, secretKey, { context, extraEntropy });
+        eql(inputs, copies);
+        eql(bytesToHex(sha3_256(sig)), hashes[2]);
+
+        const verifyInputs = [sig, msg, publicKey, context];
+        const verifyCopies = verifyInputs.map((x) => Uint8Array.from(x));
+        eql(dsa.verify(sig, msg, publicKey, { context }), true);
+        for (const index of [0, 1, 3]) {
+          const changed = verifyInputs.map((x) => Uint8Array.from(x));
+          changed[index][0] ^= 1;
+          eql(dsa.verify(changed[0], changed[1], changed[2], { context: changed[3] }), false);
+        }
+        eql(verifyInputs, verifyCopies);
+        eql(dsa.verify(sig, msg, publicKey, { context }), true);
+      });
+    }
   });
   describe('Immutability', () => {
     it('ML-KEM', () => {
